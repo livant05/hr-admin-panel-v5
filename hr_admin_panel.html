@@ -3235,7 +3235,21 @@ async function saveApplication(){
 function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
 function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
 
-document.head.insertAdjacentHTML('beforeend','<style>.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase}.nav-sidebar .nav-link{padding:6px 16px!important}.nav-sidebar .nav-icon{font-size:.95rem;margin-right:8px}.nav-sidebar{overflow-y:auto;max-height:calc(100vh - 180px)}.nav-sidebar::-webkit-scrollbar{width:4px}.nav-sidebar::-webkit-scrollbar-track{background:transparent}.nav-sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:4px}.nav-sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.4)}</style>');
+document.head.insertAdjacentHTML('beforeend','<style>.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center}.nav-header .nav-chevron{font-size:.6rem;transition:transform .2s;opacity:.7}.nav-sidebar .nav-link{padding:6px 16px!important}.nav-sidebar .nav-icon{font-size:.95rem;margin-right:8px}.nav-section-items{transition:all .15s}</style>');
+(function(){
+  document.querySelectorAll('.nav-sidebar .nav-header').forEach(function(hdr){
+    hdr.innerHTML = hdr.textContent.trim() + '<i class="fas fa-chevron-down nav-chevron"></i>';
+    var items = [];
+    var el = hdr.nextElementSibling;
+    while(el && !el.classList.contains('nav-header')){ items.push(el); el = el.nextElementSibling; }
+    hdr.addEventListener('click', function(){
+      var collapsed = items.length && items[0].style.display === 'none';
+      items.forEach(function(i){ i.style.display = collapsed ? '' : 'none'; });
+      var icon = hdr.querySelector('.nav-chevron');
+      if(icon) icon.style.transform = collapsed ? '' : 'rotate(-90deg)';
+    });
+  });
+})();
 window.addEventListener('load',init);
 document.addEventListener('keypress',function(e){ if(e.key!=='Enter') return; var lv=document.getElementById('v-login'), rv=document.getElementById('v-register'); if(lv&&lv.style.display!=='none') doLogin(); else if(rv&&rv.style.display!=='none') doReg(); });
 </script>
