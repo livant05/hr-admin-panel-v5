@@ -58,5 +58,8 @@ Sistema completo de gestión de Recursos Humanos construido con **AdminLTE 3 + J
 - Chart.js 3.9
 - Supabase (PostgreSQL + Auth + RLS)
 
+## 🔗 Repositorio
+[github.com/livant05/hr-admin-panel-v5](https://github.com/livant05/hr-admin-panel-v5)
+
 ## 📞 Soporte
 Generado con Claude (Anthropic) · 2026
