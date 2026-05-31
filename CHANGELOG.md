@@ -4,6 +4,14 @@
 
 
 ## v5.1 (05/31/2026)
+### Cálculo Fiscal
+- 🧾 ISR — Impuesto Sobre la Renta agregado a Planilla y Recibo de Pago
+  - Método de proyección anual: salario × 12 → tramos → ÷ 12 mensual
+  - Tramos: 0% hasta B/. 11,000 · 15% hasta B/. 50,000 · 25% sobre el exceso
+  - Columna ISR en tabla de planilla con totales
+  - Línea ISR en sección Deducciones Legales del recibo de pago imprimible
+  - Campo `total_isr` guardado en historial de planillas
+
 ### Módulo Agregado
 - 👔 Reclutamiento y Selección (vacantes, candidatos, pipeline de selección)
   - Gestión de vacantes con rango salarial y estado (Abierta / Pausada / Cerrada)
