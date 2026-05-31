@@ -1,0 +1,1 @@
+Coloca aquí logos, imágenes y archivos adicionales del proyecto.
