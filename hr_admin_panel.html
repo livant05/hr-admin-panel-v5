@@ -179,7 +179,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   <a href="#" class="brand-link" onclick="go('dashboard')">
     <div style="width:33px;height:33px;background:linear-gradient(135deg,#007bff,#6610f2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;margin-right:8px">
       <i class="fas fa-users text-white"></i></div>
-    <span class="brand-text font-weight-bold">HR Admin</span>
+    <span class="brand-text font-weight-bold" id="brand-coname">HR Admin</span>
   </a>
   <div class="sidebar">
     <div class="user-panel mt-3 pb-3 mb-3 d-flex">
@@ -1720,6 +1720,7 @@ function loadUI(meta) {
   ['nav-usr','sb-usr'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; });
   ['nav-role','sb-role'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=r; });
   ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=co; });
+  var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=co;
 }
 
 function saveConfig() {
@@ -2477,7 +2478,7 @@ async function loadPosMgmt(){
 async function savePos(){ var n=gv('new-pos-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('positions',{name:n}); document.getElementById('new-pos-name').value=''; toast('✅ Cargo agregado'); loadPosMgmt(); }
 async function delPos(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('positions',id); toast('Eliminado','info'); loadPosMgmt(); }
 
-function saveCo(){ var n=gv('st-coname'); if(!n){toast('Ingresa el nombre','warning');return;} A.companyName=n; ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; }); toast('¡Empresa actualizada!'); }
+function saveCo(){ var n=gv('st-coname'); if(!n){toast('Ingresa el nombre','warning');return;} A.companyName=n; ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; }); var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=n; toast('¡Empresa actualizada!'); }
 
 // ════════════════ USER MANAGEMENT ════════════════════════════
 function openUserModal(){ ['um-id','um-name','um-email'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); var r=document.getElementById('um-role'); if(r) r.value='rrhh'; $('#userModal').modal('show'); }
