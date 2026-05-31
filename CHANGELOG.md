@@ -1,5 +1,19 @@
 # Changelog — HR Admin Panel
 
+## v5.1 (05/31/2026)
+### Módulo Agregado
+- 👔 Reclutamiento y Selección (vacantes, candidatos, pipeline de selección)
+  - Gestión de vacantes con rango salarial y estado (Abierta / Pausada / Cerrada)
+  - Base de datos de candidatos con perfil y notas de CV
+  - Pipeline por etapas: Postulado → Revisión → Entrevista → Oferta → Contratado / Rechazado
+  - Indicador de Ley 1/1986 — Regla del 90% panameños en tiempo real
+
+### Mejoras de UI
+- Sidebar: header de sección EMPLEADOS agregado
+- Sidebar: ícono de Reclutamiento diferenciado (`fa-user-tie`)
+- Sidebar: "Calcular Planilla" → "Planilla" (consistencia de labels)
+- Sidebar: "Uniformes/Equipos" → "Uniformes" (label limpio)
+
 ## v5.0 (05/14/2026)
 ### Módulos Extra Agregados
 - 📊 Evaluaciones de Desempeño (8 criterios, 5 categorías)
