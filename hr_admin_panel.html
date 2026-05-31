@@ -3235,7 +3235,7 @@ async function saveApplication(){
 function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
 function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
 
-document.head.insertAdjacentHTML('beforeend','<style>.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase}.nav-sidebar .nav-link{padding:6px 16px!important}.nav-sidebar .nav-icon{font-size:.95rem;margin-right:8px}</style>');
+document.head.insertAdjacentHTML('beforeend','<style>.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase}.nav-sidebar .nav-link{padding:6px 16px!important}.nav-sidebar .nav-icon{font-size:.95rem;margin-right:8px}.nav-sidebar{overflow-y:auto;max-height:calc(100vh - 180px)}.nav-sidebar::-webkit-scrollbar{width:4px}.nav-sidebar::-webkit-scrollbar-track{background:transparent}.nav-sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:4px}.nav-sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.4)}</style>');
 window.addEventListener('load',init);
 document.addEventListener('keypress',function(e){ if(e.key!=='Enter') return; var lv=document.getElementById('v-login'), rv=document.getElementById('v-register'); if(lv&&lv.style.display!=='none') doLogin(); else if(rv&&rv.style.display!=='none') doReg(); });
 </script>
