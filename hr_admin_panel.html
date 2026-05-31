@@ -937,6 +937,49 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div></section>
 </div>
 
+<!-- RECLUTAMIENTO Y SELECCIÓN -->
+<div id="pg-recruitment" class="page-section">
+  <div class="content-header"><div class="container-fluid"><div class="row mb-2">
+    <div class="col-sm-6"><h1><i class="fas fa-user-plus mr-2"></i>Reclutamiento y Selección</h1></div>
+    <div class="col-sm-6 text-right">
+      <button class="btn btn-primary btn-sm mr-1" onclick="openJobModal()"><i class="fas fa-plus mr-1"></i>Nueva Vacante</button>
+      <button class="btn btn-success btn-sm mr-1" onclick="openCandidateModal()"><i class="fas fa-user-plus mr-1"></i>Nuevo Candidato</button>
+      <button class="btn btn-info btn-sm" onclick="openApplicationModal()"><i class="fas fa-clipboard-list mr-1"></i>Nueva Postulación</button>
+    </div>
+  </div></div></div>
+  <section class="content"><div class="container-fluid">
+    <ul class="nav nav-tabs mb-3">
+      <li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#rec-vacantes">Vacantes</a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#rec-candidatos">Candidatos</a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#rec-pipeline">Pipeline</a></li>
+    </ul>
+    <div class="tab-content">
+      <div class="tab-pane fade show active" id="rec-vacantes">
+        <div class="card"><div class="card-body p-0"><div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="thead-light"><tr><th>Puesto</th><th>Departamento</th><th>Ubicación</th><th>Salario (B/.)</th><th>Estado</th><th>Fecha</th><th>Acciones</th></tr></thead>
+            <tbody id="rec-jobs-tbody"></tbody>
+          </table></div></div></div>
+      </div>
+      <div class="tab-pane fade" id="rec-candidatos">
+        <div id="rec-law-alert" class="alert alert-info mb-3" style="display:none"></div>
+        <div class="card"><div class="card-body p-0"><div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="thead-light"><tr><th>Nombre</th><th>Email</th><th>Teléfono</th><th>Nacionalidad</th><th>Cédula</th><th>Notas CV</th><th>Acciones</th></tr></thead>
+            <tbody id="rec-candidates-tbody"></tbody>
+          </table></div></div></div>
+      </div>
+      <div class="tab-pane fade" id="rec-pipeline">
+        <div class="card"><div class="card-body p-0"><div class="table-responsive">
+          <table class="table table-sm table-hover mb-0">
+            <thead class="thead-light"><tr><th>Candidato</th><th>Vacante</th><th>Etapa</th><th>Notas</th><th>Fecha</th><th>Acciones</th></tr></thead>
+            <tbody id="rec-pipeline-tbody"></tbody>
+          </table></div></div></div>
+      </div>
+    </div>
+  </div></section>
+</div>
+
 <!-- SETTINGS (keep existing) -->
 <div id="pg-settings" class="page-section">
   <div class="content-header"><div class="container-fluid"><h1><i class="fas fa-cog mr-2"></i>Configuración</h1></div></div>
@@ -1171,6 +1214,71 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
     <button type="button" class="btn btn-success btn-sm" onclick="saveAnnouncement()"><i class="fas fa-paper-plane mr-1"></i>Publicar Comunicado</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: Vacante -->
+<div class="modal fade" id="recruitJobModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-briefcase mr-2"></i>Vacante</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="rj-id">
+    <div class="form-group"><label>Puesto *</label><input type="text" id="rj-title" class="form-control form-control-sm" placeholder="Ej: Analista Contable"></div>
+    <div class="form-row">
+      <div class="col form-group"><label>Departamento</label><input type="text" id="rj-dept" class="form-control form-control-sm" placeholder="Ej: Finanzas"></div>
+      <div class="col form-group"><label>Ubicación</label><input type="text" id="rj-location" class="form-control form-control-sm" placeholder="Ej: Ciudad de Panamá"></div>
+    </div>
+    <div class="form-row">
+      <div class="col form-group"><label>Salario Mín (B/.)</label><input type="number" id="rj-sal-min" class="form-control form-control-sm" step="50" placeholder="0.00"></div>
+      <div class="col form-group"><label>Salario Máx (B/.)</label><input type="number" id="rj-sal-max" class="form-control form-control-sm" step="50" placeholder="0.00"></div>
+      <div class="col form-group"><label>Estado</label><select id="rj-status" class="form-control form-control-sm"><option value="open">Abierta</option><option value="paused">Pausada</option><option value="closed">Cerrada</option></select></div>
+    </div>
+    <div class="form-group"><label>Descripción</label><textarea id="rj-desc" class="form-control form-control-sm" rows="2" placeholder="Descripción del puesto..."></textarea></div>
+    <div class="form-group"><label>Requisitos</label><textarea id="rj-req" class="form-control form-control-sm" rows="2" placeholder="Experiencia, habilidades, formación..."></textarea></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-primary btn-sm" onclick="saveJob()"><i class="fas fa-save mr-1"></i>Guardar</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: Candidato -->
+<div class="modal fade" id="recruitCandidateModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-user mr-2"></i>Candidato</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="rc-id">
+    <div class="form-row">
+      <div class="col form-group"><label>Nombre Completo *</label><input type="text" id="rc-name" class="form-control form-control-sm" placeholder="Ej: Ana Torres Ramos"></div>
+      <div class="col form-group"><label>Cédula / Pasaporte</label><input type="text" id="rc-idnum" class="form-control form-control-sm" placeholder="8-123-456"></div>
+    </div>
+    <div class="form-row">
+      <div class="col form-group"><label>Email</label><input type="email" id="rc-email" class="form-control form-control-sm" placeholder="candidato@email.com"></div>
+      <div class="col form-group"><label>Teléfono</label><input type="text" id="rc-phone" class="form-control form-control-sm" placeholder="6000-0000"></div>
+    </div>
+    <div class="form-group"><label>Nacionalidad</label><select id="rc-nationality" class="form-control form-control-sm"><option value="Panameña">Panameña</option><option value="Colombiana">Colombiana</option><option value="Venezolana">Venezolana</option><option value="Costarricense">Costarricense</option><option value="Nicaragüense">Nicaragüense</option><option value="Otra">Otra</option></select></div>
+    <div class="form-group"><label>Notas CV / Perfil</label><textarea id="rc-notes" class="form-control form-control-sm" rows="3" placeholder="Resumen de experiencia, formación, observaciones..."></textarea></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-success btn-sm" onclick="saveCandidate()"><i class="fas fa-save mr-1"></i>Guardar</button>
+  </div>
+</div></div></div>
+
+<!-- MODAL: Postulación -->
+<div class="modal fade" id="recruitApplicationModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-clipboard-list mr-2"></i>Postulación</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="ra-id">
+    <div class="form-group"><label>Candidato *</label><select id="ra-candidate" class="form-control form-control-sm"><option value="">— Seleccionar —</option></select></div>
+    <div class="form-group"><label>Vacante *</label><select id="ra-job" class="form-control form-control-sm"><option value="">— Seleccionar —</option></select></div>
+    <div class="form-row">
+      <div class="col form-group"><label>Etapa</label><select id="ra-stage" class="form-control form-control-sm"><option value="applied">Postulado</option><option value="screening">Revisión</option><option value="interview">Entrevista</option><option value="offer">Oferta</option><option value="hired">Contratado</option><option value="rejected">Rechazado</option></select></div>
+      <div class="col form-group"><label>Fecha</label><input type="date" id="ra-date" class="form-control form-control-sm"></div>
+    </div>
+    <div class="form-group"><label>Notas</label><textarea id="ra-notes" class="form-control form-control-sm" rows="2" placeholder="Observaciones del proceso..."></textarea></div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-info btn-sm" onclick="saveApplication()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1500,7 +1608,8 @@ var MENU_MAP = {
   'uniforms':      'm-uniforms',
   'announcements':'m-announcements',
   'notifications':'m-notifications',
-  'settings':      'm-settings'
+  'settings':      'm-settings',
+  'recruitment':   'm-recruitment'
 };
 function showV(vv) {
   ['setup','login','register','app'].forEach(function(x){ var e=document.getElementById('v-'+x); if(e) e.style.display='none'; });
@@ -1551,6 +1660,7 @@ function go(pg) {
     'surveys':       loadSurveys,
     'uniforms':      loadUniforms,
     'announcements': loadAnnouncements,
+    'recruitment':   loadRecruitment,
     'notifications': loadNotifications,
     'settings': function(){
       var u = document.getElementById('st-url');
@@ -2505,6 +2615,24 @@ DS.announcements = [
   {id:'an3',company_id:'co1',title:'Nuevas Políticas de Trabajo Remoto',type:'general',audience:'todos',content:'La empresa ha actualizado sus políticas de trabajo remoto. A partir del 1 de julio, los empleados elegibles podrán trabajar desde casa hasta 2 días por semana. Consultar el reglamento actualizado en RRHH.',priority:'normal',expires:'2025-07-01',views:3,status:'activo',created_at:'2025-05-20'}
 ];
 
+DS.job_postings = [
+  {id:'jp1',company_id:'co1',title:'Analista Contable',department:'Finanzas',location:'Ciudad de Panamá',description:'Análisis y registro de operaciones contables.',requirements:'Licenciatura en Contabilidad, 2 años de experiencia.',salary_min:1200,salary_max:1600,status:'open',created_at:'2025-05-01'},
+  {id:'jp2',company_id:'co1',title:'Desarrollador Web',department:'Tecnología',location:'Ciudad de Panamá',description:'Desarrollo de aplicaciones web internas.',requirements:'JavaScript, React o Vue, 1 año de experiencia.',salary_min:1500,salary_max:2200,status:'open',created_at:'2025-05-10'},
+  {id:'jp3',company_id:'co1',title:'Asistente de RRHH',department:'Recursos Humanos',location:'Panamá',description:'Apoyo en procesos de reclutamiento y nómina.',requirements:'Estudiante avanzado o graduado de Administración.',salary_min:900,salary_max:1100,status:'paused',created_at:'2025-04-15'}
+];
+DS.candidates = [
+  {id:'ca1',company_id:'co1',full_name:'Ana Torres Ramos',email:'ana.torres@email.com',phone:'6200-1111',nationality:'Panameña',id_number:'8-234-567',resume_notes:'5 años en contabilidad corporativa, manejo de SAP.',created_at:'2025-05-02'},
+  {id:'ca2',company_id:'co1',full_name:'Luis Mendoza',email:'l.mendoza@gmail.com',phone:'6300-2222',nationality:'Panameña',id_number:'4-789-012',resume_notes:'Desarrollador full-stack con React y Node.js.',created_at:'2025-05-11'},
+  {id:'ca3',company_id:'co1',full_name:'Carmen Ríos',email:'carmen.rios@hotmail.com',phone:'6400-3333',nationality:'Colombiana',id_number:'CE-2024-003',resume_notes:'Administradora con experiencia en RRHH.',created_at:'2025-05-12'},
+  {id:'ca4',company_id:'co1',full_name:'Marcos Delgado',email:'m.delgado@email.com',phone:'6500-4444',nationality:'Panameña',id_number:'6-345-678',resume_notes:'Contador CPA, experiencia en auditoría.',created_at:'2025-05-15'}
+];
+DS.applications = [
+  {id:'ap1',company_id:'co1',job_posting_id:'jp1',job_title:'Analista Contable',candidate_id:'ca1',candidate_name:'Ana Torres Ramos',stage:'interview',notes:'Entrevista técnica superada.',applied_at:'2025-05-03',created_at:'2025-05-03'},
+  {id:'ap2',company_id:'co1',job_posting_id:'jp1',job_title:'Analista Contable',candidate_id:'ca4',candidate_name:'Marcos Delgado',stage:'screening',notes:'CV revisado, pasa a entrevista.',applied_at:'2025-05-16',created_at:'2025-05-16'},
+  {id:'ap3',company_id:'co1',job_posting_id:'jp2',job_title:'Desarrollador Web',candidate_id:'ca2',candidate_name:'Luis Mendoza',stage:'offer',notes:'Prueba técnica aprobada con 95/100.',applied_at:'2025-05-12',created_at:'2025-05-12'},
+  {id:'ap4',company_id:'co1',job_posting_id:'jp3',job_title:'Asistente de RRHH',candidate_id:'ca3',candidate_name:'Carmen Ríos',stage:'applied',notes:'',applied_at:'2025-05-13',created_at:'2025-05-13'}
+];
+
 const EVAL_CRITERIA = [
   {key:'puntualidad',label:'Puntualidad y Asistencia'},
   {key:'calidad',label:'Calidad del Trabajo'},
@@ -2933,6 +3061,179 @@ async function init(){
   if(A.demo||A.url) showV('login'); else showV('setup');
   if(A.url){ document.getElementById('s-url').value=A.url; document.getElementById('s-key').value=A.key; }
 }
+
+// ════════════════ RECRUITMENT ════════════════════════════════
+var REC_STAGE_BADGE = {applied:'badge-info',screening:'badge-warning',interview:'badge-primary',offer:'badge-success',hired:'badge-dark',rejected:'badge-secondary'};
+var REC_STAGE_LABEL = {applied:'Postulado',screening:'Revisión',interview:'Entrevista',offer:'Oferta',hired:'Contratado',rejected:'Rechazado'};
+var REC_JOB_STATUS  = {open:{cls:'badge-success',label:'Abierta'},paused:{cls:'badge-warning',label:'Pausada'},closed:{cls:'badge-danger',label:'Cerrada'}};
+
+function loadRecruitment() {
+  var jobs  = DS.job_postings.filter(function(j){ return j.company_id===A.companyId; });
+  var cands = DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
+  var apps  = DS.applications.filter(function(a){ return a.company_id===A.companyId; });
+
+  // Vacantes tab
+  var jTb = document.getElementById('rec-jobs-tbody');
+  if(jTb) jTb.innerHTML = jobs.length ? jobs.map(function(j){
+    var st = REC_JOB_STATUS[j.status]||{cls:'badge-secondary',label:j.status};
+    var sal = (j.salary_min||j.salary_max) ? 'B/. '+(j.salary_min||0)+' – '+(j.salary_max||0) : '—';
+    return '<tr><td><strong>'+j.title+'</strong></td><td>'+(j.department||'—')+'</td><td>'+(j.location||'—')+'</td>'
+      +'<td>'+sal+'</td>'
+      +'<td><span class="badge '+st.cls+'">'+st.label+'</span></td>'
+      +'<td>'+(j.created_at||'').substring(0,10)+'</td>'
+      +'<td>'
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editJob(\''+j.id+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delJob(\''+j.id+'\')"><i class="fas fa-trash"></i></button>'
+      +'</td></tr>';
+  }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin vacantes registradas.</td></tr>';
+
+  // Candidatos tab — Ley 1/1986 badge
+  var total = cands.length;
+  var panamenios = cands.filter(function(c){ return c.nationality==='Panameña'; }).length;
+  var pct = total ? Math.round(panamenios/total*100) : 0;
+  var lawEl = document.getElementById('rec-law-alert');
+  if(lawEl){
+    lawEl.style.display = '';
+    lawEl.innerHTML = '<i class="fas fa-balance-scale mr-2"></i><strong>Ley 1/1986 — Regla del 90%:</strong> mínimo 90% de empleados deben ser panameños. '
+      +'Candidatos registrados: <strong>'+total+'</strong> — Panameños: <strong>'+panamenios+'</strong> '
+      +'<span class="badge '+(pct>=90?'badge-success':'badge-danger')+' ml-1">'+pct+'% panameños</span>';
+  }
+  var cTb = document.getElementById('rec-candidates-tbody');
+  if(cTb) cTb.innerHTML = cands.length ? cands.map(function(c){
+    return '<tr><td><strong>'+c.full_name+'</strong></td><td>'+(c.email||'—')+'</td><td>'+(c.phone||'—')+'</td>'
+      +'<td>'+c.nationality+'</td><td>'+(c.id_number||'—')+'</td>'
+      +'<td><small class="text-muted">'+((c.resume_notes||'').substring(0,60)||'—')+'</small></td>'
+      +'<td>'
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editCandidate(\''+c.id+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delCandidate(\''+c.id+'\')"><i class="fas fa-trash"></i></button>'
+      +'</td></tr>';
+  }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin candidatos registrados.</td></tr>';
+
+  // Pipeline tab
+  var pTb = document.getElementById('rec-pipeline-tbody');
+  if(pTb) pTb.innerHTML = apps.length ? apps.map(function(a){
+    var bc = REC_STAGE_BADGE[a.stage]||'badge-secondary';
+    var bl = REC_STAGE_LABEL[a.stage]||a.stage;
+    return '<tr><td><strong>'+a.candidate_name+'</strong></td><td>'+a.job_title+'</td>'
+      +'<td><span class="badge '+bc+'">'+bl+'</span></td>'
+      +'<td><small>'+(a.notes||'—')+'</small></td>'
+      +'<td>'+(a.applied_at||'').substring(0,10)+'</td>'
+      +'<td>'
+        +(a.stage==='offer'?'<button class="btn btn-xs btn-success mr-1" onclick="hireCandidate(\''+a.id+'\')"><i class="fas fa-check mr-1"></i>Contratar</button>':'')
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editApplication(\''+a.id+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delApplication(\''+a.id+'\')"><i class="fas fa-trash"></i></button>'
+      +'</td></tr>';
+  }).join('') : '<tr><td colspan="6" class="text-center p-3 text-muted">Sin postulaciones registradas.</td></tr>';
+}
+
+function openJobModal(id){
+  ['rj-id','rj-title','rj-dept','rj-location','rj-desc','rj-req'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
+  document.getElementById('rj-sal-min').value='';
+  document.getElementById('rj-sal-max').value='';
+  document.getElementById('rj-status').value='open';
+  if(id){
+    var j=DS.job_postings.find(function(x){ return x.id===id; });
+    if(!j) return;
+    document.getElementById('rj-id').value=j.id;
+    document.getElementById('rj-title').value=j.title||'';
+    document.getElementById('rj-dept').value=j.department||'';
+    document.getElementById('rj-location').value=j.location||'';
+    document.getElementById('rj-sal-min').value=j.salary_min||'';
+    document.getElementById('rj-sal-max').value=j.salary_max||'';
+    document.getElementById('rj-status').value=j.status||'open';
+    document.getElementById('rj-desc').value=j.description||'';
+    document.getElementById('rj-req').value=j.requirements||'';
+  }
+  $('#recruitJobModal').modal('show');
+}
+function editJob(id){ openJobModal(id); }
+async function saveJob(){
+  var title=gv('rj-title'); if(!title){ toast('Ingresa el puesto','warning'); return; }
+  var d={title:title,department:gv('rj-dept'),location:gv('rj-location'),description:gv('rj-desc'),requirements:gv('rj-req'),salary_min:parseFloat(document.getElementById('rj-sal-min').value)||null,salary_max:parseFloat(document.getElementById('rj-sal-max').value)||null,status:gv('rj-status')};
+  var id=gv('rj-id');
+  if(id){
+    var j=DS.job_postings.find(function(x){ return x.id===id; }); if(j) Object.assign(j,d);
+    if(!A.demo) await Supa.upd('job_postings',id,d);
+  } else {
+    var rec=Object.assign({id:'jp-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d);
+    DS.job_postings.push(rec);
+    if(!A.demo) await Supa.ins('job_postings',d);
+  }
+  $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); loadRecruitment();
+}
+function delJob(id){ if(!confirm('¿Eliminar esta vacante?')) return; DS.job_postings=DS.job_postings.filter(function(j){ return j.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
+
+function openCandidateModal(id){
+  ['rc-id','rc-name','rc-idnum','rc-email','rc-phone','rc-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
+  document.getElementById('rc-nationality').value='Panameña';
+  if(id){
+    var c=DS.candidates.find(function(x){ return x.id===id; });
+    if(!c) return;
+    document.getElementById('rc-id').value=c.id;
+    document.getElementById('rc-name').value=c.full_name||'';
+    document.getElementById('rc-idnum').value=c.id_number||'';
+    document.getElementById('rc-email').value=c.email||'';
+    document.getElementById('rc-phone').value=c.phone||'';
+    document.getElementById('rc-nationality').value=c.nationality||'Panameña';
+    document.getElementById('rc-notes').value=c.resume_notes||'';
+  }
+  $('#recruitCandidateModal').modal('show');
+}
+function editCandidate(id){ openCandidateModal(id); }
+async function saveCandidate(){
+  var name=gv('rc-name'); if(!name){ toast('Ingresa el nombre','warning'); return; }
+  var d={full_name:name,id_number:gv('rc-idnum'),email:gv('rc-email'),phone:gv('rc-phone'),nationality:gv('rc-nationality'),resume_notes:gv('rc-notes')};
+  var id=gv('rc-id');
+  if(id){
+    var c=DS.candidates.find(function(x){ return x.id===id; }); if(c) Object.assign(c,d);
+    if(!A.demo) await Supa.upd('candidates',id,d);
+  } else {
+    DS.candidates.push(Object.assign({id:'ca-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+    if(!A.demo) await Supa.ins('candidates',d);
+  }
+  $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); loadRecruitment();
+}
+function delCandidate(id){ if(!confirm('¿Eliminar este candidato?')) return; DS.candidates=DS.candidates.filter(function(c){ return c.id!==id; }); toast('Eliminado','info'); loadRecruitment(); }
+
+function openApplicationModal(id){
+  var cands=DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
+  var jobs=DS.job_postings.filter(function(j){ return j.company_id===A.companyId&&j.status==='open'; });
+  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+c.id+'">'+c.full_name+'</option>'; }).join('');
+  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+j.id+'">'+j.title+'</option>'; }).join('');
+  ['ra-id','ra-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
+  document.getElementById('ra-stage').value='applied';
+  document.getElementById('ra-date').value=TS;
+  if(id){
+    var a=DS.applications.find(function(x){ return x.id===id; });
+    if(!a) return;
+    document.getElementById('ra-id').value=a.id;
+    document.getElementById('ra-candidate').value=a.candidate_id;
+    document.getElementById('ra-job').value=a.job_posting_id;
+    document.getElementById('ra-stage').value=a.stage;
+    document.getElementById('ra-date').value=a.applied_at||TS;
+    document.getElementById('ra-notes').value=a.notes||'';
+  }
+  $('#recruitApplicationModal').modal('show');
+}
+function editApplication(id){ openApplicationModal(id); }
+async function saveApplication(){
+  var cid=gv('ra-candidate'), jid=gv('ra-job');
+  if(!cid||!jid){ toast('Selecciona candidato y vacante','warning'); return; }
+  var cand=DS.candidates.find(function(x){ return x.id===cid; });
+  var job=DS.job_postings.find(function(x){ return x.id===jid; });
+  var d={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
+  var id=gv('ra-id');
+  if(id){
+    var a=DS.applications.find(function(x){ return x.id===id; }); if(a) Object.assign(a,d);
+    if(!A.demo) await Supa.upd('applications',id,d);
+  } else {
+    DS.applications.push(Object.assign({id:'ap-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+    if(!A.demo) await Supa.ins('applications',d);
+  }
+  $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); loadRecruitment();
+}
+function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
+function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
 
 document.head.insertAdjacentHTML('beforeend','<style>/* sidebar nav-header */.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase}</style>');
 window.addEventListener('load',init);
