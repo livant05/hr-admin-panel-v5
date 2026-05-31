@@ -16,6 +16,9 @@
 - Sidebar: ícono de Reclutamiento diferenciado (`fa-user-tie`)
 - Sidebar: "Calcular Planilla" → "Planilla" (consistencia de labels)
 - Sidebar: "Uniformes/Equipos" → "Uniformes" (label limpio)
+- Sidebar: espaciado vertical reducido — sidebar completo sin scroll
+- Sidebar: header "DOCUMENTOS Y REPORTES" → "DOCUMENTOS" (evita overflow)
+- Sidebar: ítem "Nuevo Empleado" eliminado (acción redundante, disponible dentro de Empleados)
 
 ## v5.0 (05/14/2026)
 ### Módulos Extra Agregados
