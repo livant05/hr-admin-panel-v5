@@ -1,5 +1,8 @@
 # Changelog — HR Admin Panel
 
+**Repositorio:** [github.com/livant05/hr-admin-panel-v5](https://github.com/livant05/hr-admin-panel-v5)
+
+
 ## v5.1 (05/31/2026)
 ### Módulo Agregado
 - 👔 Reclutamiento y Selección (vacantes, candidatos, pipeline de selección)
