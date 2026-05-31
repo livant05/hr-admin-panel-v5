@@ -5,11 +5,19 @@
 
 ## v5.1 (05/31/2026)
 ### Mejoras de Módulos
+- 💼 Liquidación: retenciones legales por componente según Ley panameña
+  - Vacaciones proporcionales: CSS 9.75% + SE 1.25% + ISR (tasa efectiva anual)
+  - Décimo 3er Mes: CSS especial 7.25% + SE 1.25% — exento de ISR
+  - Prima de antigüedad e indemnización: exentas de CSS, SE e ISR
+  - Preaviso: CSS 9.75% + SE 1.25% + ISR
+  - Base legal: Arts. 225-230 C. Trabajo · Ley 51/2005 CSS · Código Fiscal Panamá
+  - Resultado muestra secciones: Devengado Bruto, Retenciones Legales, Neto a Pagar
+  - PDF con desglose completo de retenciones por concepto
 - 💼 Liquidación: deducciones activas del empleado aparecen como checkboxes
   - Préstamos, embargos y caja de ahorro se pueden activar/desactivar individualmente
   - Total neto se recalcula en tiempo real al marcar/desmarcar
-  - Subtotal y deducciones aplicadas visibles en el resultado
   - PDF imprimible incluye desglose de deducciones descontadas
+- 💼 Liquidación: "13er Mes" renombrado a "Décimo 3er Mes" en toda la sección
 
 ### Cálculo Fiscal
 - 🧾 ISR — Impuesto Sobre la Renta agregado a Planilla y Recibo de Pago
