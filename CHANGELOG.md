@@ -4,6 +4,13 @@
 
 
 ## v5.1 (05/31/2026)
+### Mejoras de Módulos
+- 💼 Liquidación: deducciones activas del empleado aparecen como checkboxes
+  - Préstamos, embargos y caja de ahorro se pueden activar/desactivar individualmente
+  - Total neto se recalcula en tiempo real al marcar/desmarcar
+  - Subtotal y deducciones aplicadas visibles en el resultado
+  - PDF imprimible incluye desglose de deducciones descontadas
+
 ### Cálculo Fiscal
 - 🧾 ISR — Impuesto Sobre la Renta agregado a Planilla y Recibo de Pago
   - Método de proyección anual: salario × 12 → tramos → ÷ 12 mensual
