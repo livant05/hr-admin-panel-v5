@@ -22,6 +22,7 @@
 - Sidebar: secciones colapsables con chevron — click en header para expandir/contraer grupo
 - Sidebar: barra de desplazamiento vertical propia (altura fija `calc(100vh - 57px)`, scroll independiente)
 - Sidebar: modo mini con íconos — botón ☰ colapsa a 74px mostrando solo íconos con tooltip al hover
+- Sidebar: nombre de empresa reemplaza "HR Admin" en la cabecera — se actualiza al login y al cambiar el nombre en Configuración
 
 ## v5.0 (05/14/2026)
 ### Módulos Extra Agregados
