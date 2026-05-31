@@ -195,7 +195,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 
       <li class="nav-header">EMPLEADOS</li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('emp-list')" id="m-employees"><i class="nav-icon fas fa-users"></i><p>Empleados</p></a></li>
-      <li class="nav-item"><a href="#" class="nav-link" onclick="openNewEmp()"><i class="nav-icon fas fa-user-plus"></i><p>Nuevo Empleado</p></a></li>
+
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('directory')" id="m-directory"><i class="nav-icon fas fa-address-card"></i><p>Directorio</p></a></li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('org-chart')" id="m-org-chart"><i class="nav-icon fas fa-sitemap"></i><p>Organigrama</p></a></li>
 
@@ -210,7 +210,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('deductions')" id="m-deductions"><i class="nav-icon fas fa-minus-circle"></i><p>Deducciones</p></a></li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('liquidation')" id="m-liquidation"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>Liquidación</p></a></li>
 
-      <li class="nav-header">DOCUMENTOS Y REPORTES</li>
+      <li class="nav-header">DOCUMENTOS</li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('documents')" id="m-documents"><i class="nav-icon fas fa-file-alt"></i><p>Documentos</p></a></li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('calendar')" id="m-calendar"><i class="nav-icon fas fa-calendar-alt"></i><p>Calendario</p></a></li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('reports')" id="m-reports"><i class="nav-icon fas fa-chart-bar"></i><p>Reportes</p></a></li>
@@ -3235,7 +3235,7 @@ async function saveApplication(){
 function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
 function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
 
-document.head.insertAdjacentHTML('beforeend','<style>/* sidebar nav-header */.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase}</style>');
+document.head.insertAdjacentHTML('beforeend','<style>.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase}.nav-sidebar .nav-link{padding:6px 16px!important}.nav-sidebar .nav-icon{font-size:.95rem;margin-right:8px}</style>');
 window.addEventListener('load',init);
 document.addEventListener('keypress',function(e){ if(e.key!=='Enter') return; var lv=document.getElementById('v-login'), rv=document.getElementById('v-register'); if(lv&&lv.style.display!=='none') doLogin(); else if(rv&&rv.style.display!=='none') doReg(); });
 </script>
