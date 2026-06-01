@@ -10,6 +10,16 @@
   - **Aportes Patronales Referenciales**: activa/desactiva la sección de aportes del empleador
   - Ambos desactivados por defecto — recibo limpio con solo salario base y deducciones legales
 
+### Diseño
+- 🎨 Paleta de colores corporativos aplicada (sidebar sin cambios)
+  - Navy `#1e3a5f` — Total Empleados, card headers info
+  - Teal `#0d7490` — Activos, card headers success
+  - Slate Blue `#2563a8` — Presentes Hoy, card headers warning, botones primarios
+  - Borgoña `#8b1c1c` — Alertas Activas, card headers danger
+  - Acero `#334155` — Cumpleaños del Mes
+  - Verde corporativo `#15803d` — badges de éxito
+  - Gráficos Chart.js actualizados con la misma paleta
+
 ### Módulo Empleados
 - 👥 Tabla de empleados con vistas por tabs — mismos filtros y paginación compartidos
   - **Personales**: Cédula, N° SS, Fecha Nac., Teléfono, Sexo, Nacionalidad
