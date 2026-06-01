@@ -1730,6 +1730,11 @@ async function doReg() {
 async function doLogout() {
   await Supa.signOut(); A.session=null;
   try{localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta');}catch(e){}
+  ['employees','departments','positions','attendance_logs','leave_balances','leave_requests',
+   'overtime_logs','deductions','payroll_history','liquidation_history','document_templates',
+   'generated_documents','evaluations','uniforms','medical_records','surveys','survey_responses',
+   'trainings','enrollments','announcements','job_postings','candidates','applications'
+  ].forEach(function(k){ DS[k]=[]; });
   showV('login'); toast('Sesión cerrada','info');
 }
 
@@ -1769,7 +1774,7 @@ async function loadDash() {
   document.getElementById('pr-dash-bruto').textContent=fmt(totB);
   document.getElementById('pr-dash-ded').textContent=fmt(totB*0.11);
   document.getElementById('pr-dash-neto').textContent=fmt(totB*0.89);
-  document.getElementById('pr-dash-total').textContent=fmt(totB*(1+PR.CSS_P+PR.SE_P+PR.DEC));
+  document.getElementById('pr-dash-total').textContent=fmt(totB*(1+PR.CSS_P+PR.SE_P+PR.DEC+PR.DEC*0.0725));
   var alerts=await calcAlerts();
   document.getElementById('st-alerts').textContent=alerts.filter(function(a){ return a.type==='danger'||a.type==='warning'; }).length;
   // Birthdays
@@ -1952,6 +1957,7 @@ async function showEmpProfile(id) {
     +'<tr><td>Salario Bruto</td><td class="text-right"><strong>'+fmt(pr.b)+'</strong></td></tr>'
     +'<tr><td class="text-danger">CSS (9.75%)</td><td class="text-right text-danger">- '+fmt(pr.css)+'</td></tr>'
     +'<tr><td class="text-danger">Seg. Ed. (1.25%)</td><td class="text-right text-danger">- '+fmt(pr.se)+'</td></tr>'
+    +'<tr><td class="text-danger">ISR</td><td class="text-right text-danger">- '+fmt(pr.isr)+'</td></tr>'
     +'<tr class="pr-total-row"><td>Salario Neto</td><td class="text-right text-success"><strong>'+fmt(pr.net)+'</strong></td></tr>'
     +'<tr><td class="text-warning">AP CSS (12.25%)</td><td class="text-right text-warning">'+fmt(pr.pcss)+'</td></tr>'
     +'<tr><td class="text-warning">AP SE (1.5%)</td><td class="text-right text-warning">'+fmt(pr.pse)+'</td></tr>'
@@ -2150,7 +2156,7 @@ async function printPayslip(empId) {
   var otIsrRate=otAnnual>0?otIsrAnual/otAnnual:0;
   var otCSS=otTotal*0.0975, otSE=otTotal*0.0125, otISR=otTotal*otIsrRate;
   var otLegal=otCSS+otSE+otISR;
-  var netFinal=pr.net+otTotal-otLegal-dedTotal;
+  var netFinal=pr.net+(showOT?otTotal-otLegal:0)-dedTotal;
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+l.type+' ('+l.hours+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
@@ -2185,8 +2191,8 @@ async function loadPayrollHistory() {
   tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+r.period+'</span></td><td><strong>'+r.month_name+' '+r.year+'</strong></td><td>'+r.employee_count+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+(r.created_at||'').split('T')[0]+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
 }
 async function delPRRun(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('payroll_history',id); loadPayrollHistory(); }
-function exportPayrollCSV() { var rows=document.querySelectorAll('#pr-tbody tr'); var hdr=['#','Empleado','Cargo','Bruto','CSS','SE','ISR','Ded.','Neto','AP CSS','AP SE','Décimo','Costo']; var csv=[hdr].concat([].slice.call(rows).map(function(tr){ return [].slice.call(tr.querySelectorAll('td')).slice(0,12).map(function(td){ return td.textContent.trim(); }); })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'planilla.csv'); toast('Exportado 📥'); }
-function printPayroll() { var mo=MONTHS[(parseInt(document.getElementById('pr-month').value)||1)-1], yr=document.getElementById('pr-year').value||''; var rows=document.getElementById('pr-tbody').innerHTML; var w=window.open('','_blank','width=1100,height=800'); w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.0/css/bootstrap.min.css"><style>body{padding:20px;font-size:11px}.table td,.table th{padding:.2rem .35rem}@media print{body{padding:8mm}}</style></head><body><div class="text-center mb-3"><h5>'+A.companyName+'</h5><h6>PLANILLA · '+mo+' '+yr+'</h6></div><table class="table table-bordered table-sm"><thead class="thead-light"><tr><th>#</th><th>Empleado</th><th>Cargo</th><th>Bruto</th><th>CSS</th><th>SE</th><th>Ded.</th><th>Neto</th><th>AP CSS</th><th>AP SE</th><th>Décimo</th><th>Costo</th><th></th></tr></thead><tbody>'+rows+'</tbody></table><script>window.onload=function(){window.print();}<\/script></body></html>'); w.document.close(); }
+function exportPayrollCSV() { var rows=document.querySelectorAll('#pr-tbody tr'); var hdr=['#','Empleado','Cargo','Bruto','CSS','SE','ISR','Ded.','Neto','AP CSS','AP SE','Décimo','Costo']; var csv=[hdr].concat([].slice.call(rows).map(function(tr){ return [].slice.call(tr.querySelectorAll('td')).slice(0,13).map(function(td){ return td.textContent.trim(); }); })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'planilla.csv'); toast('Exportado 📥'); }
+function printPayroll() { var mo=MONTHS[(parseInt(document.getElementById('pr-month').value)||1)-1], yr=document.getElementById('pr-year').value||''; var rows=document.getElementById('pr-tbody').innerHTML; var w=window.open('','_blank','width=1100,height=800'); w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.0/css/bootstrap.min.css"><style>body{padding:20px;font-size:11px}.table td,.table th{padding:.2rem .35rem}@media print{body{padding:8mm}}</style></head><body><div class="text-center mb-3"><h5>'+A.companyName+'</h5><h6>PLANILLA · '+mo+' '+yr+'</h6></div><table class="table table-bordered table-sm"><thead class="thead-light"><tr><th>#</th><th>Empleado</th><th>Cargo</th><th>Bruto</th><th>CSS</th><th>SE</th><th>ISR</th><th>Ded.</th><th>Neto</th><th>AP CSS</th><th>AP SE</th><th>Décimo</th><th>Costo</th><th></th></tr></thead><tbody>'+rows+'</tbody></table><script>window.onload=function(){window.print();}<\/script></body></html>'); w.document.close(); }
 
 // ════════════════ OVERTIME ═══════════════════════════════════
 async function loadOT() {
@@ -2271,6 +2277,8 @@ async function loadLiqEmp() {
   if(!e){ info.style.display='none'; return; }
   info.style.display='';
   info.innerHTML='<strong>'+e.first_name+' '+e.last_name+'</strong> · '+( e.position||'—')+' · Ingreso: '+( e.start_date||'—')+' · Antigüedad: <strong>'+seniStr(e.start_date)+'</strong> · Salario: <strong>'+fmt(e.salary||0)+'</strong>';
+  var bal=DS.leave_balances.find(function(b){ return b.employee_id===empId&&b.company_id===A.companyId; });
+  var vacEl=document.getElementById('liq-vac'); if(vacEl&&bal) vacEl.value=bal.remaining_days||0;
   var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
   var wrap=document.getElementById('liq-ded-wrap'), list=document.getElementById('liq-ded-list');
   if(wrap&&list){

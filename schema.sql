@@ -161,6 +161,7 @@ CREATE TABLE IF NOT EXISTS payroll_history (
   month_name     TEXT,
   employee_count INT DEFAULT 0,
   total_bruto    NUMERIC(14,2) DEFAULT 0,
+  total_isr      NUMERIC(14,2) DEFAULT 0,
   total_neto     NUMERIC(14,2) DEFAULT 0,
   total_empresa  NUMERIC(14,2) DEFAULT 0,
   created_at     TIMESTAMPTZ DEFAULT NOW()
