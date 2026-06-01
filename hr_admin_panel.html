@@ -2365,7 +2365,7 @@ async function calcLiq() {
   if(body) body.innerHTML=
     '<div class="row mb-3"><div class="col-6"><strong>'+e.first_name+' '+e.last_name+'</strong><br><small class="text-muted">'+(e.position||'—')+' · '+(e.department||'—')+'</small></div><div class="col-6 text-right"><span class="badge badge-primary px-3 py-2">'+(rl[reason]||reason)+'</span><br><small class="text-muted">Egreso: '+exitDate+'</small></div></div>'
     +'<p class="text-muted small font-weight-bold mb-1">DEVENGADO BRUTO</p>'
-    +(vacProp>0?'<div class="liq-section"><div class="row"><div class="col-7">Vacaciones Proporcionales ('+vacDays+' días × B/. '+fmt(dailyRate)+'/día)</div><div class="col-5 text-right text-success"><strong>'+fmt(vacProp)+'</strong></div></div></div>':'')
+    +(vacProp>0?'<div class="liq-section"><div class="row"><div class="col-7">Vacaciones Proporcionales ('+vacDays+' días × '+fmt(dailyRate)+'/día)</div><div class="col-5 text-right text-success"><strong>'+fmt(vacProp)+'</strong></div></div></div>':'')
     +(decProp>0?'<div class="liq-section"><div class="row"><div class="col-7">Décimo 3er Mes Proporcional ('+decMonths+' meses)</div><div class="col-5 text-right text-success"><strong>'+fmt(decProp)+'</strong></div></div></div>':'')
     +'<div class="liq-section"><div class="row"><div class="col-7">Prima de Antigüedad ('+years.toFixed(2)+' años × 1 semana) — Exenta</div><div class="col-5 text-right text-success"><strong>'+fmt(antigSem)+'</strong></div></div></div>'
     +(preaviso>0?'<div class="liq-section"><div class="row"><div class="col-7">Preaviso ('+(years<0.5?'1 semana':years<1?'2 semanas':years<5?'1 mes':'2 meses')+')</div><div class="col-5 text-right text-success"><strong>'+fmt(preaviso)+'</strong></div></div></div>':'')
