@@ -3,7 +3,7 @@
 **Repositorio:** [github.com/livant05/hr-admin-panel-v5](https://github.com/livant05/hr-admin-panel-v5)
 
 
-## v5.1 (05/31/2026)
+## v5.1 (05/31/2026) — verificado en browser
 ### Comprobante de Pago
 - ⚙️ Toggles para personalizar el comprobante antes de imprimir
   - **Horas Extras (HH.EE.)**: activa/desactiva el desglose de overtime y sus retenciones (CSS, SE, ISR)
