@@ -4,6 +4,13 @@
 
 
 ## v5.1 (05/31/2026) — verificado en browser
+
+### Correcciones de Auditoría
+- 🔒 **Fix crítico**: `openRolePermsModal` ahora usa `Supa.sel` en lugar de `DS.roles` hardcodeado — el modal de permisos ya funciona en producción real (no solo en demo)
+- 🔒 **Fix crítico**: Edición inline (Departamentos, Cargos, Sucursales, Roles) ya no inyecta el nombre en el onclick — lee del DOM con `.textContent`, inmune a nombres con comillas (`'` / `"`)
+- ⚠️ **Fix medio**: `saveRolePerms` ahora espera (`await`) la respuesta de Supabase antes de mostrar el toast de éxito
+- ⚠️ **Fix medio**: `loadBranchMgmt` y `loadRoleMgmt` ahora tienen guardia `Array.isArray` igual que `loadDeptMgmt` — evita TypeError si el backend devuelve un error
+- ⚠️ **Fix medio**: `loadUserMgmt` y `saveUser` ahora usan `Supa.sel/upd/ins` en modo real en lugar de mutar `DS.users` directamente
 ### Comprobante de Pago
 - ⚙️ Toggles para personalizar el comprobante antes de imprimir
   - **Horas Extras (HH.EE.)**: activa/desactiva el desglose de overtime y sus retenciones (CSS, SE, ISR)
