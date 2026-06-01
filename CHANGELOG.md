@@ -20,6 +20,7 @@
 ### Configuración
 - 🗑️ Eliminado el selector de idioma (ES/EN) — la app opera exclusivamente en español; el código `setLang` era dead code
 - 🏢 Administración de Sucursales: catálogo con CRUD completo (agregar / eliminar)
+  - ✏️ Edición inline del nombre de la sucursal
 - 🛡️ Administración de Roles: catálogo con CRUD completo — alimenta dinámicamente el selector de rol en gestión de usuarios
   - ✏️ Edición inline del nombre del rol
   - 🔑 Permisos por rol: modal con 12 módulos configurables via toggles (Dashboard, Empleados, Asistencia, Vacaciones, Planilla, Horas Extras, Deducciones, Liquidación, Documentos, Reportes, Reclutamiento, Configuración)
