@@ -1819,7 +1819,7 @@ async function doLogin() {
   var uMeta={role:A.role,companyId:A.companyId,companyName:A.companyName,email:em,name:((meta.first_name||'')+' '+(meta.last_name||'')).trim()};
   try{localStorage.setItem('hr_sess',JSON.stringify(A.session)); localStorage.setItem('hr_meta',JSON.stringify(uMeta));}catch(e){}
   loadUI(uMeta); showV('app'); go('dashboard'); toast('¡Bienvenido! 👋');
-  setTimeout(loadNotifications,1500);
+  loadRolePerms(); setTimeout(loadNotifications,1500);
 }
 
 async function doReg() {
@@ -1855,6 +1855,55 @@ function loadUI(meta) {
   ['nav-role','sb-role'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=r; });
   ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=co; });
   var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=co;
+}
+
+var SIDEBAR_PERM_MAP=[
+  ['m-dashboard',   'dashboard',   null],
+  ['m-employees',   'employees',   'list'],
+  ['m-directory',   'employees',   'directory'],
+  ['m-org-chart',   'employees',   'org'],
+  ['m-attendance',  'attendance',  null],
+  ['m-vacations',   'vacations',   null],
+  ['m-medical',     'attendance',  null],
+  ['m-payroll',     'payroll',     'calc'],
+  ['m-overtime',    'overtime',    null],
+  ['m-deductions',  'deductions',  null],
+  ['m-liquidation', 'liquidation', null],
+  ['m-documents',   'documents',   'generate'],
+  ['m-calendar',    'documents',   null],
+  ['m-reports',     'reports',     null],
+  ['m-recruitment', 'recruitment', null],
+  ['m-evaluations', 'employees',   null],
+  ['m-training',    'employees',   null],
+  ['m-surveys',     'employees',   null],
+  ['m-uniforms',    'employees',   null],
+  ['m-announcements','documents',  null],
+  ['m-settings',    'settings',    null]
+];
+function applyPermissions(perms){
+  if(!perms) return;
+  document.querySelectorAll('.nav-sidebar .nav-item, .nav-sidebar .nav-header').forEach(function(el){ el.style.display=''; });
+  SIDEBAR_PERM_MAP.forEach(function(entry){
+    var menuId=entry[0], permKey=entry[1], subKey=entry[2];
+    var pval=perms[permKey];
+    var allowed;
+    if(pval===undefined||pval===null){ allowed=true; }
+    else if(subKey&&typeof pval==='object'){ allowed=!!pval[subKey]; }
+    else if(typeof pval==='object'){ allowed=Object.keys(pval).some(function(k){return !!pval[k];}); }
+    else{ allowed=!!pval; }
+    var el=document.getElementById(menuId);
+    if(el&&el.parentElement) el.parentElement.style.display=allowed?'':'none';
+  });
+  document.querySelectorAll('.nav-sidebar .nav-header').forEach(function(hdr){
+    var el=hdr.nextElementSibling, any=false;
+    while(el&&!el.classList.contains('nav-header')){ if(el.style.display!=='none'){any=true;break;} el=el.nextElementSibling; }
+    hdr.style.display=any?'':'none';
+  });
+}
+async function loadRolePerms(){
+  var roles=await Supa.sel('roles'); if(!Array.isArray(roles)) return;
+  var role=roles.find(function(r){ return r.name===A.role; });
+  if(role&&role.permissions) applyPermissions(role.permissions);
 }
 
 function saveConfig() {
@@ -3351,7 +3400,7 @@ async function init(){
     if(ss&&sm){
       A.session=JSON.parse(ss); var meta=JSON.parse(sm);
       A.role=meta.role; A.companyId=meta.companyId; A.companyName=meta.companyName;
-      loadUI(meta); showV('app'); go('dashboard'); setTimeout(loadNotifications,1500); return;
+      loadUI(meta); showV('app'); go('dashboard'); loadRolePerms(); setTimeout(loadNotifications,1500); return;
     }
   }catch(e){}
   if(A.demo||A.url) showV('login'); else showV('setup');
