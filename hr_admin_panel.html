@@ -1434,7 +1434,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
 </div></div></div>
 
-<div class="modal fade" id="rolePermsModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+<div class="modal fade" id="rolePermsModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
   <div class="modal-header"><h5 class="modal-title"><i class="fas fa-key mr-2"></i>Permisos — <span id="rpm-role-name"></span></h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
   <div class="modal-body">
     <input type="hidden" id="rpm-role-id">
@@ -2702,18 +2702,70 @@ async function delBranch(id){ if(!confirm('¿Eliminar?')) return; await Supa.del
 function editBranch(id,name){ var li=document.getElementById('branch-li-'+id); if(!li) return; li.innerHTML='<div class="d-flex align-items-center w-100"><input type="text" id="branch-edit-'+id+'" class="form-control form-control-sm mr-2" value="'+name+'" style="max-width:200px"><button class="btn btn-xs btn-success mr-1" onclick="updateBranch(\''+id+'\')"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-secondary" onclick="loadBranchMgmt()"><i class="fas fa-times"></i></button></div>'; }
 async function updateBranch(id){ var inp=document.getElementById('branch-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var b=DS.branches.find(function(x){return x.id===id;}); if(b) b.name=inp.value.trim();}else{await Supa.upd('branches',id,{name:inp.value.trim()});} toast('✅ Sucursal actualizada'); loadBranchMgmt(); }
 var PERM_MODULES=[
-  {key:'dashboard',label:'Dashboard'},{key:'employees',label:'Empleados'},{key:'attendance',label:'Asistencia'},
-  {key:'vacations',label:'Vacaciones'},{key:'payroll',label:'Planilla'},{key:'overtime',label:'Horas Extras'},
-  {key:'deductions',label:'Deducciones'},{key:'liquidation',label:'Liquidación'},{key:'documents',label:'Documentos'},
-  {key:'reports',label:'Reportes'},{key:'recruitment',label:'Reclutamiento'},{key:'settings',label:'Configuración'}
+  {key:'dashboard',label:'Dashboard',icon:'fa-tachometer-alt',color:'text-secondary'},
+  {key:'employees',label:'Empleados',icon:'fa-users',color:'text-primary',subs:[
+    {key:'list',label:'Lista de Empleados'},{key:'new',label:'Nuevo Empleado'},
+    {key:'directory',label:'Directorio'},{key:'org',label:'Organigrama'}
+  ]},
+  {key:'attendance',label:'Asistencia',icon:'fa-clock',color:'text-info',subs:[
+    {key:'today',label:'Registro Hoy'},{key:'history',label:'Historial'},{key:'report',label:'Reporte'}
+  ]},
+  {key:'vacations',label:'Vacaciones',icon:'fa-umbrella-beach',color:'text-success',subs:[
+    {key:'balances',label:'Saldos'},{key:'requests',label:'Solicitudes'},
+    {key:'new',label:'Nueva Solicitud'},{key:'calc',label:'Calculadora'}
+  ]},
+  {key:'payroll',label:'Planilla',icon:'fa-dollar-sign',color:'text-warning',subs:[
+    {key:'calc',label:'Calcular'},{key:'history',label:'Historial'}
+  ]},
+  {key:'overtime',label:'Horas Extras',icon:'fa-business-time',color:'text-orange'},
+  {key:'deductions',label:'Deducciones',icon:'fa-minus-circle',color:'text-danger'},
+  {key:'liquidation',label:'Liquidación',icon:'fa-file-invoice-dollar',color:'text-dark'},
+  {key:'documents',label:'Documentos',icon:'fa-file-alt',color:'text-primary',subs:[
+    {key:'generate',label:'Generar'},{key:'templates',label:'Plantillas'},{key:'history',label:'Historial'}
+  ]},
+  {key:'reports',label:'Reportes',icon:'fa-chart-bar',color:'text-info'},
+  {key:'recruitment',label:'Reclutamiento',icon:'fa-briefcase',color:'text-success',subs:[
+    {key:'vacancies',label:'Vacantes'},{key:'candidates',label:'Candidatos'},{key:'pipeline',label:'Pipeline'}
+  ]},
+  {key:'settings',label:'Configuración',icon:'fa-cogs',color:'text-secondary'}
 ];
 async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+r.name+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\',\''+r.name+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
 async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('roles',{name:n,permissions:{}}); document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
 async function delRole(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('roles',id); toast('Eliminado','info'); loadRoleMgmt(); }
 function editRole(id,name){ var li=document.getElementById('role-li-'+id); if(!li) return; li.innerHTML='<div class="d-flex align-items-center w-100"><input type="text" id="role-edit-'+id+'" class="form-control form-control-sm mr-2" value="'+name+'" style="max-width:200px"><button class="btn btn-xs btn-success mr-1" onclick="updateRole(\''+id+'\')"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-secondary" onclick="loadRoleMgmt()"><i class="fas fa-times"></i></button></div>'; }
 async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{await Supa.upd('roles',id,{name:inp.value.trim()});} toast('✅ Rol actualizado'); loadRoleMgmt(); }
-function openRolePermsModal(id){ var role=(A.demo?DS.roles:[]).find(function(r){return r.id===id;}); if(!role) return; document.getElementById('rpm-role-id').value=id; document.getElementById('rpm-role-name').textContent=role.name; var perms=role.permissions||{}; document.getElementById('rpm-perms-list').innerHTML=PERM_MODULES.map(function(m){ return '<div class="col-6 mb-2"><div class="custom-control custom-switch"><input type="checkbox" class="custom-control-input" id="rpm-'+m.key+'"'+(perms[m.key]?' checked':'')+'>  <label class="custom-control-label" for="rpm-'+m.key+'">'+m.label+'</label></div></div>'; }).join(''); $('#rolePermsModal').modal('show'); }
-function saveRolePerms(){ var id=document.getElementById('rpm-role-id').value; var perms={}; PERM_MODULES.forEach(function(m){perms[m.key]=document.getElementById('rpm-'+m.key).checked;}); if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.permissions=perms;}else{Supa.upd('roles',id,{permissions:perms});} $('#rolePermsModal').modal('hide'); toast('✅ Permisos guardados'); }
+function openRolePermsModal(id){
+  var role=(A.demo?DS.roles:[]).find(function(r){return r.id===id;}); if(!role) return;
+  document.getElementById('rpm-role-id').value=id;
+  document.getElementById('rpm-role-name').textContent=role.name;
+  var perms=role.permissions||{};
+  var html='<div class="col-12">';
+  PERM_MODULES.forEach(function(m){
+    var pval=perms[m.key];
+    var parentOn=m.subs?(typeof pval==='object'&&pval?m.subs.some(function(s){return pval[s.key];}):!!pval):!!pval;
+    html+='<div class="border rounded mb-1"><div class="d-flex align-items-center px-2 py-1">';
+    html+='<div class="custom-control custom-switch mr-2 mb-0" style="min-width:52px"><input type="checkbox" class="custom-control-input" id="rpm-'+m.key+'"'+(parentOn?' checked':'')+(m.subs?' onchange="togglePermModule(\''+m.key+'\',this.checked)"':'')+'>  <label class="custom-control-label" for="rpm-'+m.key+'"></label></div>';
+    html+='<span class="flex-grow-1 small font-weight-bold"><i class="fas '+m.icon+' mr-1 '+(m.color||'')+'"></i>'+m.label+'</span>';
+    if(m.subs) html+='<button type="button" class="btn btn-xs btn-link text-muted p-0 ml-1" onclick="togglePermExpand(\''+m.key+'\')" title="Expandir"><i class="fas fa-chevron-right" id="rpm-chev-'+m.key+'" style="font-size:.7rem;transition:transform .2s"></i></button>';
+    html+='</div>';
+    if(m.subs){
+      html+='<div id="rpm-subs-'+m.key+'" style="display:none;border-top:1px solid #e2e8f0;background:#f8fafc"><div class="row px-3 py-2">';
+      m.subs.forEach(function(s){
+        var sv=typeof pval==='object'&&pval?!!pval[s.key]:!!pval;
+        html+='<div class="col-6 mb-1"><div class="custom-control custom-checkbox"><input type="checkbox" class="custom-control-input" id="rpm-'+m.key+'-'+s.key+'"'+(sv?' checked':'')+' onchange="syncParentPerm(\''+m.key+'\')"><label class="custom-control-label small" for="rpm-'+m.key+'-'+s.key+'">'+s.label+'</label></div></div>';
+      });
+      html+='</div></div>';
+    }
+    html+='</div>';
+  });
+  html+='</div>';
+  document.getElementById('rpm-perms-list').innerHTML=html;
+  $('#rolePermsModal').modal('show');
+}
+function togglePermModule(key,checked){ var m=PERM_MODULES.find(function(x){return x.key===key;}); if(!m||!m.subs) return; m.subs.forEach(function(s){ var el=document.getElementById('rpm-'+key+'-'+s.key); if(el) el.checked=checked; }); }
+function togglePermExpand(key){ var el=document.getElementById('rpm-subs-'+key),chev=document.getElementById('rpm-chev-'+key); if(!el) return; var open=el.style.display!=='none'; el.style.display=open?'none':'block'; if(chev) chev.style.transform=open?'':'rotate(90deg)'; }
+function syncParentPerm(key){ var m=PERM_MODULES.find(function(x){return x.key===key;}); if(!m||!m.subs) return; var any=m.subs.some(function(s){var el=document.getElementById('rpm-'+key+'-'+s.key); return el&&el.checked;}); var par=document.getElementById('rpm-'+key); if(par) par.checked=any; }
+function saveRolePerms(){ var id=document.getElementById('rpm-role-id').value; var perms={}; PERM_MODULES.forEach(function(m){ if(m.subs){perms[m.key]={}; m.subs.forEach(function(s){perms[m.key][s.key]=!!(document.getElementById('rpm-'+m.key+'-'+s.key)||{}).checked;});}else{perms[m.key]=!!(document.getElementById('rpm-'+m.key)||{}).checked;}}); if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.permissions=perms;}else{Supa.upd('roles',id,{permissions:perms});} $('#rolePermsModal').modal('hide'); toast('✅ Permisos guardados'); }
 
 function saveCo(){ var n=gv('st-coname'); if(!n){toast('Ingresa el nombre','warning');return;} A.companyName=n; ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; }); var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=n; toast('¡Empresa actualizada!'); }
 
