@@ -26,7 +26,9 @@
 - 👥 Administración de Usuarios: botones ✏️ editar y 🗑️ eliminar por fila — modal pre-llena nombre, email y rol; título cambia entre "Nuevo Usuario" / "Editar Usuario"
 - 🛡️ Administración de Roles: catálogo con CRUD completo — alimenta dinámicamente el selector de rol en gestión de usuarios
   - ✏️ Edición inline del nombre del rol
-  - 🔑 Permisos por rol: modal con 12 módulos configurables via toggles (Dashboard, Empleados, Asistencia, Vacaciones, Planilla, Horas Extras, Deducciones, Liquidación, Documentos, Reportes, Reclutamiento, Configuración)
+  - 🔑 Permisos por rol: modal con 12 módulos configurables via toggles
+  - 📂 Sub-secciones expandibles por módulo con checkboxes individuales (Empleados → Lista, Nuevo, Directorio, Organigrama · Asistencia → Registro, Historial, Reporte · Vacaciones → Saldos, Solicitudes, Nueva, Calculadora · Planilla → Calcular, Historial · Documentos → Generar, Plantillas, Historial · Reclutamiento → Vacantes, Candidatos, Pipeline)
+  - Toggle padre activa/desactiva todas las sub-secciones; cambiar una sub-sección sincroniza el estado del padre
 - 👤 Tab Laboral del empleado: campo Sucursal cambiado de texto libre a `<select>` poblado desde el catálogo de sucursales
 
 ### Verificación en Browser
