@@ -10,6 +10,16 @@
   - **Aportes Patronales Referenciales**: activa/desactiva la sección de aportes del empleador
   - Ambos desactivados por defecto — recibo limpio con solo salario base y deducciones legales
 
+### Correcciones — Segunda Auditoría
+- 🔴 Print Planilla: columna ISR faltaba en el encabezado impreso — todas las columnas quedaban corridas (C1)
+- 🐛 CSV export: `slice(0,12)` corregido a `slice(0,13)` — la columna "Costo" ya no se pierde (W1)
+- 🐛 Schema SQL: columna `total_isr NUMERIC` agregada a `payroll_history` — antes se intentaba guardar en campo inexistente (W2)
+- 🐛 Logout: `doLogout()` ahora resetea los 23 arrays `DS` — datos demo ya no se filtran entre sesiones (W3)
+- 🐛 Liquidación: días de vacaciones se auto-llenan desde `leave_balances.remaining_days` al seleccionar empleado (W4)
+- 🐛 Recibo de pago: `netFinal` ahora respeta el toggle HH.EE. — el recibo cuadra cuando el toggle está desactivado (W5)
+- 🐛 Dashboard: "Costo Empresa" ahora incluye CSS patronal 7.25% sobre Décimo (`decCSSP`) (W6)
+- 🐛 Perfil de empleado: mini-planilla muestra fila ISR — Bruto − CSS − SE − ISR = Neto mostrado (W7)
+
 ### Correcciones (Auditoría)
 - 🐛 Planilla: `prCalc` ahora incluye CSS patronal 7.25% sobre provisión del Décimo 3er Mes — costo empresa estaba subestimado (W2)
 - 🐛 Liquidación: fórmula de Preaviso corregida según Art. 212 C. Trabajo Panamá (W3)
