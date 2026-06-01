@@ -10,6 +10,13 @@
   - **Aportes Patronales Referenciales**: activa/desactiva la sección de aportes del empleador
   - Ambos desactivados por defecto — recibo limpio con solo salario base y deducciones legales
 
+### Dashboard
+- 🖥️ Rediseño moderno del Dashboard
+  - Tarjetas de métricas: reemplazan el estilo AdminLTE `small-box` por cards planas con acento lateral de color, ícono redondeado y número grande
+  - Hover con elevación suave en tarjetas de métricas
+  - Acciones Rápidas: grilla de íconos 3×2 con animación al hover — reemplaza los botones de contorno
+  - "Directorio" reemplazado por "Reclutamiento" en Acciones Rápidas
+
 ### Diseño
 - 🎨 Paleta de colores corporativos aplicada (sidebar sin cambios)
   - Navy `#1e3a5f` — Total Empleados, card headers info
