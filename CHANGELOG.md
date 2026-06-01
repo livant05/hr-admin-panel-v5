@@ -17,6 +17,16 @@
   - Acciones Rápidas: grilla de íconos 3×2 con animación al hover — reemplaza los botones de contorno
   - "Directorio" reemplazado por "Reclutamiento" en Acciones Rápidas
 
+### UI / Diseño Global
+- ✨ Look Tailwind CSS reproducido con CSS custom en todas las secciones (sin mezclar frameworks)
+  - Cards: esquinas redondeadas (12px), sombra sutil, borde `slate-200`
+  - Tablas: headers uppercase en gris, espaciado refinado, separadores suaves
+  - Badges: estilo pill (`border-radius: 9999px`)
+  - Inputs y selects: bordes redondeados, focus ring azul corporativo
+  - Tabs: estilo underline activo, sin caja
+  - Fondo de contenido: `#f8fafc` (slate-50)
+  - Sidebar sin cambios
+
 ### Diseño
 - 🎨 Paleta de colores corporativos aplicada (sidebar sin cambios)
   - Navy `#1e3a5f` — Total Empleados, card headers info
