@@ -4,6 +4,11 @@
 
 
 ## v5.1 (05/31/2026)
+### Correcciones (Auditoría)
+- 🐛 Recibo de pago: Horas Extras ahora retiene CSS 9.75% + SE 1.25% + ISR — antes se sumaban brutas al neto (error de cumplimiento fiscal)
+- 🐛 Renombrado "13er Mes" → "Décimo 3er Mes" / "Décimo" en todos los módulos: tabla de planilla, recibo de pago, export CSV, impresión de planilla
+- 🐛 CSV export de planilla: columna ISR agregada al encabezado (faltaba tras el cambio anterior)
+
 ### Mejoras de Módulos
 - 💼 Liquidación: retenciones legales por componente según Ley panameña
   - Vacaciones proporcionales: CSS 9.75% + SE 1.25% + ISR (tasa efectiva anual)
