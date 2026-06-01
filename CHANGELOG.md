@@ -12,6 +12,7 @@
 
 ### Correcciones (Auditoría)
 - 🐛 Recibo de pago: Horas Extras ahora retiene CSS 9.75% + SE 1.25% + ISR — antes se sumaban brutas al neto (error de cumplimiento fiscal)
+- 🐛 Recibo de pago: deducciones de salario y HH.EE. unificadas en una sola fila por concepto (CSS, SE, ISR combinados)
 - 🐛 Renombrado "13er Mes" → "Décimo 3er Mes" / "Décimo" en todos los módulos: tabla de planilla, recibo de pago, export CSV, impresión de planilla
 - 🐛 CSV export de planilla: columna ISR agregada al encabezado (faltaba tras el cambio anterior)
 
