@@ -11,6 +11,10 @@
 - ⚠️ **Fix medio**: `saveRolePerms` ahora espera (`await`) la respuesta de Supabase antes de mostrar el toast de éxito
 - ⚠️ **Fix medio**: `loadBranchMgmt` y `loadRoleMgmt` ahora tienen guardia `Array.isArray` igual que `loadDeptMgmt` — evita TypeError si el backend devuelve un error
 - ⚠️ **Fix medio**: `loadUserMgmt` y `saveUser` ahora usan `Supa.sel/upd/ins` en modo real en lugar de mutar `DS.users` directamente
+- 🔧 **Refactor**: `editDept/editPos/editBranch/editRole` unificados en `editEntity(prefix, id, updateFn, cancelFn)` — un solo punto de cambio para el patrón de edición inline
+- 🔧 **Refactor**: `loadDeptMgmt/loadPosMgmt/loadBranchMgmt` unificados en `loadEntityList(cfg)` — lista configurable por parámetros
+- ⚡ **Performance**: `loadEmpForm` usa `Promise.all` para cargar Departamentos, Cargos y Sucursales en paralelo — 3× más rápido en Supabase real
+
 ### Comprobante de Pago
 - ⚙️ Toggles para personalizar el comprobante antes de imprimir
   - **Horas Extras (HH.EE.)**: activa/desactiva el desglose de overtime y sus retenciones (CSS, SE, ISR)
