@@ -11,10 +11,17 @@
   - Ambos desactivados por defecto — recibo limpio con solo salario base y deducciones legales
 
 ### Correcciones (Auditoría)
-- 🐛 Recibo de pago: Horas Extras ahora retiene CSS 9.75% + SE 1.25% + ISR — antes se sumaban brutas al neto (error de cumplimiento fiscal)
+- 🐛 Planilla: `prCalc` ahora incluye CSS patronal 7.25% sobre provisión del Décimo 3er Mes — costo empresa estaba subestimado (W2)
+- 🐛 Liquidación: fórmula de Preaviso corregida según Art. 212 C. Trabajo Panamá (W3)
+  - < 6 meses → 1 semana | 6m–1 año → 2 semanas | 1–5 años → 1 mes | + 5 años → 2 meses
+  - Solo aplica en: Despido Injustificado, Mutuo Acuerdo, Jubilación
+  - NO aplica en: Renuncia Voluntaria, Despido Justificado, Vencimiento de Contrato
+- 🐛 Recibo de pago: Horas Extras ahora retiene CSS 9.75% + SE 1.25% + ISR — antes se sumaban brutas al neto (error de cumplimiento fiscal) (W1)
 - 🐛 Recibo de pago: deducciones de salario y HH.EE. unificadas en una sola fila por concepto (CSS, SE, ISR combinados)
-- 🐛 Renombrado "13er Mes" → "Décimo 3er Mes" / "Décimo" en todos los módulos: tabla de planilla, recibo de pago, export CSV, impresión de planilla
+- 🐛 Renombrado "13er Mes" → "Décimo 3er Mes" / "Décimo" en todos los módulos: tabla de planilla, recibo de pago, export CSV, impresión de planilla (M1)
 - 🐛 CSV export de planilla: columna ISR agregada al encabezado (faltaba tras el cambio anterior)
+- 📄 README actualizado a v5.1 — módulo Reclutamiento, ISR, leyes actualizadas, nombres de archivo correctos (M2)
+- 🗑️ Directorio `js/` eliminado — código muerto que nunca fue importado por la app (M3)
 
 ### Mejoras de Módulos
 - 💼 Liquidación: retenciones legales por componente según Ley panameña
