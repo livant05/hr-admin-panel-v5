@@ -19,6 +19,9 @@
 
 ### Configuración
 - 🗑️ Eliminado el selector de idioma (ES/EN) — la app opera exclusivamente en español; el código `setLang` era dead code
+- 🏢 Administración de Sucursales: catálogo con CRUD completo (agregar / eliminar)
+- 🛡️ Administración de Roles: catálogo con CRUD completo — alimenta dinámicamente el selector de rol en gestión de usuarios
+- 👤 Tab Laboral del empleado: campo Sucursal cambiado de texto libre a `<select>` poblado desde el catálogo de sucursales
 
 ### Dark Mode
 - 🌙 Dark mode consistente con el look Tailwind — todos los componentes del área de contenido respetan el tema oscuro
