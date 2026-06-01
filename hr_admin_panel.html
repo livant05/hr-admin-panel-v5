@@ -418,7 +418,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
         <div class="tab-pane fade" id="tab-l"><div class="row">
           <div class="col-md-4 form-group"><label>Cargo</label><select id="ef-pos" class="form-control form-control-sm"><option value="">—</option></select></div>
           <div class="col-md-4 form-group"><label>Departamento</label><select id="ef-dept2" class="form-control form-control-sm"><option value="">—</option></select></div>
-          <div class="col-md-4 form-group"><label>Sucursal</label><input type="text" id="ef-branch" class="form-control form-control-sm"></div>
+          <div class="col-md-4 form-group"><label>Sucursal</label><select id="ef-branch" class="form-control form-control-sm"><option value="">—</option></select></div>
           <div class="col-md-3 form-group"><label>Salario Mensual (B/.)</label><input type="number" id="ef-sal" class="form-control form-control-sm" step="0.01" oninput="calcHourly()"></div>
           <div class="col-md-3 form-group"><label>Horas Semanales</label><input type="number" id="ef-wh" class="form-control form-control-sm" value="44" oninput="calcHourly()"></div>
           <div class="col-md-3 form-group"><label>Horas Mensuales</label><input type="number" id="ef-mh" class="form-control form-control-sm" readonly></div>
@@ -1086,6 +1086,8 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-users" onclick="loadUserMgmt()">Usuarios</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-depts" onclick="loadDeptMgmt()">Departamentos</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-pos" onclick="loadPosMgmt()">Cargos</a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-branches" onclick="loadBranchMgmt()">Sucursales</a></li>
+      <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-roles" onclick="loadRoleMgmt()">Roles</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-look">Apariencia</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-backup">Backup / SQL</a></li>
     </ul>
@@ -1117,6 +1119,20 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
         <div class="input-group-append"><button class="btn btn-primary" onclick="savePos()"><i class="fas fa-plus"></i></button></div></div></div></div></div>
         <div class="col-md-7"><div class="card"><div class="card-header"><h3 class="card-title">Cargos</h3></div>
         <div class="card-body p-0"><ul class="list-group list-group-flush" id="pos-list"></ul></div></div></div>
+      </div></div>
+      <div class="tab-pane fade" id="st-branches"><div class="row">
+        <div class="col-md-5"><div class="card"><div class="card-header"><h3 class="card-title">Agregar Sucursal</h3></div>
+        <div class="card-body"><div class="input-group input-group-sm"><input type="text" id="new-branch-name" class="form-control" placeholder="Nombre">
+        <div class="input-group-append"><button class="btn btn-primary" onclick="saveBranch()"><i class="fas fa-plus"></i></button></div></div></div></div></div>
+        <div class="col-md-7"><div class="card"><div class="card-header"><h3 class="card-title">Sucursales</h3></div>
+        <div class="card-body p-0"><ul class="list-group list-group-flush" id="branch-list"></ul></div></div></div>
+      </div></div>
+      <div class="tab-pane fade" id="st-roles"><div class="row">
+        <div class="col-md-5"><div class="card"><div class="card-header"><h3 class="card-title">Agregar Rol</h3></div>
+        <div class="card-body"><div class="input-group input-group-sm"><input type="text" id="new-role-name" class="form-control" placeholder="Nombre">
+        <div class="input-group-append"><button class="btn btn-primary" onclick="saveRole()"><i class="fas fa-plus"></i></button></div></div></div></div></div>
+        <div class="col-md-7"><div class="card"><div class="card-header"><h3 class="card-title">Roles</h3></div>
+        <div class="card-body p-0"><ul class="list-group list-group-flush" id="role-list"></ul></div></div></div>
       </div></div>
       <div class="tab-pane fade" id="st-look"><div class="row"><div class="col-md-6"><div class="card"><div class="card-header"><h3 class="card-title">Apariencia</h3></div>
         <div class="card-body"><div class="row">
@@ -1502,6 +1518,8 @@ var DS = {
   ],
   departments:[{id:'d1',company_id:'co1',name:'Administración'},{id:'d2',company_id:'co1',name:'Recursos Humanos'},{id:'d3',company_id:'co1',name:'Tecnología'},{id:'d4',company_id:'co1',name:'Ventas'},{id:'d5',company_id:'co1',name:'Finanzas'}],
   positions:[{id:'p1',company_id:'co1',name:'Gerente General'},{id:'p2',company_id:'co1',name:'Jefe de RRHH'},{id:'p3',company_id:'co1',name:'Analista TI'},{id:'p4',company_id:'co1',name:'Vendedor/a'},{id:'p5',company_id:'co1',name:'Contador/a'},{id:'p6',company_id:'co1',name:'Asistente'}],
+  branches:[{id:'br1',company_id:'co1',name:'Sede Principal'},{id:'br2',company_id:'co1',name:'Sucursal Norte'},{id:'br3',company_id:'co1',name:'Sucursal Sur'}],
+  roles:[{id:'ro1',company_id:'co1',name:'admin'},{id:'ro2',company_id:'co1',name:'rrhh'},{id:'ro3',company_id:'co1',name:'supervisor'},{id:'ro4',company_id:'co1',name:'empleado'}],
   document_templates:[
     {id:'t1',company_id:'co1',name:'Contrato Indefinido',type:'contract',content:'CONTRATO DE TRABAJO\n\nEntre {{EMPRESA}} y {{NOMBRE_COMPLETO}}, cédula {{CEDULA}}.\n\nCARGO: {{CARGO}} — Dpto: {{DEPARTAMENTO}}\nSALARIO: {{SALARIO}} mensual | {{HORAS_SEMANALES}} hrs/sem\nINICIO: {{FECHA_INGRESO}} | Antigüedad: {{ANTIGUEDAD}}\n\nPanamá, {{FECHA_HOY}}\n\n_________________     _________________\n   EL EMPLEADOR            EL TRABAJADOR\n  {{EMPRESA}}         {{NOMBRE_COMPLETO}}'},
     {id:'t2',company_id:'co1',name:'Carta de Trabajo',type:'letter',content:'CERTIFICACIÓN LABORAL\n\n{{EMPRESA}} certifica que {{NOMBRE_COMPLETO}}, cédula {{CEDULA}}, labora como {{CARGO}} desde el {{FECHA_INGRESO}}, con salario de {{SALARIO}} mensuales.\n\nAntígüedad: {{ANTIGUEDAD}}\n\nPanamá, {{FECHA_HOY}}\n\n_________________\n  Recursos Humanos\n  {{EMPRESA}}'},
@@ -1986,10 +2004,11 @@ function renderPag(tot) {
 function changePg(p){ var pages=Math.ceil(A.filtered.length/A.perPage); if(p<1||p>pages) return; A.page=p; renderEmpTable(); }
 
 async function loadEmpForm() {
-  var depts=await Supa.sel('departments'), pos=await Supa.sel('positions');
-  var ds=document.getElementById('ef-dept2'), ps=document.getElementById('ef-pos');
+  var depts=await Supa.sel('departments'), pos=await Supa.sel('positions'), branches=await Supa.sel('branches');
+  var ds=document.getElementById('ef-dept2'), ps=document.getElementById('ef-pos'), bs=document.getElementById('ef-branch');
   if(ds&&Array.isArray(depts)) ds.innerHTML='<option value="">—</option>'+depts.map(function(d){ return '<option value="'+d.name+'">'+d.name+'</option>'; }).join('');
   if(ps&&Array.isArray(pos)) ps.innerHTML='<option value="">—</option>'+pos.map(function(p){ return '<option value="'+p.name+'">'+p.name+'</option>'; }).join('');
+  if(bs&&Array.isArray(branches)) bs.innerHTML='<option value="">—</option>'+branches.map(function(b){ return '<option value="'+b.name+'">'+b.name+'</option>'; }).join('');
 }
 
 function clearEmpForm() {
@@ -2656,11 +2675,17 @@ async function loadPosMgmt(){
 }
 async function savePos(){ var n=gv('new-pos-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('positions',{name:n}); document.getElementById('new-pos-name').value=''; toast('✅ Cargo agregado'); loadPosMgmt(); }
 async function delPos(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('positions',id); toast('Eliminado','info'); loadPosMgmt(); }
+async function loadBranchMgmt(){ var branches=await Supa.sel('branches'); var el=document.getElementById('branch-list'); if(!el) return; el.innerHTML=branches.length?branches.map(function(b){ return '<li class="list-group-item d-flex justify-content-between align-items-center"><span><i class="fas fa-map-marker-alt mr-2 text-warning"></i>'+b.name+'</span><button class="btn btn-xs btn-outline-danger" onclick="delBranch(\''+b.id+'\')"><i class="fas fa-trash"></i></button></li>'; }).join(''):'<li class="list-group-item text-muted">Sin sucursales</li>'; }
+async function saveBranch(){ var n=gv('new-branch-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('branches',{name:n}); document.getElementById('new-branch-name').value=''; toast('✅ Sucursal agregada'); loadBranchMgmt(); }
+async function delBranch(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('branches',id); toast('Eliminado','info'); loadBranchMgmt(); }
+async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+r.name+'</span><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
+async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('roles',{name:n}); document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
+async function delRole(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('roles',id); toast('Eliminado','info'); loadRoleMgmt(); }
 
 function saveCo(){ var n=gv('st-coname'); if(!n){toast('Ingresa el nombre','warning');return;} A.companyName=n; ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; }); var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=n; toast('¡Empresa actualizada!'); }
 
 // ════════════════ USER MANAGEMENT ════════════════════════════
-function openUserModal(){ ['um-id','um-name','um-email'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); var r=document.getElementById('um-role'); if(r) r.value='rrhh'; $('#userModal').modal('show'); }
+async function openUserModal(){ ['um-id','um-name','um-email'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); var rs=document.getElementById('um-role'); if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+r.name+'">'+r.name+'</option>'; }).join(''); rs.value=rs.options[0]?rs.options[0].value:''; } $('#userModal').modal('show'); }
 async function saveUser(){
   var id=gv('um-id'), name=gv('um-name'), email=gv('um-email'), role=gv('um-role');
   if(!name||!email){toast('Nombre y email requeridos','warning');return;}
