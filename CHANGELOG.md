@@ -21,6 +21,8 @@
 - 🗑️ Eliminado el selector de idioma (ES/EN) — la app opera exclusivamente en español; el código `setLang` era dead code
 - 🏢 Administración de Sucursales: catálogo con CRUD completo (agregar / eliminar)
   - ✏️ Edición inline del nombre de la sucursal
+- 🗂️ Administración de Departamentos: edición inline del nombre
+- 💼 Administración de Cargos: edición inline del nombre
 - 👥 Administración de Usuarios: botones ✏️ editar y 🗑️ eliminar por fila — modal pre-llena nombre, email y rol; título cambia entre "Nuevo Usuario" / "Editar Usuario"
 - 🛡️ Administración de Roles: catálogo con CRUD completo — alimenta dinámicamente el selector de rol en gestión de usuarios
   - ✏️ Edición inline del nombre del rol
