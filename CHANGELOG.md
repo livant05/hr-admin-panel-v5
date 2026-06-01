@@ -10,6 +10,12 @@
   - **Aportes Patronales Referenciales**: activa/desactiva la sección de aportes del empleador
   - Ambos desactivados por defecto — recibo limpio con solo salario base y deducciones legales
 
+### Módulo Empleados
+- 👥 Tabla de empleados con vistas por tabs — mismos filtros y paginación compartidos
+  - **Personales**: Cédula, N° SS, Fecha Nac., Teléfono, Sexo, Nacionalidad
+  - **Laborales**: Cargo, Departamento, Ingreso, Salario, Sal/Hora, Tipo Contrato, Vence
+  - **Emergencia**: Contacto de Emergencia, Teléfono, Parentesco
+
 ### Correcciones — Segunda Auditoría
 - 🔴 Print Planilla: columna ISR faltaba en el encabezado impreso — todas las columnas quedaban corridas (C1)
 - 🐛 CSV export: `slice(0,12)` corregido a `slice(0,13)` — la columna "Costo" ya no se pierde (W1)
