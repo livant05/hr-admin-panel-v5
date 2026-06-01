@@ -1508,7 +1508,7 @@ function avatarBg(id) {
 // ════════════════ STATE ══════════════════════════════════════
 var A = {
   url:'', key:'', session:null, role:'admin', companyId:'', companyName:'',
-  theme:'light', demo:false,
+  theme:'light', demo:false, perms:null,
   emps:[], filtered:[], dirFiltered:[],
   page:1, perPage:10, editId:null, selectedTplId:null, csvRows:[], empTab:'personales',
   calYear:new Date().getFullYear(), calMonth:new Date().getMonth()
@@ -1752,6 +1752,7 @@ function showV(vv) {
 var chDept=null, chRpt=null;
 
 function go(pg) {
+  if(!isPageAllowed(pg)){ toast('No tenés permisos para acceder a esta sección','warning'); return; }
   // Hide all pages, show target
   document.querySelectorAll('.page-section').forEach(function(p){ p.classList.remove('active'); });
   var t = document.getElementById('pg-'+pg);
@@ -1900,10 +1901,31 @@ function applyPermissions(perms){
     hdr.style.display=any?'':'none';
   });
 }
+var PAGE_PERM_MAP={
+  'dashboard':'dashboard','emp-list':['employees','list'],'emp-new':['employees','new'],
+  'directory':['employees','directory'],'org-chart':['employees','org'],
+  'attendance':'attendance','vacations':'vacations','medical':'attendance',
+  'payroll':['payroll','calc'],'overtime':'overtime','deductions':'deductions',
+  'liquidation':'liquidation','documents':['documents','generate'],'calendar':'documents',
+  'reports':'reports','evaluations':'employees','training':'employees',
+  'surveys':'employees','uniforms':'employees','announcements':'documents',
+  'recruitment':'recruitment','settings':'settings'
+};
+function isPageAllowed(pg){
+  if(!A.perms) return true;
+  var entry=PAGE_PERM_MAP[pg]; if(!entry) return true;
+  var permKey=Array.isArray(entry)?entry[0]:entry;
+  var subKey=Array.isArray(entry)?entry[1]:null;
+  var pval=A.perms[permKey];
+  if(pval===undefined||pval===null) return true;
+  if(subKey&&typeof pval==='object') return !!pval[subKey];
+  if(typeof pval==='object') return Object.keys(pval).some(function(k){return !!pval[k];});
+  return !!pval;
+}
 async function loadRolePerms(){
   var roles=await Supa.sel('roles'); if(!Array.isArray(roles)) return;
   var role=roles.find(function(r){ return r.name===A.role; });
-  if(role&&role.permissions) applyPermissions(role.permissions);
+  if(role&&role.permissions){ A.perms=role.permissions; applyPermissions(role.permissions); }
 }
 
 function saveConfig() {
