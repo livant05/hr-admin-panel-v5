@@ -22,6 +22,8 @@
 - 🐛 CSV export de planilla: columna ISR agregada al encabezado (faltaba tras el cambio anterior)
 - 📄 README actualizado a v5.1 — módulo Reclutamiento, ISR, leyes actualizadas, nombres de archivo correctos (M2)
 - 🗑️ Directorio `js/` eliminado — código muerto que nunca fue importado por la app (M3)
+- 🐛 ISR: base anual corregida a `salario × 13` según método DGI Panamá (12 meses + Décimo 3er Mes) — aplica en Planilla, Recibo de Pago y Liquidación
+  - Ejemplo B/. 3,200/mes: ISR anterior B/. 342.50 → correcto B/. 382.50
 
 ### Mejoras de Módulos
 - 💼 Liquidación: retenciones legales por componente según Ley panameña
