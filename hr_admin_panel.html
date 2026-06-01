@@ -1820,7 +1820,7 @@ async function loadDash() {
   var ctx=document.getElementById('ch-dept');
   if(ctx){
     if(chDept) chDept.destroy();
-    chDept=new Chart(ctx,{type:'bar',data:{labels:Object.keys(cnt),datasets:[{label:'Empleados',data:Object.values(cnt),backgroundColor:['#007bff','#28a745','#ffc107','#dc3545','#17a2b8','#6f42c1'],borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}});
+    chDept=new Chart(ctx,{type:'bar',data:{labels:Object.keys(cnt),datasets:[{label:'Empleados',data:Object.values(cnt),backgroundColor:['#1e3a5f','#0d7490','#2563a8','#8b1c1c','#334155','#15803d'],borderRadius:6}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true,ticks:{stepSize:1}}}}});
   }
 }
 
@@ -2535,7 +2535,7 @@ async function loadReport() {
 function renderRptChart(labels,data,label){
   var ctx=document.getElementById('ch-report'); if(!ctx) return;
   if(chRpt) chRpt.destroy();
-  chRpt=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:label,data:data,backgroundColor:['#007bff','#28a745','#ffc107','#dc3545','#17a2b8','#6f42c1'],borderRadius:5}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
+  chRpt=new Chart(ctx,{type:'bar',data:{labels:labels,datasets:[{label:label,data:data,backgroundColor:['#1e3a5f','#0d7490','#2563a8','#8b1c1c','#334155','#15803d'],borderRadius:5}]},options:{responsive:true,plugins:{legend:{display:false}},scales:{y:{beginAtZero:true}}}});
 }
 function exportRptCSV(){
   var h=[].slice.call(document.querySelectorAll('#rpt-thead th')).map(function(th){ return th.textContent; });
@@ -2808,7 +2808,7 @@ async function loadEvaluations() {
     if(chEval) chEval.destroy();
     var cats = {Sobresaliente:0,Excelente:0,Bueno:0,Regular:0,Deficiente:0};
     evals.forEach(function(e){ cats[evalCategory(e.avg).label]++; });
-    chEval = new Chart(ctx,{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{data:Object.values(cats),backgroundColor:['#28a745','#007bff','#17a2b8','#ffc107','#dc3545']}]},options:{responsive:true,plugins:{legend:{position:'bottom'}}}});
+    chEval = new Chart(ctx,{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{data:Object.values(cats),backgroundColor:['#15803d','#1e3a5f','#0d7490','#2563a8','#8b1c1c']}]},options:{responsive:true,plugins:{legend:{position:'bottom'}}}});
   }
   // Populate emp selector
   var ev = document.getElementById('ev-emp');
@@ -3350,6 +3350,7 @@ async function saveApplication(){
 function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
 function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
 
+document.head.insertAdjacentHTML('beforeend','<style>:root{--corp-navy:#1e3a5f;--corp-teal:#0d7490;--corp-slate:#2563a8;--corp-burgandy:#8b1c1c;--corp-steel:#334155;--corp-green:#15803d;--corp-primary:#1e40af}.stat-card.bg-info{background-color:var(--corp-navy)!important}.stat-card.bg-info .small-box-footer{background:rgba(0,0,0,.2)!important}.stat-card.bg-success{background-color:var(--corp-teal)!important}.stat-card.bg-success .small-box-footer{background:rgba(0,0,0,.15)!important}.stat-card.bg-warning{background-color:var(--corp-slate)!important;color:#fff!important}.stat-card.bg-warning .inner,.stat-card.bg-warning p,.stat-card.bg-warning h3{color:#fff!important}.stat-card.bg-warning .small-box-footer{background:rgba(0,0,0,.15)!important;color:#fff!important}.stat-card.bg-danger{background-color:var(--corp-burgandy)!important}.stat-card.bg-danger .small-box-footer{background:rgba(0,0,0,.2)!important}.card-header.bg-gradient-warning{background:var(--corp-steel)!important;background-image:none!important;color:#fff!important}.card-header.bg-gradient-warning *{color:#fff!important}.card-header.bg-success{background-color:var(--corp-teal)!important}.card-header.bg-warning:not(.sidebar *){background-color:var(--corp-slate)!important;color:#fff!important}.card-header.bg-warning:not(.sidebar *) *{color:#fff!important}.card-header.bg-danger:not(.sidebar *){background-color:var(--corp-burgandy)!important}.card-header.bg-info{background-color:var(--corp-navy)!important}.card-header.bg-primary{background-color:var(--corp-primary)!important}.btn-primary{background-color:var(--corp-primary)!important;border-color:var(--corp-primary)!important}.btn-primary:hover{background-color:#1a35a8!important;border-color:#1a35a8!important}.content-wrapper .badge-success{background-color:var(--corp-green)!important}.content-wrapper .badge-info{background-color:var(--corp-navy)!important}.content-wrapper .badge-warning{background-color:var(--corp-slate)!important;color:#fff!important}.content-wrapper .badge-danger{background-color:var(--corp-burgandy)!important}</style>');
 document.head.insertAdjacentHTML('beforeend','<style>.nav-header{color:#c2c7d0;font-size:.65rem;letter-spacing:.08em;padding:10px 16px 4px;font-weight:700;text-transform:uppercase;cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center}.nav-header .nav-chevron{font-size:.6rem;transition:transform .2s;opacity:.7}.nav-sidebar .nav-link{padding:6px 16px!important}.nav-sidebar .nav-icon{font-size:.95rem;margin-right:8px}.main-sidebar .sidebar{height:calc(100vh - 57px)!important;overflow-y:scroll!important;overflow-x:hidden!important}.main-sidebar .sidebar::-webkit-scrollbar{width:5px}.main-sidebar .sidebar::-webkit-scrollbar-track{background:rgba(0,0,0,.2)}.main-sidebar .sidebar::-webkit-scrollbar-thumb{background:rgba(255,255,255,.25);border-radius:4px}.main-sidebar .sidebar::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,.45)}</style>');
 (function(){
   var SB_KEY = 'hr_sidebar_collapsed';
