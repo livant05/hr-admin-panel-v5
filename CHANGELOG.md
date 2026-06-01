@@ -23,15 +23,13 @@
   - ✏️ Edición inline del nombre de la sucursal
 - 🛡️ Administración de Roles: catálogo con CRUD completo — alimenta dinámicamente el selector de rol en gestión de usuarios
   - ✏️ Edición inline del nombre del rol
-  - 🔑 Permisos por rol: modal con 11 módulos configurables via toggles (Dashboard, Empleados, Asistencia, Vacaciones, Planilla, Horas Extras, Deducciones, Liquidación, Documentos, Reportes, Reclutamiento)
-  - 📋 Permisos CRUD por sub-módulo de Configuración: Usuarios, Departamentos, Cargos y Sucursales con control granular de Crear / Leer / Editar / Eliminar
+  - 🔑 Permisos por rol: modal con 12 módulos configurables via toggles (Dashboard, Empleados, Asistencia, Vacaciones, Planilla, Horas Extras, Deducciones, Liquidación, Documentos, Reportes, Reclutamiento, Configuración)
 - 👤 Tab Laboral del empleado: campo Sucursal cambiado de texto libre a `<select>` poblado desde el catálogo de sucursales
 
 ### Verificación en Browser
 - ✅ Selector de idioma eliminado — `setLang` confirmado `undefined` en runtime
 - ✅ Sucursales: listado, edición inline y agregar/eliminar verificados
 - ✅ Roles: listado, edición inline, modal de permisos con 27 checkboxes (11 toggles + 16 CRUD) verificados
-- ✅ Permisos CRUD por rol verificados: admin con todo habilitado, rrhh solo lectura en Configuración
 - ✅ Tab Laboral: `<select>` de Sucursal poblado dinámicamente — refleja sucursales agregadas en runtime
 - 0 errores de consola
 
