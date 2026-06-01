@@ -2027,9 +2027,10 @@ var EMP_TABS = {
       +'<td>'+st+'</td>'; }
   },
   laborales: {
-    cols: ['#','Empleado','Cargo','Departamento','Ingreso','Salario','Sal/Hora','Tipo Contrato','Vence','Estado','Acciones'],
+    cols: ['#','Empleado','Cargo','Departamento','Sucursal','Ingreso','Salario','Sal/Hora','Tipo Contrato','Vence','Estado','Acciones'],
     row: function(e,i,s,st,av){ return '<tr><td>'+(s+i+1)+'</td>'+av
       +'<td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td>'
+      +'<td>'+(e.branch||'—')+'</td>'
       +'<td><small>'+(e.start_date||'—')+'</small></td>'
       +'<td><small>'+(e.salary?fmt(e.salary):'—')+'</small></td>'
       +'<td><small>'+(e.hourly_rate?fmt(e.hourly_rate):'—')+'</small></td>'

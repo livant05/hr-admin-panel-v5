@@ -33,7 +33,42 @@ CREATE TABLE IF NOT EXISTS positions (
 );
 CREATE INDEX IF NOT EXISTS idx_pos_co ON positions(company_id);
 
--- 4. EMPLEADOS
+-- 4. SUCURSALES
+CREATE TABLE IF NOT EXISTS branches (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  name       TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_branch_co ON branches(company_id);
+
+-- 5. ROLES Y PERMISOS
+CREATE TABLE IF NOT EXISTS roles (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  name        TEXT NOT NULL,
+  permissions JSONB NOT NULL DEFAULT '{}',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_role_co ON roles(company_id);
+
+-- 6. USUARIOS DE APLICACIÓN
+-- El id coincide con auth.users cuando el usuario existe en Supabase Auth.
+-- El email es el vínculo entre ambas tablas.
+CREATE TABLE IF NOT EXISTS users (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  email      TEXT,
+  role       TEXT NOT NULL DEFAULT 'empleado',
+  first_name TEXT,
+  last_name  TEXT,
+  status     TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_usr_co ON users(company_id);
+
+-- 7. EMPLEADOS
+-- Nota: age es calculado dinámicamente desde birth_date en la app.
 CREATE TABLE IF NOT EXISTS employees (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id          UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -76,7 +111,7 @@ CREATE INDEX IF NOT EXISTS idx_emp_co ON employees(company_id);
 CREATE INDEX IF NOT EXISTS idx_emp_st ON employees(status);
 CREATE INDEX IF NOT EXISTS idx_emp_dp ON employees(department);
 
--- 5. ASISTENCIA
+-- 8. ASISTENCIA
 CREATE TABLE IF NOT EXISTS attendance_logs (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -92,7 +127,7 @@ CREATE TABLE IF NOT EXISTS attendance_logs (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_att_emp_date ON attendance_logs(employee_id, date);
 
--- 6. SALDOS VACACIONES
+-- 9. SALDOS VACACIONES
 CREATE TABLE IF NOT EXISTS leave_balances (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -105,7 +140,7 @@ CREATE TABLE IF NOT EXISTS leave_balances (
   UNIQUE(employee_id, year)
 );
 
--- 7. SOLICITUDES VACACIONES / LICENCIAS
+-- 10. SOLICITUDES VACACIONES / LICENCIAS
 CREATE TABLE IF NOT EXISTS leave_requests (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -120,7 +155,7 @@ CREATE TABLE IF NOT EXISTS leave_requests (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. HORAS EXTRAS
+-- 11. HORAS EXTRAS
 CREATE TABLE IF NOT EXISTS overtime_logs (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -135,7 +170,7 @@ CREATE TABLE IF NOT EXISTS overtime_logs (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. DEDUCCIONES
+-- 12. DEDUCCIONES
 CREATE TABLE IF NOT EXISTS deductions (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -151,7 +186,7 @@ CREATE TABLE IF NOT EXISTS deductions (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 10. HISTORIAL PLANILLAS
+-- 13. HISTORIAL PLANILLAS
 CREATE TABLE IF NOT EXISTS payroll_history (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -167,7 +202,7 @@ CREATE TABLE IF NOT EXISTS payroll_history (
   created_at     TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 11. LIQUIDACIONES
+-- 14. LIQUIDACIONES
 CREATE TABLE IF NOT EXISTS liquidation_history (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -180,7 +215,7 @@ CREATE TABLE IF NOT EXISTS liquidation_history (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 12. PLANTILLAS DE DOCUMENTOS
+-- 15. PLANTILLAS DE DOCUMENTOS
 CREATE TABLE IF NOT EXISTS document_templates (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -191,7 +226,7 @@ CREATE TABLE IF NOT EXISTS document_templates (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 13. DOCUMENTOS GENERADOS
+-- 16. DOCUMENTOS GENERADOS
 CREATE TABLE IF NOT EXISTS generated_documents (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -204,7 +239,7 @@ CREATE TABLE IF NOT EXISTS generated_documents (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 14. INCAPACIDADES MÉDICAS
+-- 17. INCAPACIDADES MÉDICAS
 CREATE TABLE IF NOT EXISTS medical_records (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -223,7 +258,7 @@ CREATE TABLE IF NOT EXISTS medical_records (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 15. EVALUACIONES DE DESEMPEÑO
+-- 18. EVALUACIONES DE DESEMPEÑO
 CREATE TABLE IF NOT EXISTS evaluations (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -239,7 +274,7 @@ CREATE TABLE IF NOT EXISTS evaluations (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 16. UNIFORMES / EQUIPOS
+-- 19. UNIFORMES / EQUIPOS
 CREATE TABLE IF NOT EXISTS uniforms (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -256,7 +291,7 @@ CREATE TABLE IF NOT EXISTS uniforms (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 17. CAPACITACIONES
+-- 20. CAPACITACIONES
 CREATE TABLE IF NOT EXISTS trainings (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -272,7 +307,7 @@ CREATE TABLE IF NOT EXISTS trainings (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 18. INSCRIPCIONES A CAPACITACIONES
+-- 21. INSCRIPCIONES A CAPACITACIONES
 CREATE TABLE IF NOT EXISTS enrollments (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id    UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -286,7 +321,7 @@ CREATE TABLE IF NOT EXISTS enrollments (
   created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 19. ENCUESTAS
+-- 22. ENCUESTAS
 CREATE TABLE IF NOT EXISTS surveys (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id  UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -299,7 +334,7 @@ CREATE TABLE IF NOT EXISTS surveys (
   created_at  TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 20. RESPUESTAS ENCUESTAS
+-- 23. RESPUESTAS ENCUESTAS
 CREATE TABLE IF NOT EXISTS survey_responses (
   id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -308,7 +343,22 @@ CREATE TABLE IF NOT EXISTS survey_responses (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 22. VACANTES
+-- 24. COMUNICADOS
+CREATE TABLE IF NOT EXISTS announcements (
+  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  title      TEXT NOT NULL,
+  type       TEXT DEFAULT 'general',
+  audience   TEXT DEFAULT 'todos',
+  content    TEXT,
+  priority   TEXT DEFAULT 'normal',
+  expires    DATE,
+  views      INT DEFAULT 0,
+  status     TEXT DEFAULT 'activo',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 25. VACANTES
 CREATE TABLE IF NOT EXISTS job_postings (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id   UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -324,7 +374,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
 );
 CREATE INDEX IF NOT EXISTS idx_job_co ON job_postings(company_id);
 
--- 23. CANDIDATOS
+-- 26. CANDIDATOS
 CREATE TABLE IF NOT EXISTS candidates (
   id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id   UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -338,7 +388,7 @@ CREATE TABLE IF NOT EXISTS candidates (
 );
 CREATE INDEX IF NOT EXISTS idx_cand_co ON candidates(company_id);
 
--- 24. POSTULACIONES
+-- 27. POSTULACIONES
 CREATE TABLE IF NOT EXISTS applications (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   company_id     UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
@@ -353,21 +403,6 @@ CREATE TABLE IF NOT EXISTS applications (
 );
 CREATE INDEX IF NOT EXISTS idx_app_co ON applications(company_id);
 
--- 21. COMUNICADOS
-CREATE TABLE IF NOT EXISTS announcements (
-  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
-  title      TEXT NOT NULL,
-  type       TEXT DEFAULT 'general',
-  audience   TEXT DEFAULT 'todos',
-  content    TEXT,
-  priority   TEXT DEFAULT 'normal',
-  expires    DATE,
-  views      INT DEFAULT 0,
-  status     TEXT DEFAULT 'activo',
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
-
 -- ══════════════════════════════════════════
 -- ROW LEVEL SECURITY (Multiempresa)
 -- ══════════════════════════════════════════
@@ -375,8 +410,14 @@ CREATE OR REPLACE FUNCTION get_company_id() RETURNS UUID AS $$
   SELECT (auth.jwt() -> 'user_metadata' ->> 'company_id')::UUID;
 $$ LANGUAGE SQL STABLE;
 
+-- companies: cada usuario solo accede a su empresa
+ALTER TABLE companies ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_iso ON companies FOR ALL USING (id = get_company_id());
+
+-- resto de tablas: aislamiento por company_id
 DO $$ DECLARE t TEXT;
 BEGIN FOR t IN SELECT unnest(ARRAY[
+  'branches','roles','users',
   'departments','positions','employees','attendance_logs',
   'leave_balances','leave_requests','overtime_logs','deductions',
   'payroll_history','liquidation_history','document_templates',
@@ -424,4 +465,4 @@ CREATE TRIGGER trg_tpl_upd BEFORE UPDATE ON document_templates
   FOR EACH ROW EXECUTE FUNCTION update_timestamp();
 
 -- FIN DEL SCHEMA
--- Total tablas: 21 | RLS: Habilitado | Panamá
+-- Total tablas: 27 | RLS: Habilitado en todas | Panamá
