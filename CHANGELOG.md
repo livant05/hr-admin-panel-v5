@@ -15,6 +15,7 @@
 - 🔧 **Refactor**: `loadDeptMgmt/loadPosMgmt/loadBranchMgmt` unificados en `loadEntityList(cfg)` — lista configurable por parámetros
 - ⚡ **Performance**: `loadEmpForm` usa `Promise.all` para cargar Departamentos, Cargos y Sucursales en paralelo — 3× más rápido en Supabase real
 - 🔐 **Permisos en Sidebar**: el sidebar se adapta al rol del usuario al iniciar sesión — items y headers de sección se ocultan según los permisos configurados en el catálogo de Roles (aplica en login y restauración de sesión)
+- 🚫 **Bloqueo de navegación directa**: `go()` verifica permisos antes de navegar — si el usuario no tiene acceso, permanece en la página actual y ve un toast de advertencia (cubre también acceso por URL directa o código)
 
 ### Comprobante de Pago
 - ⚙️ Toggles para personalizar el comprobante antes de imprimir
