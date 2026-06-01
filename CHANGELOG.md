@@ -4,6 +4,12 @@
 
 
 ## v5.1 (05/31/2026)
+### Comprobante de Pago
+- ⚙️ Toggles para personalizar el comprobante antes de imprimir
+  - **Horas Extras (HH.EE.)**: activa/desactiva el desglose de overtime y sus retenciones (CSS, SE, ISR)
+  - **Aportes Patronales Referenciales**: activa/desactiva la sección de aportes del empleador
+  - Ambos desactivados por defecto — recibo limpio con solo salario base y deducciones legales
+
 ### Correcciones (Auditoría)
 - 🐛 Recibo de pago: Horas Extras ahora retiene CSS 9.75% + SE 1.25% + ISR — antes se sumaban brutas al neto (error de cumplimiento fiscal)
 - 🐛 Renombrado "13er Mes" → "Décimo 3er Mes" / "Décimo" en todos los módulos: tabla de planilla, recibo de pago, export CSV, impresión de planilla
