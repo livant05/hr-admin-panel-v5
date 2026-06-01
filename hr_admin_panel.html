@@ -1381,7 +1381,7 @@ function prCalc(e, factor) {
   factor = factor || 1;
   var b = (e.salary || 0) * factor;
   var css = b * PR.CSS_E, se = b * PR.SE_E;
-  var annual = (e.salary || 0) * 12;
+  var annual = (e.salary || 0) * 13; // DGI: 12 meses + Décimo 3er Mes
   var isrAnnual = annual <= 11000 ? 0 : annual <= 50000 ? (annual - 11000) * 0.15 : 5850 + (annual - 50000) * 0.25;
   var isr = (isrAnnual / 12) * factor;
   var ded = css + se + isr, net = b - ded;
@@ -2145,7 +2145,7 @@ async function printPayslip(empId) {
   var dedTotal=dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
   var showOT = document.getElementById('slip-show-ot') ? document.getElementById('slip-show-ot').checked : false;
   var showPat = document.getElementById('slip-show-pat') ? document.getElementById('slip-show-pat').checked : false;
-  var otAnnual=(e.salary||0)*12;
+  var otAnnual=(e.salary||0)*13; // DGI: 12 meses + Décimo 3er Mes
   var otIsrAnual=otAnnual<=11000?0:otAnnual<=50000?(otAnnual-11000)*0.15:5850+(otAnnual-50000)*0.25;
   var otIsrRate=otAnnual>0?otIsrAnual/otAnnual:0;
   var otCSS=otTotal*0.0975, otSE=otTotal*0.0125, otISR=otTotal*otIsrRate;
@@ -2297,7 +2297,7 @@ async function calcLiq() {
   var indemnizacion=(reason==='injustificada')?years*sal:0;
   var total=vacProp+decProp+antigSem+preaviso+indemnizacion;
   // Retenciones legales por componente (Ley 51/2005 + Código Fiscal)
-  var annual=sal*12;
+  var annual=sal*13; // DGI: 12 meses + Décimo 3er Mes
   var isrAnual=annual<=11000?0:annual<=50000?(annual-11000)*0.15:5850+(annual-50000)*0.25;
   var isrRate=annual>0?isrAnual/annual:0;
   var vacCSS=vacProp*0.0975, vacSE=vacProp*0.0125, vacISR=vacProp*isrRate;
