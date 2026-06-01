@@ -17,6 +17,15 @@
   - Acciones Rápidas: grilla de íconos 3×2 con animación al hover — reemplaza los botones de contorno
   - "Directorio" reemplazado por "Reclutamiento" en Acciones Rápidas
 
+### Dark Mode
+- 🌙 Dark mode consistente con el look Tailwind — todos los componentes del área de contenido respetan el tema oscuro
+  - Cards: navy `#0f2744`, headers `#0a1f38`, bordes `#1e3a5f`
+  - Tablas: headers y filas en paleta navy, texto `#cbd5e1`
+  - Tabs: underline azul claro (`#60a5fa`) en modo oscuro
+  - Inputs y selects: fondo oscuro, ícono de dropdown adaptado
+  - Modales, paginación y alertas consistentes
+  - Fondo general del contenido: `#0d1b2e`
+
 ### UI / Diseño Global
 - ✨ Look Tailwind CSS reproducido con CSS custom en todas las secciones (sin mezclar frameworks)
   - Cards: esquinas redondeadas (12px), sombra sutil, borde `slate-200`
