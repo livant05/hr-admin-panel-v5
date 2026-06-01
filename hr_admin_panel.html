@@ -87,8 +87,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 <div id="v-login" style="display:none">
   <div class="login-box" style="width:400px;margin:auto">
     <div class="text-center mb-3">
-      <button class="btn btn-xs btn-outline-light mr-1" onclick="setLang('es')">🇵🇦 ES</button>
-      <button class="btn btn-xs btn-outline-light mr-2" onclick="setLang('en')">🇺🇸 EN</button>
       <span onclick="toggleTheme()" style="cursor:pointer;color:#fff"><i id="th-ico-l" class="fas fa-moon"></i></span>
     </div>
     <div class="login-logo"><a href="#"><b>HR</b> Admin</a></div>
@@ -146,10 +144,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
     <li class="nav-item d-none d-sm-inline-block"><span class="nav-link text-muted small"><i class="fas fa-building mr-1"></i><span id="nav-co">Empresa</span></span></li>
   </ul>
   <ul class="navbar-nav ml-auto align-items-center">
-    <li class="nav-item"><div class="nav-link">
-      <button class="btn btn-xs btn-outline-secondary mr-1" onclick="setLang('es')" id="lbtn-es">ES</button>
-      <button class="btn btn-xs btn-outline-secondary" onclick="setLang('en')" id="lbtn-en">EN</button>
-    </div></li>
     <li class="nav-item"><a class="nav-link" href="#" onclick="toggleTheme()"><i id="th-ico-a" class="fas fa-moon"></i></a></li>
     <li class="nav-item dropdown">
       <a class="nav-link" data-toggle="dropdown" href="#"><i class="far fa-bell"></i><span class="badge badge-danger navbar-badge" id="n-cnt" style="display:none">0</span></a>
@@ -1126,13 +1120,9 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       </div></div>
       <div class="tab-pane fade" id="st-look"><div class="row"><div class="col-md-6"><div class="card"><div class="card-header"><h3 class="card-title">Apariencia</h3></div>
         <div class="card-body"><div class="row">
-          <div class="col-6"><label class="d-block mb-1">Tema</label>
+          <div class="col-12"><label class="d-block mb-1">Tema</label>
             <button class="btn btn-light btn-sm mr-1" onclick="setTheme('light')"><i class="fas fa-sun mr-1"></i>Claro</button>
             <button class="btn btn-dark btn-sm" onclick="setTheme('dark')"><i class="fas fa-moon mr-1"></i>Oscuro</button>
-          </div>
-          <div class="col-6"><label class="d-block mb-1">Idioma</label>
-            <button class="btn btn-outline-primary btn-sm mr-1" onclick="setLang('es')">🇵🇦 ES</button>
-            <button class="btn btn-outline-primary btn-sm" onclick="setLang('en')">🇺🇸 EN</button>
           </div>
         </div></div></div></div></div>
       <div class="tab-pane fade" id="st-backup"><div class="row"><div class="col-md-8"><div class="card"><div class="card-header bg-dark"><h3 class="card-title text-white"><i class="fas fa-database mr-2"></i>Backup y Schema SQL</h3></div>
@@ -1490,7 +1480,7 @@ function avatarBg(id) {
 // ════════════════ STATE ══════════════════════════════════════
 var A = {
   url:'', key:'', session:null, role:'admin', companyId:'', companyName:'',
-  lang:'es', theme:'light', demo:false,
+  theme:'light', demo:false,
   emps:[], filtered:[], dirFiltered:[],
   page:1, perPage:10, editId:null, selectedTplId:null, csvRows:[], empTab:'personales',
   calYear:new Date().getFullYear(), calMonth:new Date().getMonth()
@@ -1687,11 +1677,6 @@ function setTheme(th) {
   ['th-ico-l','th-ico-a'].forEach(function(id){ var e=document.getElementById(id); if(e) e.className='fas '+ico; });
 }
 function toggleTheme() { setTheme(A.theme==='dark'?'light':'dark'); }
-function setLang(l) {
-  A.lang=l;
-  try { localStorage.setItem('hr_lang',l); } catch(e){}
-  ['lbtn-es','lbtn-en'].forEach(function(id){ var e=document.getElementById(id); if(e) e.style.fontWeight=id.includes(l)?'bold':''; });
-}
 
 // ════════════════ ROUTER ═════════════════════════════════════
 // Mapping: page-id → menu element id
@@ -3241,10 +3226,9 @@ async function saveAnnouncement(){
 function archiveAnnouncement(id){ var a=DS.announcements.find(function(x){ return x.id===id; }); if(a){ a.status='archivado'; loadAnnouncements(); toast('Archivado','info'); } }
 function delAnnouncement(id){ if(!confirm('¿Eliminar comunicado?')) return; DS.announcements=DS.announcements.filter(function(a){ return a.id!==id; }); loadAnnouncements(); toast('Eliminado','info'); }
 async function init(){
-  A.lang='es'; A.theme='light'; A.url=''; A.key=''; A.demo=false;
-  try{ A.lang=localStorage.getItem('hr_lang')||'es'; A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||''; A.key=localStorage.getItem('hr_key')||''; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
+  A.theme='light'; A.url=''; A.key=''; A.demo=false;
+  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||''; A.key=localStorage.getItem('hr_key')||''; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
   if(A.theme==='dark') document.body.classList.add('dark-mode');
-  setLang(A.lang);
   try{
     var ss=localStorage.getItem('hr_sess'), sm=localStorage.getItem('hr_meta');
     if(ss&&sm){
