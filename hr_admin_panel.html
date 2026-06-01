@@ -290,10 +290,17 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <div class="col-md-2"><select id="ef-dept" class="form-control form-control-sm" onchange="filterEmps()"><option value="">Todos los depts.</option></select></div>
       <div class="col-md-4 text-right"><button class="btn btn-outline-secondary btn-sm" onclick="exportCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar</button></div>
     </div></div>
-    <div class="card-body p-0"><div class="table-responsive"><table class="table table-hover table-sm mb-0">
-      <thead class="thead-light"><tr><th>#</th><th>Empleado</th><th>Cédula</th><th>Cargo / Dpto.</th><th>Ingreso</th><th>Salario</th><th>Estado</th><th>Acciones</th></tr></thead>
-      <tbody id="emp-tbody"></tbody>
-    </table></div></div>
+    <div class="card-body p-0">
+      <ul class="nav nav-tabs px-3 pt-2 bg-white" style="border-bottom:1px solid #dee2e6;flex-wrap:nowrap">
+        <li class="nav-item"><a class="nav-link active" href="#" id="etab-personales" onclick="setEmpTab('personales');return false;"><i class="fas fa-user mr-1"></i>Personales</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" id="etab-laborales" onclick="setEmpTab('laborales');return false;"><i class="fas fa-briefcase mr-1"></i>Laborales</a></li>
+        <li class="nav-item"><a class="nav-link" href="#" id="etab-emergencia" onclick="setEmpTab('emergencia');return false;"><i class="fas fa-heartbeat mr-1"></i>Emergencia</a></li>
+      </ul>
+      <div class="table-responsive"><table class="table table-hover table-sm mb-0">
+        <thead class="thead-light" id="emp-thead"></thead>
+        <tbody id="emp-tbody"></tbody>
+      </table></div>
+    </div>
     <div class="card-footer"><div class="row align-items-center">
       <div class="col-md-6"><small class="text-muted" id="emp-lbl"></small></div>
       <div class="col-md-6"><ul class="pagination pagination-sm mb-0 float-right" id="emp-pag"></ul></div>
@@ -1405,7 +1412,7 @@ var A = {
   url:'', key:'', session:null, role:'admin', companyId:'', companyName:'',
   lang:'es', theme:'light', demo:false,
   emps:[], filtered:[], dirFiltered:[],
-  page:1, perPage:10, editId:null, selectedTplId:null, csvRows:[],
+  page:1, perPage:10, editId:null, selectedTplId:null, csvRows:[], empTab:'personales',
   calYear:new Date().getFullYear(), calMonth:new Date().getMonth()
 };
 
@@ -1839,33 +1846,66 @@ function filterEmps() {
   A.page=1; renderEmpTable();
 }
 
+var EMP_TABS = {
+  personales: {
+    cols: ['#','Empleado','Cédula','N° SS','Fecha Nac.','Teléfono','Sexo','Nacionalidad','Estado','Acciones'],
+    row: function(e,i,s,st,av){ return '<tr><td>'+(s+i+1)+'</td>'+av
+      +'<td>'+(e.cedula||'—')+'</td><td>'+(e.ss_number||'—')+'</td>'
+      +'<td><small>'+(e.birth_date||'—')+'</small></td><td>'+(e.phone||'—')+'</td>'
+      +'<td>'+(e.sex||'—')+'</td><td>'+(e.nationality||'—')+'</td>'
+      +'<td>'+st+'</td>'; }
+  },
+  laborales: {
+    cols: ['#','Empleado','Cargo','Departamento','Ingreso','Salario','Sal/Hora','Tipo Contrato','Vence','Estado','Acciones'],
+    row: function(e,i,s,st,av){ return '<tr><td>'+(s+i+1)+'</td>'+av
+      +'<td>'+(e.position||'—')+'</td><td>'+(e.department||'—')+'</td>'
+      +'<td><small>'+(e.start_date||'—')+'</small></td>'
+      +'<td><small>'+(e.salary?fmt(e.salary):'—')+'</small></td>'
+      +'<td><small>'+(e.hourly_rate?fmt(e.hourly_rate):'—')+'</small></td>'
+      +'<td><small>'+(e.contract_type||'—')+'</small></td>'
+      +'<td><small>'+(e.contract_expiry||e.work_permit_expiry||'—')+'</small></td>'
+      +'<td>'+st+'</td>'; }
+  },
+  emergencia: {
+    cols: ['#','Empleado','Contacto Emergencia','Teléfono','Parentesco','Estado','Acciones'],
+    row: function(e,i,s,st,av){ return '<tr><td>'+(s+i+1)+'</td>'+av
+      +'<td>'+(e.emergency_contact||'—')+'</td><td>'+(e.emergency_phone||'—')+'</td>'
+      +'<td>'+(e.emergency_relation||'—')+'</td>'
+      +'<td>'+st+'</td>'; }
+  }
+};
+function setEmpTab(tab){
+  A.empTab=tab;
+  ['personales','laborales','emergencia'].forEach(function(t){
+    var el=document.getElementById('etab-'+t); if(el) el.classList.toggle('active',t===tab);
+  });
+  renderEmpTable();
+}
 function renderEmpTable() {
   var tb=document.getElementById('emp-tbody'); if(!tb) return;
+  var tab=EMP_TABS[A.empTab||'personales'];
+  var th=document.getElementById('emp-thead');
+  if(th) th.innerHTML='<tr>'+tab.cols.map(function(c){ return '<th>'+c+'</th>'; }).join('')+'</tr>';
   var tot=A.filtered.length, s=(A.page-1)*A.perPage, pg=A.filtered.slice(s,s+A.perPage);
   var lbl=document.getElementById('emp-lbl'); if(lbl) lbl.textContent=tot+' empleado'+(tot!==1?'s':'');
   if(!pg.length){
-    tb.innerHTML='<tr><td colspan="8" class="text-center p-4 text-muted"><i class="fas fa-users fa-2x d-block mb-2" style="opacity:.3"></i>Sin resultados.</td></tr>';
+    tb.innerHTML='<tr><td colspan="'+tab.cols.length+'" class="text-center p-4 text-muted"><i class="fas fa-users fa-2x d-block mb-2" style="opacity:.3"></i>Sin resultados.</td></tr>';
     document.getElementById('emp-pag').innerHTML=''; return;
   }
   var stM={active:'<span class="badge badge-success">Activo</span>',inactive:'<span class="badge badge-secondary">Inactivo</span>'};
+  var actions='<td>'
+    +'<button class="btn btn-xs btn-outline-info mr-1" onclick="showEmpProfile(\'{id}\')" title="Ficha"><i class="fas fa-eye"></i></button>'
+    +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editEmp(\'{id}\')" title="Editar"><i class="fas fa-edit"></i></button>'
+    +'<button class="btn btn-xs btn-outline-success mr-1" onclick="genDocForEmp(\'{id}\')" title="Doc"><i class="fas fa-file-pdf"></i></button>'
+    +'<button class="btn btn-xs btn-outline-danger" onclick="delEmp(\'{id}\')" title="Eliminar"><i class="fas fa-trash"></i></button>'
+    +'</td></tr>';
   tb.innerHTML=pg.map(function(e,i){
     var initials=(e.first_name[0]||'')+(e.last_name[0]||'');
-    return '<tr><td>'+(s+i+1)+'</td>'
-      +'<td><div class="d-flex align-items-center">'
+    var av='<td><div class="d-flex align-items-center">'
       +'<div style="width:30px;height:30px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;margin-right:8px;color:#fff;font-size:.7rem;font-weight:bold">'+initials+'</div>'
       +'<div><div style="font-weight:500;cursor:pointer" onclick="showEmpProfile(\''+e.id+'\')">'+e.first_name+' '+e.last_name+'</div>'
-      +'<small class="text-muted">'+(e.email||'')+'</small></div></div></td>'
-      +'<td>'+(e.cedula||'—')+'</td>'
-      +'<td><div>'+(e.position||'—')+'</div><small class="text-muted">'+(e.department||'—')+'</small></td>'
-      +'<td><small>'+(e.start_date||'—')+'</small></td>'
-      +'<td><small>'+(e.salary?fmt(e.salary):'—')+'</small></td>'
-      +'<td>'+(stM[e.status]||'—')+'</td>'
-      +'<td>'
-      +'<button class="btn btn-xs btn-outline-info mr-1" onclick="showEmpProfile(\''+e.id+'\')" title="Ficha"><i class="fas fa-eye"></i></button>'
-      +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editEmp(\''+e.id+'\')" title="Editar"><i class="fas fa-edit"></i></button>'
-      +'<button class="btn btn-xs btn-outline-success mr-1" onclick="genDocForEmp(\''+e.id+'\')" title="Doc"><i class="fas fa-file-pdf"></i></button>'
-      +'<button class="btn btn-xs btn-outline-danger" onclick="delEmp(\''+e.id+'\')" title="Eliminar"><i class="fas fa-trash"></i></button>'
-      +'</td></tr>';
+      +'<small class="text-muted">'+(e.email||'')+'</small></div></div></td>';
+    return tab.row(e,i,s,stM[e.status]||'—',av)+actions.replace(/\{id\}/g,e.id);
   }).join('');
   renderPag(tot);
 }
