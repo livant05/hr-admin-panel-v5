@@ -2714,7 +2714,16 @@ function saveRolePerms(){ var id=document.getElementById('rpm-role-id').value; v
 function saveCo(){ var n=gv('st-coname'); if(!n){toast('Ingresa el nombre','warning');return;} A.companyName=n; ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; }); var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=n; toast('¡Empresa actualizada!'); }
 
 // ════════════════ USER MANAGEMENT ════════════════════════════
-async function openUserModal(){ ['um-id','um-name','um-email'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); var rs=document.getElementById('um-role'); if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+r.name+'">'+r.name+'</option>'; }).join(''); rs.value=rs.options[0]?rs.options[0].value:''; } $('#userModal').modal('show'); }
+async function openUserModal(id){
+  var u=id?(DS.users.find(function(x){return x.id===id;})||null):null;
+  var idEl=document.getElementById('um-id'); if(idEl) idEl.value=u?u.id:'';
+  var nm=document.getElementById('um-name'); if(nm) nm.value=u?((u.first_name||'')+' '+(u.last_name||'')).trim():'';
+  var em=document.getElementById('um-email'); if(em) em.value=u?u.email:'';
+  var rs=document.getElementById('um-role');
+  if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+r.name+'">'+r.name+'</option>'; }).join(''); rs.value=u&&u.role?u.role:(rs.options[0]?rs.options[0].value:''); }
+  document.querySelector('#userModal .modal-title').innerHTML='<i class="fas fa-'+(u?'user-edit':'user-plus')+' mr-2"></i>'+(u?'Editar Usuario':'Nuevo Usuario');
+  $('#userModal').modal('show');
+}
 async function saveUser(){
   var id=gv('um-id'), name=gv('um-name'), email=gv('um-email'), role=gv('um-role');
   if(!name||!email){toast('Nombre y email requeridos','warning');return;}
@@ -2728,7 +2737,7 @@ function loadUserMgmt(){
   var users=DS.users.filter(function(u){ return u.company_id===A.companyId; });
   var tb=document.getElementById('user-list-tbody'); if(!tb) return;
   var rCls={admin:'badge-danger',rrhh:'badge-primary',supervisor:'badge-success',empleado:'badge-secondary'};
-  tb.innerHTML=users.map(function(u){ return '<tr><td><strong>'+(u.first_name||'')+' '+(u.last_name||'')+'</strong></td><td>'+u.email+'</td><td><span class="badge '+(rCls[u.role]||'badge-secondary')+' px-2 py-1">'+((u.role||'—').toUpperCase())+'</span></td><td><span class="badge '+(u.status==='active'?'badge-success':'badge-secondary')+'">'+(u.status==='active'?'Activo':'Inactivo')+'</span></td><td>'+(u.id!=='u1'?'<button class="btn btn-xs btn-outline-danger" onclick="delUser(\''+u.id+'\')"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'; }).join('');
+  tb.innerHTML=users.map(function(u){ return '<tr><td><strong>'+(u.first_name||'')+' '+(u.last_name||'')+'</strong></td><td>'+u.email+'</td><td><span class="badge '+(rCls[u.role]||'badge-secondary')+' px-2 py-1">'+((u.role||'—').toUpperCase())+'</span></td><td><span class="badge '+(u.status==='active'?'badge-success':'badge-secondary')+'">'+(u.status==='active'?'Activo':'Inactivo')+'</span></td><td class="text-right"><button class="btn btn-xs btn-outline-secondary mr-1" onclick="openUserModal(\''+u.id+'\')" title="Editar"><i class="fas fa-pencil-alt"></i></button>'+(u.id!=='u1'?'<button class="btn btn-xs btn-outline-danger" onclick="delUser(\''+u.id+'\')" title="Eliminar"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'; }).join('');
 }
 function delUser(id){ if(!confirm('¿Eliminar usuario?')) return; DS.users=DS.users.filter(function(u){ return u.id!==id; }); toast('Eliminado','info'); loadUserMgmt(); }
 
