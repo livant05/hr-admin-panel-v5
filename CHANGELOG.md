@@ -17,6 +17,9 @@
   - Acciones Rápidas: grilla de íconos 3×2 con animación al hover — reemplaza los botones de contorno
   - "Directorio" reemplazado por "Reclutamiento" en Acciones Rápidas
 
+### Configuración
+- 🗑️ Eliminado el selector de idioma (ES/EN) — la app opera exclusivamente en español; el código `setLang` era dead code
+
 ### Dark Mode
 - 🌙 Dark mode consistente con el look Tailwind — todos los componentes del área de contenido respetan el tema oscuro
   - Cards: navy `#0f2744`, headers `#0a1f38`, bordes `#1e3a5f`
