@@ -1832,9 +1832,13 @@ async function doReg() {
   if(pw!==c2){ errEl.textContent='Contraseñas no coinciden'; errEl.classList.remove('d-none'); return; }
   if(pw.length<8){ errEl.textContent='Mínimo 8 caracteres'; errEl.classList.remove('d-none'); return; }
   btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>'; btn.disabled=true;
-  var res=await Supa.signUp(em,pw,{first_name:fn,last_name:gv('rg-ln'),company_id:crypto.randomUUID(),company_name:co,role:'admin'});
+  var cId=crypto.randomUUID();
+  var res=await Supa.signUp(em,pw,{first_name:fn,last_name:gv('rg-ln'),company_id:cId,company_name:co,role:'admin'});
   btn.innerHTML='Crear empresa'; btn.disabled=false;
   if(res.error){ errEl.textContent=res.error.message; errEl.classList.remove('d-none'); return; }
+  var tmpKey=A.key, tmpUrl=A.url;
+  A.companyId=cId;
+  await fetch(tmpUrl+'/rest/v1/companies',{method:'POST',headers:{'Content-Type':'application/json','apikey':tmpKey,'Authorization':'Bearer '+(res.access_token||''),'Prefer':'return=minimal'},body:JSON.stringify({id:cId,name:co})});
   toast('¡Empresa creada! Inicia sesión.'); showV('login');
 }
 
