@@ -3416,8 +3416,10 @@ async function saveAnnouncement(){
 function archiveAnnouncement(id){ var a=DS.announcements.find(function(x){ return x.id===id; }); if(a){ a.status='archivado'; loadAnnouncements(); toast('Archivado','info'); } }
 function delAnnouncement(id){ if(!confirm('¿Eliminar comunicado?')) return; DS.announcements=DS.announcements.filter(function(a){ return a.id!==id; }); loadAnnouncements(); toast('Eliminado','info'); }
 async function init(){
-  A.theme='light'; A.url=''; A.key=''; A.demo=false;
-  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||''; A.key=localStorage.getItem('hr_key')||''; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
+  var DEFAULT_URL='https://swciybuhetkfrtpyjvgb.supabase.co';
+  var DEFAULT_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNTAxOTIsImV4cCI6MjA5NTgyNjE5Mn0.5uJ70QPSTkTjVE5_tqTHwVPPhnYyzqdI2RFsYHTHC74';
+  A.theme='light'; A.url=DEFAULT_URL; A.key=DEFAULT_KEY; A.demo=false;
+  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||DEFAULT_URL; A.key=localStorage.getItem('hr_key')||DEFAULT_KEY; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
   if(A.theme==='dark') document.body.classList.add('dark-mode');
   try{
     var ss=localStorage.getItem('hr_sess'), sm=localStorage.getItem('hr_meta');
