@@ -397,6 +397,14 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
     <div class="card-body">
       <div class="tab-content">
         <div class="tab-pane fade show active" id="tab-p"><div class="row">
+          <div class="col-12 form-group text-center mb-1">
+            <div id="ef-photo-preview" onclick="document.getElementById('ef-photo').click()" style="width:90px;height:90px;border-radius:50%;background:#e2e8f0;margin:0 auto 8px;cursor:pointer;overflow:hidden;display:flex;align-items:center;justify-content:center;border:2px dashed #94a3b8" title="Clic para seleccionar foto">
+              <i class="fas fa-user-circle" style="font-size:2.5rem;color:#94a3b8"></i>
+            </div>
+            <input type="file" id="ef-photo" accept="image/*" style="display:none" onchange="handlePhotoUpload(this)">
+            <button type="button" class="btn btn-xs btn-outline-secondary" onclick="document.getElementById('ef-photo').click()"><i class="fas fa-camera mr-1"></i>Foto</button>
+            <button type="button" class="btn btn-xs btn-outline-danger ml-1" id="ef-photo-clear" onclick="clearPhoto()" style="display:none"><i class="fas fa-times mr-1"></i>Quitar</button>
+          </div>
           <div class="col-md-4 form-group"><label>Nombre *</label><input type="text" id="ef-fn" class="form-control form-control-sm"></div>
           <div class="col-md-4 form-group"><label>Apellido *</label><input type="text" id="ef-ln" class="form-control form-control-sm"></div>
           <div class="col-md-4 form-group"><label>Cédula</label><input type="text" id="ef-ced" class="form-control form-control-sm" placeholder="8-123-456"></div>
@@ -1504,6 +1512,39 @@ function avatarBg(id) {
   for (var i = 0; i < (id||'').length; i++) sum += (id.charCodeAt(i)||0);
   return AVG_COLORS[sum % AVG_COLORS.length];
 }
+function empAvatar(e, size, fsz) {
+  if (e.photo_url) return '<img src="'+e.photo_url+'" style="width:'+size+'px;height:'+size+'px;border-radius:50%;object-fit:cover;flex-shrink:0">';
+  var initials=(e.first_name[0]||'')+(e.last_name[0]||'');
+  return '<div style="width:'+size+'px;height:'+size+'px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:'+fsz+';font-weight:bold;flex-shrink:0">'+initials+'</div>';
+}
+function handlePhotoUpload(input) {
+  var file=input.files[0]; if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var img=new Image();
+    img.onload=function(){
+      var canvas=document.createElement('canvas'), size=200;
+      canvas.width=size; canvas.height=size;
+      var ctx=canvas.getContext('2d');
+      var min=Math.min(img.width,img.height), sx=(img.width-min)/2, sy=(img.height-min)/2;
+      ctx.drawImage(img,sx,sy,min,min,0,0,size,size);
+      A._photoUrl=canvas.toDataURL('image/jpeg',0.75);
+      setPhotoPreview(A._photoUrl);
+    };
+    img.src=ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+function setPhotoPreview(url) {
+  var prev=document.getElementById('ef-photo-preview'); if(!prev) return;
+  prev.innerHTML=url?'<img src="'+url+'" style="width:100%;height:100%;object-fit:cover">':'<i class="fas fa-user-circle" style="font-size:2.5rem;color:#94a3b8"></i>';
+  var clr=document.getElementById('ef-photo-clear'); if(clr) clr.style.display=url?'':'none';
+}
+function clearPhoto() {
+  A._photoUrl=null;
+  var inp=document.getElementById('ef-photo'); if(inp) inp.value='';
+  setPhotoPreview(null);
+}
 
 // ════════════════ STATE ══════════════════════════════════════
 var A = {
@@ -1971,7 +2012,7 @@ async function loadDash() {
     bw.innerHTML=bdays.length?bdays.map(function(e){
       var d=new Date(e.birth_date).getDate(), isT=d===TD.getDate();
       return '<div class="d-flex align-items-center p-2">'
-        +'<div style="width:30px;height:30px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:.7rem;font-weight:bold;flex-shrink:0">'+(e.first_name[0]||'')+(e.last_name[0]||'')+'</div>'
+        +empAvatar(e,30,'.7rem')
         +'<div class="ml-2"><div style="font-size:.82rem;font-weight:500">'+e.first_name+' '+e.last_name+(isT?' 🎂':'')+'</div>'
         +'<small class="text-muted">'+MONTHS[cm].slice(0,3)+' '+d+(isT?' · Hoy':'')+'</small></div></div>';
     }).join(''):'<div class="text-center text-muted py-3 small">Sin cumpleaños este mes</div>';
@@ -2076,9 +2117,8 @@ function renderEmpTable() {
     +'<button class="btn btn-xs btn-outline-danger" onclick="delEmp(\'{id}\')" title="Eliminar"><i class="fas fa-trash"></i></button>'
     +'</td></tr>';
   tb.innerHTML=pg.map(function(e,i){
-    var initials=(e.first_name[0]||'')+(e.last_name[0]||'');
     var av='<td><div class="d-flex align-items-center">'
-      +'<div style="width:30px;height:30px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;margin-right:8px;color:#fff;font-size:.7rem;font-weight:bold">'+initials+'</div>'
+      +'<div style="margin-right:8px;flex-shrink:0">'+empAvatar(e,30,'.7rem')+'</div>'
       +'<div><div style="font-weight:500;cursor:pointer" onclick="showEmpProfile(\''+e.id+'\')">'+e.first_name+' '+e.last_name+'</div>'
       +'<small class="text-muted">'+(e.email||'')+'</small></div></div></td>';
     return tab.row(e,i,s,stM[e.status]||'—',av)+actions.replace(/\{id\}/g,e.id);
@@ -2111,6 +2151,7 @@ function clearEmpForm() {
     else if(el.tagName==='SELECT') el.selectedIndex=0;
     else el.value='';
   });
+  A._photoUrl=null; setPhotoPreview(null);
   document.getElementById('empform-title').innerHTML='<i class="fas fa-user-plus mr-2"></i>Nuevo Empleado';
   document.getElementById('btn-save').innerHTML='<i class="fas fa-save mr-1"></i>Guardar Empleado';
   A.editId=null;
@@ -2124,6 +2165,7 @@ async function editEmp(id) {
   await loadEmpForm();
   var fm={'ef-fn':'first_name','ef-ln':'last_name','ef-ced':'cedula','ef-ss':'ss_number','ef-dv':'dv','ef-bdate':'birth_date','ef-age':'age','ef-sex':'sex','ef-civil':'marital_status','ef-blood':'blood_type','ef-nat':'nationality','ef-addr':'address','ef-phone':'phone','ef-email':'email','ef-licn':'license_number','ef-lict':'license_type','ef-licexp':'license_expiry','ef-pos':'position','ef-dept2':'department','ef-branch':'branch','ef-sal':'salary','ef-wh':'weekly_hours','ef-mh':'monthly_hours','ef-hr':'hourly_rate','ef-ctype':'contract_type','ef-sdate':'start_date','ef-estatus':'status','ef-cexp':'contract_expiry','ef-wpexp':'work_permit_expiry','ef-ecn':'emergency_contact','ef-ecp':'emergency_phone','ef-ecr':'emergency_relation'};
   Object.keys(fm).forEach(function(fid){ var el=document.getElementById(fid); if(el&&e[fm[fid]]!=null) el.value=e[fm[fid]]; });
+  A._photoUrl=e.photo_url||null; setPhotoPreview(A._photoUrl);
   if(e.start_date) calcSeniority();
   document.getElementById('empform-title').innerHTML='<i class="fas fa-user-edit mr-2"></i>Editar Empleado';
   document.getElementById('btn-save').innerHTML='<i class="fas fa-save mr-1"></i>Actualizar';
@@ -2136,7 +2178,7 @@ async function saveEmp() {
   var btn=document.getElementById('btn-save');
   btn.innerHTML='<i class="fas fa-spinner fa-spin mr-1"></i>'; btn.disabled=true;
   function nd(v){return v||null;} function ni(v){return parseInt(v)||null;}
-  var d={first_name:fn,last_name:ln,cedula:gv('ef-ced'),ss_number:gv('ef-ss'),dv:gv('ef-dv'),birth_date:nd(gv('ef-bdate')),age:ni(gv('ef-age')),sex:gv('ef-sex'),marital_status:gv('ef-civil'),blood_type:gv('ef-blood'),nationality:gv('ef-nat'),address:gv('ef-addr'),phone:gv('ef-phone'),email:gv('ef-email'),license_number:gv('ef-licn'),license_type:gv('ef-lict'),license_expiry:nd(gv('ef-licexp')),position:gv('ef-pos'),department:gv('ef-dept2'),branch:gv('ef-branch'),salary:parseFloat(gv('ef-sal'))||0,weekly_hours:parseFloat(gv('ef-wh'))||44,monthly_hours:parseFloat(gv('ef-mh'))||0,hourly_rate:parseFloat(gv('ef-hr'))||0,contract_type:gv('ef-ctype'),start_date:nd(gv('ef-sdate')),status:gv('ef-estatus')||'active',contract_expiry:nd(gv('ef-cexp')),work_permit_expiry:nd(gv('ef-wpexp')),emergency_contact:gv('ef-ecn'),emergency_phone:gv('ef-ecp'),emergency_relation:gv('ef-ecr')};
+  var d={first_name:fn,last_name:ln,cedula:gv('ef-ced'),ss_number:gv('ef-ss'),dv:gv('ef-dv'),birth_date:nd(gv('ef-bdate')),age:ni(gv('ef-age')),sex:gv('ef-sex'),marital_status:gv('ef-civil'),blood_type:gv('ef-blood'),nationality:gv('ef-nat'),address:gv('ef-addr'),phone:gv('ef-phone'),email:gv('ef-email'),license_number:gv('ef-licn'),license_type:gv('ef-lict'),license_expiry:nd(gv('ef-licexp')),position:gv('ef-pos'),department:gv('ef-dept2'),branch:gv('ef-branch'),salary:parseFloat(gv('ef-sal'))||0,weekly_hours:parseFloat(gv('ef-wh'))||44,monthly_hours:parseFloat(gv('ef-mh'))||0,hourly_rate:parseFloat(gv('ef-hr'))||0,contract_type:gv('ef-ctype'),start_date:nd(gv('ef-sdate')),status:gv('ef-estatus')||'active',contract_expiry:nd(gv('ef-cexp')),work_permit_expiry:nd(gv('ef-wpexp')),emergency_contact:gv('ef-ecn'),emergency_phone:gv('ef-ecp'),emergency_relation:gv('ef-ecr'),photo_url:A._photoUrl||null};
   var res=A.editId ? await Supa.upd('employees',A.editId,d) : await Supa.ins('employees',d);
   btn.innerHTML='<i class="fas fa-save mr-1"></i>'+(A.editId?'Actualizar':'Guardar'); btn.disabled=false;
   if(res&&!res.error){ toast(A.editId?'✅ Actualizado':'✅ Guardado'); A.editId=null; go('emp-list'); }
@@ -2162,7 +2204,7 @@ async function showEmpProfile(id) {
   var badges='';
   if(e.contract_expiry){ var d=daysTo(e.contract_expiry); if(d!==null&&d<=60) badges+='<span class="badge badge-danger ml-1">⚠ Contrato '+d+'d</span>'; }
   document.getElementById('emp-modal-body').innerHTML=
-    '<div class="text-center mb-3"><div style="width:60px;height:60px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.3rem;font-weight:bold;margin:0 auto 8px">'+(e.first_name[0]||'')+(e.last_name[0]||'')+'</div>'
+    '<div class="text-center mb-3"><div style="margin:0 auto 8px;width:60px;height:60px">'+empAvatar(e,60,'1.3rem')+'</div>'
     +'<h5 class="mb-0">'+e.first_name+' '+e.last_name+'</h5><small class="text-muted">'+(e.position||'—')+' · '+(e.department||'—')+'</small><br>'+badges+'</div>'
     +'<ul class="nav nav-tabs mb-3"><li class="nav-item"><a class="nav-link active" data-toggle="tab" href="#mp-info">Info</a></li><li class="nav-item"><a class="nav-link" data-toggle="tab" href="#mp-plan">Planilla</a></li></ul>'
     +'<div class="tab-content"><div class="tab-pane fade show active" id="mp-info"><div class="row">'
@@ -2211,7 +2253,7 @@ function renderDirCards() {
   wrap.innerHTML=A.dirFiltered.map(function(e){
     return '<div class="col-xl-2 col-lg-3 col-md-4 col-sm-6 mb-3" onclick="showEmpProfile(\''+e.id+'\')">'
       +'<div class="emp-dir-card">'
-      +'<div style="width:55px;height:55px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.1rem;font-weight:bold;margin:0 auto 10px">'+(e.first_name[0]||'')+(e.last_name[0]||'')+'</div>'
+      +'<div style="margin:0 auto 10px;width:55px;height:55px">'+empAvatar(e,55,'1.1rem')+'</div>'
       +'<div style="font-weight:600;font-size:.88rem">'+e.first_name+' '+e.last_name+'</div>'
       +'<div class="text-muted" style="font-size:.76rem">'+(e.position||'—')+'</div>'
       +'<div class="mt-1"><span class="badge badge-light" style="font-size:.7rem">'+(e.department||'—')+'</span></div>'
@@ -2238,7 +2280,7 @@ async function loadOrgChart() {
       +'<div style="display:flex;flex-wrap:wrap;justify-content:center;gap:6px">'
       +emps.map(function(e){
         return '<div style="background:var(--card-bg);border:2px solid #007bff;border-radius:10px;padding:8px 12px;min-width:110px;text-align:center;cursor:pointer" onclick="showEmpProfile(\''+e.id+'\')">'
-          +'<div style="width:28px;height:28px;border-radius:50%;background:'+avatarBg(e.id)+';display:flex;align-items:center;justify-content:center;color:#fff;font-size:.65rem;margin:0 auto 4px;font-weight:bold">'+(e.first_name[0]||'')+(e.last_name[0]||'')+'</div>'
+          +'<div style="margin:0 auto 4px;width:28px;height:28px">'+empAvatar(e,28,'.65rem')+'</div>'
           +'<div style="font-weight:600;font-size:.75rem">'+e.first_name+' '+e.last_name+'</div>'
           +'<div class="text-muted" style="font-size:.68rem">'+(e.position||'—')+'</div></div>';
       }).join('')

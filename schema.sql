@@ -104,6 +104,7 @@ CREATE TABLE IF NOT EXISTS employees (
   emergency_contact   TEXT,
   emergency_phone     TEXT,
   emergency_relation  TEXT,
+  photo_url           TEXT,
   created_at          TIMESTAMPTZ DEFAULT NOW(),
   updated_at          TIMESTAMPTZ DEFAULT NOW()
 );
