@@ -55,7 +55,7 @@ body.dark-mode .ev-vacation{background:#0d2533;color:#90caf9}
 body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 .liq-section{border-left:4px solid #007bff;padding:10px 16px;margin-bottom:12px;border-radius:0 8px 8px 0;background:rgba(0,123,255,.04)}
 .ot-type{border-radius:6px;padding:3px 10px;font-size:.75rem}
-.ot-regular{background:#e3f2fd;color:#1565c0}.ot-night{background:#ede7f6;color:#4527a0}.ot-holiday{background:#fce4ec;color:#b71c1c}
+.ot-regular{background:#e3f2fd;color:#1565c0}.ot-mixed{background:#e8f5e9;color:#1b5e20}.ot-night{background:#ede7f6;color:#4527a0}.ot-sunday{background:#fff8e1;color:#e65100}.ot-holiday{background:#fce4ec;color:#b71c1c}
 .att-log-in{color:#28a745}.att-log-out{color:#dc3545}
 .att-present{background:#d4edda!important}.att-absent{background:#f8d7da!important}
 .status-pending{background:#fff3cd;color:#856404;padding:2px 8px;border-radius:4px;font-size:.75rem}
@@ -200,6 +200,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('overtime')" id="m-overtime"><i class="nav-icon fas fa-stopwatch"></i><p>Horas Extras</p></a></li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('deductions')" id="m-deductions"><i class="nav-icon fas fa-minus-circle"></i><p>Deducciones</p></a></li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('liquidation')" id="m-liquidation"><i class="nav-icon fas fa-file-invoice-dollar"></i><p>Liquidación</p></a></li>
+      <li class="nav-item"><a href="#" class="nav-link" onclick="go('pay-records')" id="m-pay-records"><i class="nav-icon fas fa-history"></i><p>Historial Planilla</p></a></li>
 
       <li class="nav-header">DOCUMENTOS</li>
       <li class="nav-item"><a href="#" class="nav-link" onclick="go('documents')" id="m-documents"><i class="nav-icon fas fa-file-alt"></i><p>Plantillas</p></a></li>
@@ -428,7 +429,8 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="col-md-4 form-group"><label>Departamento</label><select id="ef-dept2" class="form-control form-control-sm"><option value="">—</option></select></div>
           <div class="col-md-4 form-group"><label>Sucursal</label><select id="ef-branch" class="form-control form-control-sm"><option value="">—</option></select></div>
           <div class="col-md-3 form-group"><label>Salario Mensual (B/.)</label><input type="number" id="ef-sal" class="form-control form-control-sm" step="0.01" oninput="calcHourly()"></div>
-          <div class="col-md-3 form-group"><label>Horas Semanales</label><input type="number" id="ef-wh" class="form-control form-control-sm" value="44" oninput="calcHourly()"></div>
+          <div class="col-md-3 form-group"><label>Jornada (Art.31)</label><select id="ef-jornada" class="form-control form-control-sm" onchange="onJornadaChange()"><option value="diurna">Diurna · 48h/sem</option><option value="mixta">Mixta · 45h/sem</option><option value="nocturna">Nocturna · 7h=8h</option><option value="custom">Personalizada</option></select></div>
+          <div class="col-md-3 form-group"><label>Horas Semanales</label><input type="number" id="ef-wh" class="form-control form-control-sm" value="48" oninput="calcHourly()"></div>
           <div class="col-md-3 form-group"><label>Horas Mensuales</label><input type="number" id="ef-mh" class="form-control form-control-sm" readonly></div>
           <div class="col-md-3 form-group"><label>Salario x Hora</label><input type="number" id="ef-hr" class="form-control form-control-sm" readonly step="0.01"></div>
           <div class="col-md-3 form-group"><label>Tipo Contrato</label><select id="ef-ctype" class="form-control form-control-sm"><option value="">—</option><option value="indefinido">Indefinido</option><option value="definido">Definido</option><option value="prueba">Período de Prueba</option><option value="temporal">Temporal</option></select></div>
@@ -652,16 +654,18 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   <section class="content"><div class="container-fluid"><div class="row">
     <div class="col-md-5"><div class="card"><div class="card-header bg-warning"><h3 class="card-title">Registrar Horas Extras</h3></div>
       <div class="card-body">
-        <div class="alert alert-info small"><strong>Ley Panameña:</strong> Regular +25% · Nocturna +50% · Festivo/Descanso +75%</div>
+        <div class="alert alert-info small"><strong>Ley Panameña (Arts. 33, 48, 49):</strong> Diurna +25% · Mixta/Prol.Diurna +50% · Nocturna +75% · Descanso/Dom. +50% · Festivo/Duelo +150%<br><strong>Art. 36 num.4:</strong> Máximo <strong>3 horas extras/día</strong> · <strong>9 horas extras/semana</strong></div>
         <div class="form-group"><label>Empleado *</label><select id="ot-emp" class="form-control form-control-sm" onchange="calcOT()"><option value="">— Seleccionar —</option></select></div>
         <div class="form-row">
           <div class="col form-group"><label>Fecha</label><input type="date" id="ot-date" class="form-control form-control-sm"></div>
           <div class="col form-group"><label>Horas</label><input type="number" id="ot-hrs" class="form-control form-control-sm" min="0.5" step="0.5" oninput="calcOT()"></div>
         </div>
         <div class="form-group"><select id="ot-type" class="form-control form-control-sm" onchange="calcOT()">
-          <option value="regular">Regular (diurno +25%)</option>
-          <option value="night">Nocturna (+50%)</option>
-          <option value="holiday">Festivo / Descanso (+75%)</option>
+          <option value="regular">Diurna · Art.33 num.1 (+25%)</option>
+          <option value="mixed">Mixta / Prol. Diurna · Art.33 num.2 (+50%)</option>
+          <option value="night">Nocturna / Prol. Nocturna · Art.33 num.3 (+75%)</option>
+          <option value="sunday">Día de Descanso / Domingo · Art.48 (+50%)</option>
+          <option value="holiday">Festivo / Duelo Nacional · Art.49 (+150%)</option>
         </select></div>
         <div class="card card-outline card-primary mb-3"><div class="card-body p-3"><div class="row text-center">
           <div class="col"><small class="text-muted d-block">Salario/Hora</small><strong id="ot-hr-rate">B/. 0.00</strong></div>
@@ -721,15 +725,34 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div id="liq-emp-info" class="alert alert-secondary py-2 small" style="display:none"></div>
           <div class="form-group"><label>Motivo de Egreso</label><select id="liq-reason" class="form-control form-control-sm" onchange="calcLiq()">
             <option value="voluntaria">Renuncia Voluntaria</option>
+            <option value="sin_prev">Renuncia sin Preaviso (Art. 222)</option>
             <option value="acuerdo">Mutuo Acuerdo</option>
             <option value="justificada">Despido Justificado</option>
             <option value="injustificada">Despido Injustificado</option>
+            <option value="despido_preaviso">Despido con Preaviso (Art. 212)</option>
+            <option value="indem_25">Indemnización con Recargo 25%</option>
+            <option value="indem_50">Indemnización con Recargo 50%</option>
             <option value="pension">Jubilación / Pensión</option>
             <option value="vencimiento">Vencimiento de Contrato</option>
           </select></div>
           <div class="form-group"><label>Fecha de Egreso</label><input type="date" id="liq-date" class="form-control form-control-sm" onchange="calcLiq()"></div>
-          <div class="form-group"><label>Vacaciones Pendientes (días)</label><input type="number" id="liq-vac" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiq()"></div>
-          <div class="form-group"><label>Décimo 3er Mes Pendiente (meses)</label><input type="number" id="liq-dec" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiq()"></div>
+          <div class="form-group"><label>1. Salario días pendientes (B/.)</label><input type="number" id="liq-sal-pend" class="form-control form-control-sm" value="0" step="0.01" oninput="calcLiq()"></div>
+          <div class="form-group"><label>6. Otros ingresos / gastos (B/.)</label><input type="number" id="liq-otros" class="form-control form-control-sm" value="0" step="0.01" oninput="calcLiq()"></div>
+          <div class="form-group"><label>3. Vacaciones (días pendientes)</label><input type="number" id="liq-vac" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiq()"></div>
+          <div class="form-group"><label>4. Décimo (meses pendientes)</label><input type="number" id="liq-dec" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiq()"></div>
+          <div class="mt-2">
+            <a data-toggle="collapse" href="#liq-acum-section" class="small text-muted"><i class="fas fa-chevron-down mr-1"></i>Acumulados (para cálculo preciso)</a>
+            <div class="collapse" id="liq-acum-section">
+              <div class="border rounded p-2 mt-1 bg-light">
+                <small class="text-muted d-block mb-2">Ingresá los acumulados del empleado para mayor precisión (opcional).</small>
+                <div class="form-group mb-1"><label class="small">Acum. vacaciones — últimos 11 meses (B/.)</label><input type="number" id="liq-acum-vac" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
+                <div class="form-group mb-1"><label class="small">Acum. XIII mes — últimos 12 meses (B/.)</label><input type="number" id="liq-acum-dec" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
+                <div class="form-group mb-1"><label class="small">Acum. prima — últimos 60 meses (B/.)</label><input type="number" id="liq-acum-prima" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
+                <div class="form-group mb-1"><label class="small">Salario últimos 30 días (B/.)</label><input type="number" id="liq-sal30" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
+                <div class="form-group mb-0"><label class="small">Acum. últimos 6 meses (B/.)</label><input type="number" id="liq-acum-6m" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
+              </div>
+            </div>
+          </div>
           <div id="liq-ded-wrap" class="form-group" style="display:none">
             <label><i class="fas fa-minus-circle mr-1 text-danger"></i>Deducciones a Descontar</label>
             <div id="liq-ded-list" class="border rounded p-2 bg-light" style="max-height:140px;overflow-y:auto;font-size:.85rem"></div>
@@ -754,6 +777,122 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <thead class="thead-light"><tr><th>Empleado</th><th>Motivo</th><th>Fecha Egreso</th><th>Total</th><th>Calculado</th><th></th></tr></thead>
           <tbody id="liq-hist-tbody"></tbody>
         </table></div></div></div>
+      </div>
+    </div>
+  </div></section>
+</div>
+
+<!-- PAY RECORDS -->
+<div id="pg-pay-records" class="page-section">
+  <div class="content-header"><div class="container-fluid"><h1><i class="fas fa-history mr-2"></i>Historial de Planilla por Empleado</h1></div></div>
+  <section class="content"><div class="container-fluid">
+
+    <!-- Schema setup alert -->
+    <div class="alert alert-warning alert-dismissible fade show small mb-3" id="pr-schema-alert">
+      <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
+      <strong>Primera vez:</strong> Ejecutá este SQL en Supabase → SQL Editor para crear la tabla:
+      <pre class="mt-2 mb-0 bg-dark text-light p-2 rounded" style="font-size:.75rem">CREATE TABLE IF NOT EXISTS employee_pay_records (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  company_id uuid REFERENCES companies(id) ON DELETE CASCADE,
+  employee_id uuid,
+  employee_name text,
+  period_year integer NOT NULL,
+  period_month integer NOT NULL,
+  gross_salary numeric(10,2) DEFAULT 0,
+  overtime_amount numeric(10,2) DEFAULT 0,
+  commissions numeric(10,2) DEFAULT 0,
+  bonuses numeric(10,2) DEFAULT 0,
+  vacations_paid numeric(10,2) DEFAULT 0,
+  other_income numeric(10,2) DEFAULT 0,
+  total_earned numeric(10,2) DEFAULT 0,
+  css_employee numeric(10,2) DEFAULT 0,
+  se_employee numeric(10,2) DEFAULT 0,
+  isr numeric(10,2) DEFAULT 0,
+  other_deductions numeric(10,2) DEFAULT 0,
+  net_salary numeric(10,2) DEFAULT 0,
+  notes text,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE employee_pay_records ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELECT company_id FROM users WHERE id = auth.uid()));</pre>
+    </div>
+
+    <div class="row">
+      <!-- Left: Register record -->
+      <div class="col-md-4">
+        <div class="card">
+          <div class="card-header bg-primary"><h3 class="card-title text-white">Registrar Período</h3></div>
+          <div class="card-body">
+            <div class="form-group"><label>Empleado *</label><select id="pr-emp" class="form-control form-control-sm"><option value="">— Seleccionar —</option></select></div>
+            <div class="form-row">
+              <div class="col form-group"><label>Año</label><input type="number" id="pr-year2" class="form-control form-control-sm" value="2025"></div>
+              <div class="col form-group"><label>Mes</label><select id="pr-month2" class="form-control form-control-sm">
+                <option value="1">Enero</option><option value="2">Febrero</option><option value="3">Marzo</option>
+                <option value="4">Abril</option><option value="5">Mayo</option><option value="6">Junio</option>
+                <option value="7">Julio</option><option value="8">Agosto</option><option value="9">Septiembre</option>
+                <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+              </select></div>
+            </div>
+            <div class="form-row">
+              <div class="col form-group"><label>Salario bruto</label><input type="number" id="pr-gross" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+              <div class="col form-group"><label>Horas extras</label><input type="number" id="pr-ot" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+            </div>
+            <div class="form-row">
+              <div class="col form-group"><label>Comisiones</label><input type="number" id="pr-comm" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+              <div class="col form-group"><label>Bonos</label><input type="number" id="pr-bonus" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+            </div>
+            <div class="form-row">
+              <div class="col form-group"><label>Vacaciones pagadas</label><input type="number" id="pr-vac-paid" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+              <div class="col form-group"><label>Otros ingresos</label><input type="number" id="pr-other-inc" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+            </div>
+            <hr class="my-2">
+            <div class="form-row">
+              <div class="col form-group"><label>CSS empleado</label><input type="number" id="pr-css" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+              <div class="col form-group"><label>SE empleado</label><input type="number" id="pr-se" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+            </div>
+            <div class="form-row">
+              <div class="col form-group"><label>ISR</label><input type="number" id="pr-isr" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+              <div class="col form-group"><label>Otras deducciones</label><input type="number" id="pr-other-ded" class="form-control form-control-sm" step="0.01" value="0" oninput="calcPRNet()"></div>
+            </div>
+            <div class="form-group"><label>Notas</label><input type="text" id="pr-notes" class="form-control form-control-sm" placeholder="Observaciones..."></div>
+            <div class="card card-outline card-success mb-3"><div class="card-body p-2 text-center"><small class="text-muted d-block">Total devengado</small><strong id="pr-total-earned" class="text-success">B/. 0.00</strong>&nbsp;&nbsp;<small class="text-muted">Neto</small>&nbsp;<strong id="pr-net-display" class="text-primary">B/. 0.00</strong></div></div>
+            <button class="btn btn-primary btn-block" onclick="savePayRecord()"><i class="fas fa-save mr-1"></i>Guardar Registro</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: History table -->
+      <div class="col-md-8">
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Historial por Empleado</h3>
+            <div class="card-tools d-flex align-items-center" style="gap:8px">
+              <select id="pr-filter-emp" class="form-control form-control-sm" style="width:160px" onchange="loadPayRecords()"><option value="">Todos</option></select>
+              <select id="pr-filter-year" class="form-control form-control-sm" style="width:90px" onchange="loadPayRecords()">
+                <option value="">Año</option>
+              </select>
+              <button class="btn btn-sm btn-success" onclick="exportPayRecordsCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar</button>
+              <label class="btn btn-sm btn-info mb-0"><i class="fas fa-file-upload mr-1"></i>Importar<input type="file" id="pr-import-file" accept=".csv" style="display:none" onchange="importPayRecordsCSV(this)"></label>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-sm table-hover mb-0">
+                <thead class="thead-light">
+                  <tr><th>Empleado</th><th>Período</th><th>Bruto</th><th>HE</th><th>Comis.</th><th>CSS</th><th>SE</th><th>ISR</th><th>Neto</th><th></th></tr>
+                </thead>
+                <tbody id="pr-records-tbody"></tbody>
+                <tfoot id="pr-records-tfoot"></tfoot>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="card mt-2">
+          <div class="card-header"><h3 class="card-title text-sm">Formato CSV para importar</h3></div>
+          <div class="card-body py-2">
+            <code class="small">employee_name,period_year,period_month,gross_salary,overtime_amount,commissions,bonuses,vacations_paid,other_income,css_employee,se_employee,isr,other_deductions,net_salary,notes</code>
+          </div>
+        </div>
       </div>
     </div>
   </div></section>
@@ -1489,7 +1628,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 // ════════════════ CONSTANTS ══════════════════════════════════
 const PR = { CSS_E:.0975, SE_E:.0125, CSS_P:.1225, SE_P:.015, DEC:1/12 };
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-const OT_RATES = { regular:1.25, night:1.50, holiday:1.75 };
+const OT_RATES = { regular:1.25, mixed:1.50, night:1.75, sunday:1.50, holiday:2.50 };
 const fmt = n => 'B/. ' + Number(n).toFixed(2);
 const AVG_COLORS = ['linear-gradient(135deg,#007bff,#6610f2)','linear-gradient(135deg,#28a745,#20c997)','linear-gradient(135deg,#dc3545,#e83e8c)','linear-gradient(135deg,#fd7e14,#ffc107)','linear-gradient(135deg,#17a2b8,#6f42c1)'];
 
@@ -1769,6 +1908,7 @@ var MENU_MAP = {
   'overtime':      'm-overtime',
   'deductions':    'm-deductions',
   'liquidation':   'm-liquidation',
+  'pay-records':   'm-pay-records',
   'documents':     'm-documents',
   'calendar':      'm-calendar',
   'reports':       'm-reports',
@@ -1823,6 +1963,7 @@ function go(pg) {
     'overtime':      loadOT,
     'deductions':    loadDed,
     'liquidation':   loadLiqPage,
+    'pay-records':   loadPayRecords,
     'documents':     loadDocuments,
     'calendar':      renderCalendar,
     'reports':       loadReport,
@@ -1915,6 +2056,7 @@ var SIDEBAR_PERM_MAP=[
   ['m-overtime',    'overtime',    null],
   ['m-deductions',  'deductions',  null],
   ['m-liquidation', 'liquidation', null],
+  ['m-pay-records', 'liquidation', null],
   ['m-documents',   'documents',   'generate'],
   ['m-calendar',    'documents',   null],
   ['m-reports',     'reports',     null],
@@ -1951,7 +2093,7 @@ var PAGE_PERM_MAP={
   'directory':['employees','directory'],'org-chart':['employees','org'],
   'attendance':'attendance','vacations':'vacations','medical':'attendance',
   'payroll':['payroll','calc'],'overtime':'overtime','deductions':'deductions',
-  'liquidation':'liquidation','documents':['documents','generate'],'calendar':'documents',
+  'liquidation':'liquidation','pay-records':'liquidation','documents':['documents','generate'],'calendar':'documents',
   'reports':'reports','evaluations':'employees','training':'employees',
   'surveys':'employees','uniforms':'employees','announcements':'documents',
   'recruitment':'recruitment','settings':'settings'
@@ -2147,7 +2289,8 @@ async function loadEmpForm() {
 
 function clearEmpForm() {
   document.querySelectorAll('#pg-emp-new input,#pg-emp-new select,#pg-emp-new textarea').forEach(function(el){
-    if(el.id==='ef-wh') el.value='44';
+    if(el.id==='ef-wh') el.value='48';
+    else if(el.id==='ef-jornada') el.value='diurna';
     else if(el.tagName==='SELECT') el.selectedIndex=0;
     else el.value='';
   });
@@ -2165,6 +2308,8 @@ async function editEmp(id) {
   await loadEmpForm();
   var fm={'ef-fn':'first_name','ef-ln':'last_name','ef-ced':'cedula','ef-ss':'ss_number','ef-dv':'dv','ef-bdate':'birth_date','ef-age':'age','ef-sex':'sex','ef-civil':'marital_status','ef-blood':'blood_type','ef-nat':'nationality','ef-addr':'address','ef-phone':'phone','ef-email':'email','ef-licn':'license_number','ef-lict':'license_type','ef-licexp':'license_expiry','ef-pos':'position','ef-dept2':'department','ef-branch':'branch','ef-sal':'salary','ef-wh':'weekly_hours','ef-mh':'monthly_hours','ef-hr':'hourly_rate','ef-ctype':'contract_type','ef-sdate':'start_date','ef-estatus':'status','ef-cexp':'contract_expiry','ef-wpexp':'work_permit_expiry','ef-ecn':'emergency_contact','ef-ecp':'emergency_phone','ef-ecr':'emergency_relation'};
   Object.keys(fm).forEach(function(fid){ var el=document.getElementById(fid); if(el&&e[fm[fid]]!=null) el.value=e[fm[fid]]; });
+  var jorEl=document.getElementById('ef-jornada');
+  if(jorEl){ var wh=parseFloat(e.weekly_hours)||48; jorEl.value=wh===48?'diurna':wh===45?'mixta':wh===42?'nocturna':'custom'; }
   A._photoUrl=e.photo_url||null; setPhotoPreview(A._photoUrl);
   if(e.start_date) calcSeniority();
   document.getElementById('empform-title').innerHTML='<i class="fas fa-user-edit mr-2"></i>Editar Empleado';
@@ -2178,7 +2323,7 @@ async function saveEmp() {
   var btn=document.getElementById('btn-save');
   btn.innerHTML='<i class="fas fa-spinner fa-spin mr-1"></i>'; btn.disabled=true;
   function nd(v){return v||null;} function ni(v){return parseInt(v)||null;}
-  var d={first_name:fn,last_name:ln,cedula:gv('ef-ced'),ss_number:gv('ef-ss'),dv:gv('ef-dv'),birth_date:nd(gv('ef-bdate')),age:ni(gv('ef-age')),sex:gv('ef-sex'),marital_status:gv('ef-civil'),blood_type:gv('ef-blood'),nationality:gv('ef-nat'),address:gv('ef-addr'),phone:gv('ef-phone'),email:gv('ef-email'),license_number:gv('ef-licn'),license_type:gv('ef-lict'),license_expiry:nd(gv('ef-licexp')),position:gv('ef-pos'),department:gv('ef-dept2'),branch:gv('ef-branch'),salary:parseFloat(gv('ef-sal'))||0,weekly_hours:parseFloat(gv('ef-wh'))||44,monthly_hours:parseFloat(gv('ef-mh'))||0,hourly_rate:parseFloat(gv('ef-hr'))||0,contract_type:gv('ef-ctype'),start_date:nd(gv('ef-sdate')),status:gv('ef-estatus')||'active',contract_expiry:nd(gv('ef-cexp')),work_permit_expiry:nd(gv('ef-wpexp')),emergency_contact:gv('ef-ecn'),emergency_phone:gv('ef-ecp'),emergency_relation:gv('ef-ecr'),photo_url:A._photoUrl||null};
+  var d={first_name:fn,last_name:ln,cedula:gv('ef-ced'),ss_number:gv('ef-ss'),dv:gv('ef-dv'),birth_date:nd(gv('ef-bdate')),age:ni(gv('ef-age')),sex:gv('ef-sex'),marital_status:gv('ef-civil'),blood_type:gv('ef-blood'),nationality:gv('ef-nat'),address:gv('ef-addr'),phone:gv('ef-phone'),email:gv('ef-email'),license_number:gv('ef-licn'),license_type:gv('ef-lict'),license_expiry:nd(gv('ef-licexp')),position:gv('ef-pos'),department:gv('ef-dept2'),branch:gv('ef-branch'),salary:parseFloat(gv('ef-sal'))||0,weekly_hours:parseFloat(gv('ef-wh'))||48,monthly_hours:parseFloat(gv('ef-mh'))||0,hourly_rate:parseFloat(gv('ef-hr'))||0,contract_type:gv('ef-ctype'),start_date:nd(gv('ef-sdate')),status:gv('ef-estatus')||'active',contract_expiry:nd(gv('ef-cexp')),work_permit_expiry:nd(gv('ef-wpexp')),emergency_contact:gv('ef-ecn'),emergency_phone:gv('ef-ecp'),emergency_relation:gv('ef-ecr'),photo_url:A._photoUrl||null};
   var res=A.editId ? await Supa.upd('employees',A.editId,d) : await Supa.ins('employees',d);
   btn.innerHTML='<i class="fas fa-save mr-1"></i>'+(A.editId?'Actualizar':'Guardar'); btn.disabled=false;
   if(res&&!res.error){ toast(A.editId?'✅ Actualizado':'✅ Guardado'); A.editId=null; go('emp-list'); }
@@ -2192,7 +2337,8 @@ async function delEmp(id) {
 function genDocForEmp(id) { A._docEmpId=id; go('documents'); setTimeout(function(){ var s=document.getElementById('dg-emp'); if(s){s.value=id;previewDoc();} },400); }
 function calcAge() { var d=gv('ef-bdate'); if(!d) return; var el=document.getElementById('ef-age'); if(el) el.value=Math.floor((new Date()-new Date(d))/(365.25*86400000)); }
 function calcSeniority() { var s=gv('ef-sdate'); if(!s) return; var el=document.getElementById('ef-senio'); if(el) el.value=seniStr(s); }
-function calcHourly() { var sal=parseFloat(gv('ef-sal'))||0, wh=parseFloat(gv('ef-wh'))||44, mh=wh*(52/12); var mhEl=document.getElementById('ef-mh'), hrEl=document.getElementById('ef-hr'); if(mhEl) mhEl.value=mh.toFixed(1); if(hrEl) hrEl.value=(sal/mh).toFixed(2); }
+function calcHourly() { var sal=parseFloat(gv('ef-sal'))||0, wh=parseFloat(gv('ef-wh'))||48, mh=wh*(52/12); var mhEl=document.getElementById('ef-mh'), hrEl=document.getElementById('ef-hr'); if(mhEl) mhEl.value=mh.toFixed(1); if(hrEl) hrEl.value=(sal/mh).toFixed(2); }
+function onJornadaChange() { var map={diurna:48,mixta:45,nocturna:42}; var v=gv('ef-jornada'); var whEl=document.getElementById('ef-wh'); if(map[v]&&whEl){ whEl.value=map[v]; calcHourly(); } }
 function exportCSV() { if(!A.filtered.length){toast('Sin datos','warning');return;} var hdr=['Nombre','Apellido','Cédula','Cargo','Departamento','Ingreso','Estado','Salario']; var csv=[hdr].concat(A.filtered.map(function(e){ return [e.first_name,e.last_name,e.cedula,e.position,e.department,e.start_date,e.status,e.salary]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'empleados.csv'); toast('CSV exportado 📥'); }
 
 async function showEmpProfile(id) {
@@ -2455,18 +2601,187 @@ async function loadPayrollHistory() {
   tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+r.period+'</span></td><td><strong>'+r.month_name+' '+r.year+'</strong></td><td>'+r.employee_count+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+(r.created_at||'').split('T')[0]+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
 }
 async function delPRRun(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('payroll_history',id); loadPayrollHistory(); }
+
+// ════════════════ PAY RECORDS (per-employee monthly) ══════════════════════════
+async function loadPayRecords() {
+  var emps=await Supa.sel('employees',{status:'active'});
+  var prEmp=document.getElementById('pr-emp');
+  var prFE=document.getElementById('pr-filter-emp');
+  if(prEmp&&Array.isArray(emps)){
+    prEmp.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  }
+  if(prFE&&Array.isArray(emps)){
+    prFE.innerHTML='<option value="">Todos</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  }
+  var yearSel=document.getElementById('pr-filter-year');
+  if(yearSel){
+    var now=new Date().getFullYear(); var opts='<option value="">Año</option>';
+    for(var y=now;y>=now-10;y--) opts+='<option value="'+y+'">'+y+'</option>';
+    yearSel.innerHTML=opts;
+  }
+  var recs=await Supa.sel('employee_pay_records');
+  var filterEmp=document.getElementById('pr-filter-emp')?document.getElementById('pr-filter-emp').value:'';
+  var filterYear=document.getElementById('pr-filter-year')?document.getElementById('pr-filter-year').value:'';
+  var rows=Array.isArray(recs)?recs.filter(function(r){
+    if(filterEmp&&r.employee_id!==filterEmp) return false;
+    if(filterYear&&String(r.period_year)!==filterYear) return false;
+    return true;
+  }).sort(function(a,b){ return b.period_year-a.period_year||b.period_month-a.period_month; }):[];
+  var MONTHS_SHORT=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+  var tb=document.getElementById('pr-records-tbody');
+  if(tb) tb.innerHTML=rows.length?rows.map(function(r){
+    return '<tr><td><strong>'+r.employee_name+'</strong></td>'
+      +'<td>'+MONTHS_SHORT[(r.period_month||1)-1]+' '+r.period_year+'</td>'
+      +'<td class="text-success">'+fmt(r.gross_salary||0)+'</td>'
+      +'<td>'+fmt(r.overtime_amount||0)+'</td>'
+      +'<td>'+fmt(r.commissions||0)+'</td>'
+      +'<td class="text-danger">-'+fmt(r.css_employee||0)+'</td>'
+      +'<td class="text-danger">-'+fmt(r.se_employee||0)+'</td>'
+      +'<td class="text-danger">-'+fmt(r.isr||0)+'</td>'
+      +'<td class="text-primary"><strong>'+fmt(r.net_salary||0)+'</strong></td>'
+      +'<td><button class="btn btn-xs btn-outline-danger" onclick="delPayRecord(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
+  }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin registros. Importá un CSV o registrá períodos manualmente.</td></tr>';
+  if(rows.length){
+    var tot=rows.reduce(function(s,r){ return {g:s.g+(r.gross_salary||0),n:s.n+(r.net_salary||0),css:s.css+(r.css_employee||0)}; },{g:0,n:0,css:0});
+    var tf=document.getElementById('pr-records-tfoot');
+    if(tf) tf.innerHTML='<tr class="bg-light"><td colspan="2" class="text-right"><strong>Totales</strong></td><td class="text-success"><strong>'+fmt(tot.g)+'</strong></td><td></td><td></td><td class="text-danger"><strong>-'+fmt(tot.css)+'</strong></td><td colspan="2"></td><td class="text-primary"><strong>'+fmt(tot.n)+'</strong></td><td></td></tr>';
+  }
+}
+
+function calcPRNet() {
+  var gross=parseFloat(gv('pr-gross'))||0;
+  var ot=parseFloat(gv('pr-ot'))||0;
+  var comm=parseFloat(gv('pr-comm'))||0;
+  var bonus=parseFloat(gv('pr-bonus'))||0;
+  var vacPaid=parseFloat(gv('pr-vac-paid'))||0;
+  var otherInc=parseFloat(gv('pr-other-inc'))||0;
+  var total=gross+ot+comm+bonus+vacPaid+otherInc;
+  var css=parseFloat(gv('pr-css'))||0;
+  var se=parseFloat(gv('pr-se'))||0;
+  var isr=parseFloat(gv('pr-isr'))||0;
+  var otherDed=parseFloat(gv('pr-other-ded'))||0;
+  var net=total-css-se-isr-otherDed;
+  var te=document.getElementById('pr-total-earned'); if(te) te.textContent=fmt(total);
+  var nd=document.getElementById('pr-net-display'); if(nd) nd.textContent=fmt(net);
+}
+
+async function savePayRecord() {
+  var empId=gv('pr-emp'); if(!empId){toast('Selecciona empleado','warning');return;}
+  var empSel=document.getElementById('pr-emp');
+  var empName=empSel&&empSel.selectedIndex>0?empSel.options[empSel.selectedIndex].text:'';
+  var yr=parseInt(gv('pr-year2'))||new Date().getFullYear();
+  var mo=parseInt(document.getElementById('pr-month2').value)||1;
+  var gross=parseFloat(gv('pr-gross'))||0;
+  var ot=parseFloat(gv('pr-ot'))||0;
+  var comm=parseFloat(gv('pr-comm'))||0;
+  var bonus=parseFloat(gv('pr-bonus'))||0;
+  var vacPaid=parseFloat(gv('pr-vac-paid'))||0;
+  var otherInc=parseFloat(gv('pr-other-inc'))||0;
+  var totalEarned=gross+ot+comm+bonus+vacPaid+otherInc;
+  var css=parseFloat(gv('pr-css'))||0;
+  var se=parseFloat(gv('pr-se'))||0;
+  var isr=parseFloat(gv('pr-isr'))||0;
+  var otherDed=parseFloat(gv('pr-other-ded'))||0;
+  var net=totalEarned-css-se-isr-otherDed;
+  await Supa.ins('employee_pay_records',{employee_id:empId,employee_name:empName,period_year:yr,period_month:mo,gross_salary:gross,overtime_amount:ot,commissions:comm,bonuses:bonus,vacations_paid:vacPaid,other_income:otherInc,total_earned:totalEarned,css_employee:css,se_employee:se,isr:isr,other_deductions:otherDed,net_salary:net,notes:gv('pr-notes')});
+  toast('Registro guardado');
+  ['pr-gross','pr-ot','pr-comm','pr-bonus','pr-vac-paid','pr-other-inc','pr-css','pr-se','pr-isr','pr-other-ded'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value='0'; });
+  document.getElementById('pr-notes').value='';
+  calcPRNet();
+  loadPayRecords();
+}
+
+async function delPayRecord(id) {
+  if(!confirm('¿Eliminar registro?')) return;
+  await Supa.del('employee_pay_records',id);
+  toast('Eliminado','info');
+  loadPayRecords();
+}
+
+function exportPayRecordsCSV() {
+  Supa.sel('employee_pay_records').then(function(recs){
+    if(!Array.isArray(recs)||!recs.length){toast('Sin datos','warning');return;}
+    var hdr=['employee_name','period_year','period_month','gross_salary','overtime_amount','commissions','bonuses','vacations_paid','other_income','css_employee','se_employee','isr','other_deductions','net_salary','notes'];
+    var csv=[hdr].concat(recs.map(function(r){ return hdr.map(function(k){ return '"'+(r[k]!=null?r[k]:'')+'"'; }); })).map(function(row){ return row.join(','); }).join('\n');
+    downCSV(csv,'historial_planilla.csv');
+    toast('Exportado');
+  });
+}
+
+function importPayRecordsCSV(input) {
+  var file=input.files[0]; if(!file) return;
+  var reader=new FileReader();
+  reader.onload=async function(e){
+    var lines=e.target.result.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+    if(lines.length<2){toast('CSV vacío o inválido','warning');return;}
+    var headers=lines[0].split(',').map(function(h){return h.replace(/"/g,'').trim();});
+    var records=[];
+    for(var i=1;i<lines.length;i++){
+      var vals=lines[i].split(',').map(function(v){return v.replace(/^"|"$/g,'').trim();});
+      var rec={};
+      headers.forEach(function(h,idx){ rec[h]=vals[idx]||''; });
+      records.push({
+        employee_name:rec.employee_name||'',
+        period_year:parseInt(rec.period_year)||0,
+        period_month:parseInt(rec.period_month)||0,
+        gross_salary:parseFloat(rec.gross_salary)||0,
+        overtime_amount:parseFloat(rec.overtime_amount)||0,
+        commissions:parseFloat(rec.commissions)||0,
+        bonuses:parseFloat(rec.bonuses)||0,
+        vacations_paid:parseFloat(rec.vacations_paid)||0,
+        other_income:parseFloat(rec.other_income)||0,
+        total_earned:(parseFloat(rec.gross_salary)||0)+(parseFloat(rec.overtime_amount)||0)+(parseFloat(rec.commissions)||0)+(parseFloat(rec.bonuses)||0)+(parseFloat(rec.vacations_paid)||0)+(parseFloat(rec.other_income)||0),
+        css_employee:parseFloat(rec.css_employee)||0,
+        se_employee:parseFloat(rec.se_employee)||0,
+        isr:parseFloat(rec.isr)||0,
+        other_deductions:parseFloat(rec.other_deductions)||0,
+        net_salary:parseFloat(rec.net_salary)||0,
+        notes:rec.notes||''
+      });
+    }
+    var ok=0;
+    for(var j=0;j<records.length;j++){
+      var res=await Supa.ins('employee_pay_records',records[j]);
+      if(res&&!res.error) ok++;
+    }
+    toast('Importados '+ok+'/'+records.length+' registros');
+    input.value='';
+    loadPayRecords();
+  };
+  reader.readAsText(file);
+}
+
+async function getEmpPayBases(empId) {
+  var recs=await Supa.sel('employee_pay_records');
+  if(!Array.isArray(recs)) return null;
+  var empRecs=recs.filter(function(r){ return r.employee_id===empId; })
+    .sort(function(a,b){ return b.period_year-a.period_year||b.period_month-a.period_month; });
+  if(!empRecs.length) return null;
+  var last60=empRecs.slice(0,60);
+  var last6=empRecs.slice(0,6);
+  var last1=empRecs[0];
+  var acumPrima=last60.reduce(function(s,r){ return s+(r.total_earned||0); },0);
+  var acum6m=last6.reduce(function(s,r){ return s+(r.gross_salary||0)+(r.overtime_amount||0)+(r.commissions||0)+(r.bonuses||0)+(r.other_income||0); },0);
+  var sal30=last1?(last1.gross_salary||0):0;
+  var last11=empRecs.slice(0,11);
+  var acumVac=last11.reduce(function(s,r){ return s+(r.gross_salary||0)+(r.overtime_amount||0)+(r.commissions||0)+(r.bonuses||0)+(r.other_income||0); },0);
+  var last12=empRecs.slice(0,12);
+  var acumDec=last12.reduce(function(s,r){ return s+(r.total_earned||0); },0);
+  return {acumPrima:acumPrima,acum6m:acum6m,sal30:sal30,acumVac:acumVac,acumDec:acumDec,months:last60.length};
+}
+
 function exportPayrollCSV() { var rows=document.querySelectorAll('#pr-tbody tr'); var hdr=['#','Empleado','Cargo','Bruto','CSS','SE','ISR','Ded.','Neto','AP CSS','AP SE','Décimo','Costo']; var csv=[hdr].concat([].slice.call(rows).map(function(tr){ return [].slice.call(tr.querySelectorAll('td')).slice(0,13).map(function(td){ return td.textContent.trim(); }); })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'planilla.csv'); toast('Exportado 📥'); }
 function printPayroll() { var mo=MONTHS[(parseInt(document.getElementById('pr-month').value)||1)-1], yr=document.getElementById('pr-year').value||''; var rows=document.getElementById('pr-tbody').innerHTML; var w=window.open('','_blank','width=1100,height=800'); w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Planilla</title><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.0/css/bootstrap.min.css"><style>body{padding:20px;font-size:11px}.table td,.table th{padding:.2rem .35rem}@media print{body{padding:8mm}}</style></head><body><div class="text-center mb-3"><h5>'+A.companyName+'</h5><h6>PLANILLA · '+mo+' '+yr+'</h6></div><table class="table table-bordered table-sm"><thead class="thead-light"><tr><th>#</th><th>Empleado</th><th>Cargo</th><th>Bruto</th><th>CSS</th><th>SE</th><th>ISR</th><th>Ded.</th><th>Neto</th><th>AP CSS</th><th>AP SE</th><th>Décimo</th><th>Costo</th><th></th></tr></thead><tbody>'+rows+'</tbody></table><script>window.onload=function(){window.print();}<\/script></body></html>'); w.document.close(); }
 
 // ════════════════ OVERTIME ═══════════════════════════════════
 async function loadOT() {
   var emps=await Supa.sel('employees',{status:'active'}); var ae=document.getElementById('ot-emp');
-  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'" data-wh="'+(e.weekly_hours||44)+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'" data-wh="'+(e.weekly_hours||48)+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
   renderOTTable();
 }
 function calcOT() {
   var ae=document.getElementById('ot-emp'), sel=ae&&ae.options[ae.selectedIndex];
-  var sal=parseFloat(sel?sel.getAttribute('data-sal'):0)||0, wh=parseFloat(sel?sel.getAttribute('data-wh'):44)||44;
+  var sal=parseFloat(sel?sel.getAttribute('data-sal'):0)||0, wh=parseFloat(sel?sel.getAttribute('data-wh'):48)||48;
   var mh=wh*(52/12), hrRate=sal/mh, hrs=parseFloat(gv('ot-hrs'))||0;
   var type=gv('ot-type')||'regular', recargo=OT_RATES[type]||1.25, valor=hrRate*recargo*hrs;
   document.getElementById('ot-hr-rate').textContent=fmt(hrRate);
@@ -2477,14 +2792,15 @@ async function saveOT() {
   var ae=document.getElementById('ot-emp'), sel=ae&&ae.options[ae.selectedIndex];
   var empId=gv('ot-emp'); if(!empId){toast('Selecciona empleado','warning');return;}
   var hrs=parseFloat(gv('ot-hrs'))||0; if(!hrs){toast('Ingresa las horas','warning');return;}
-  var sal=parseFloat(sel?sel.getAttribute('data-sal'):0)||0, wh=parseFloat(sel?sel.getAttribute('data-wh'):44)||44;
+  if(hrs>3){toast('⚠ Art. 36 num.4: máximo 3 horas extras por día','warning'); return;}
+  var sal=parseFloat(sel?sel.getAttribute('data-sal'):0)||0, wh=parseFloat(sel?sel.getAttribute('data-wh'):48)||48;
   var hrRate=sal/(wh*(52/12)), type=gv('ot-type')||'regular', valor=hrRate*(OT_RATES[type]||1.25)*hrs;
   await Supa.ins('overtime_logs',{employee_id:empId,employee_name:sel?sel.text:'—',date:gv('ot-date')||TS,hours:hrs,type:type,hourly_rate:hrRate,amount:valor,notes:gv('ot-notes')});
   toast('✅ Horas extras guardadas'); renderOTTable();
 }
 function renderOTTable() {
   var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; }).sort(function(a,b){ return b.date.localeCompare(a.date); });
-  var tb=document.getElementById('ot-tbody'), tl={regular:'Regular +25%',night:'Nocturna +50%',holiday:'Festivo +75%'};
+  var tb=document.getElementById('ot-tbody'), tl={regular:'Diurna +25%',mixed:'Mixta +50%',night:'Nocturna +75%',sunday:'Descanso +50%',holiday:'Festivo +150%'};
   if(tb) tb.innerHTML=logs.length?logs.map(function(l){ return '<tr><td><strong>'+l.employee_name+'</strong></td><td>'+l.date+'</td><td><strong>'+l.hours+'</strong> hrs</td><td><span class="ot-type ot-'+l.type+'">'+(tl[l.type]||l.type)+'</span></td><td class="text-success"><strong>'+fmt(l.amount)+'</strong></td><td><small>'+(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delOT(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin registros de horas extras.</td></tr>';
   var tot=logs.reduce(function(s,l){ return s+(l.amount||0); },0);
   var tf=document.getElementById('ot-tfoot');
@@ -2540,9 +2856,11 @@ async function loadLiqEmp() {
   var emps=await Supa.sel('employees',{id:empId}), e=Array.isArray(emps)?emps[0]:null;
   if(!e){ info.style.display='none'; return; }
   info.style.display='';
-  info.innerHTML='<strong>'+e.first_name+' '+e.last_name+'</strong> · '+( e.position||'—')+' · Ingreso: '+( e.start_date||'—')+' · Antigüedad: <strong>'+seniStr(e.start_date)+'</strong> · Salario: <strong>'+fmt(e.salary||0)+'</strong>';
+  info.innerHTML='<strong>'+e.first_name+' '+e.last_name+'</strong> · '+(e.position||'—')+' · Ingreso: '+(e.start_date||'—')+' · Antigüedad: <strong>'+seniStr(e.start_date)+'</strong> · Salario: <strong>'+fmt(e.salary||0)+'</strong>';
   var bal=DS.leave_balances.find(function(b){ return b.employee_id===empId&&b.company_id===A.companyId; });
   var vacEl=document.getElementById('liq-vac'); if(vacEl&&bal) vacEl.value=bal.remaining_days||0;
+  // Auto-fill sal30 from employee salary
+  var sal30El=document.getElementById('liq-sal30'); if(sal30El&&e.salary) sal30El.value=(e.salary||0).toFixed(2);
   var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
   var wrap=document.getElementById('liq-ded-wrap'), list=document.getElementById('liq-ded-list');
   if(wrap&&list){
@@ -2551,86 +2869,275 @@ async function loadLiqEmp() {
       wrap.style.display='';
     } else { wrap.style.display='none'; }
   }
+  // Auto-fill acumulados from pay records if available
+  var bases=await getEmpPayBases(empId);
+  if(bases){
+    var acumFields={'liq-acum-prima':bases.acumPrima,'liq-acum-6m':bases.acum6m,'liq-sal30':bases.sal30,'liq-acum-vac':bases.acumVac,'liq-acum-dec':bases.acumDec};
+    Object.keys(acumFields).forEach(function(id){ var el=document.getElementById(id); if(el&&acumFields[id]>0) el.value=acumFields[id].toFixed(2); });
+    var section=document.getElementById('liq-acum-section'); if(section) section.classList.add('show');
+  }
   calcLiq();
 }
 async function calcLiq() {
   var empId=gv('liq-emp'); if(!empId) return;
   var emps=await Supa.sel('employees',{id:empId}), e=Array.isArray(emps)?emps[0]:null; if(!e) return;
   var exitDate=gv('liq-date')||TS, reason=gv('liq-reason')||'voluntaria';
-  var vacDays=parseFloat(gv('liq-vac'))||0, decMonths=parseFloat(gv('liq-dec'))||0;
-  var sal=e.salary||0, dailyRate=sal/30;
-  var ms=new Date()-new Date(e.start_date||exitDate), years=Math.max(0,ms/(365.25*86400000));
-  var vacProp=vacDays*dailyRate;
-  var decProp=(sal/12)*decMonths;
-  var antigSem=years*(sal/52);
-  var _prevReasons=['injustificada','acuerdo','pension'];
-  var _prevMeses=years<0.5?sal/4.33:years<1?sal*2/4.33:years<5?sal:sal*2;
-  var preaviso=_prevReasons.indexOf(reason)>=0?_prevMeses:0;
-  var indemnizacion=(reason==='injustificada')?years*sal:0;
-  var total=vacProp+decProp+antigSem+preaviso+indemnizacion;
-  // Retenciones legales por componente (Ley 51/2005 + Código Fiscal)
-  var annual=sal*13; // DGI: 12 meses + Décimo 3er Mes
+  var sal=e.salary||0;
+  var ms=new Date(exitDate)-new Date(e.start_date||exitDate), years=Math.max(0,ms/(365.25*86400000));
+  // PayDay counts complete months then rounds: (exitYear*12+exitMonth) - (startYear*12+startMonth)
+  var ed=new Date(exitDate), sd=new Date(e.start_date||exitDate);
+  var totalMonths=Math.max(0,(ed.getFullYear()*12+ed.getMonth())-(sd.getFullYear()*12+sd.getMonth()));
+  var floorYears=Math.round(totalMonths/12); // PayDay rounds to nearest year
+
+  // ── Input fields ──────────────────────────────────────────────
+  var salPend=parseFloat(gv('liq-sal-pend'))||0;
+  var otros=parseFloat(gv('liq-otros'))||0;
+  var vacDays=parseFloat(gv('liq-vac'))||0;
+  var decMonths=parseFloat(gv('liq-dec'))||0;
+  var acumVac=parseFloat(document.getElementById('liq-acum-vac')?document.getElementById('liq-acum-vac').value:0)||0;
+  var acumDec=parseFloat(document.getElementById('liq-acum-dec')?document.getElementById('liq-acum-dec').value:0)||0;
+  var acumPrima=parseFloat(document.getElementById('liq-acum-prima')?document.getElementById('liq-acum-prima').value:0)||0;
+  var sal30Raw=parseFloat(document.getElementById('liq-sal30')?document.getElementById('liq-sal30').value:0)||0;
+  var acum6m=parseFloat(document.getElementById('liq-acum-6m')?document.getElementById('liq-acum-6m').value:0)||0;
+
+  // ── 1. Salario pendiente ──────────────────────────────────────
+  var salario=salPend;
+
+  // ── 2. Preaviso ───────────────────────────────────────────────
+  var _prevMeses=years<0.5?sal/4.333:years<2?(sal/4.333)*2:years<5?sal:sal*2;
+  var preaviso=(reason==='despido_preaviso'||reason==='pension')?_prevMeses:0;
+
+  // ── 3. Vacaciones proporcionales ──────────────────────────────
+  // (acumVac + salPend) / 11  — if acumVac provided, else fallback to days × daily rate
+  var vacProp;
+  if(acumVac>0){
+    vacProp=(acumVac+salPend+otros)/11; // PayDay: "salarios en esta transacción" includes otros
+  } else {
+    var dailyRate=sal/30;
+    vacProp=vacDays*dailyRate;
+  }
+
+  // ── 4. Décimo tercer mes proporcional ─────────────────────────
+  // (acumDec + vacProp + salPend + otros) / 12  — fallback: (sal/12)*months
+  var decProp;
+  if(acumDec>0){
+    decProp=(acumDec+vacProp+salPend+otros)/12; // PayDay includes vac+sal+otros de la transacción
+  } else {
+    decProp=(sal/12)*decMonths;
+  }
+
+  // ── 5. Gasto de representación (always 0) ─────────────────────
+  // ── 6. Otros ingresos/gastos ──────────────────────────────────
+  // (already in `otros`)
+
+  // ── Parcial 1-4+6 ────────────────────────────────────────────
+  var parcial=salario+preaviso+vacProp+decProp+otros;
+
+  // ── 7. Prima de antigüedad ────────────────────────────────────
+  var primaMonths=acumPrima>0?Math.min(Math.round(years*12),60):Math.min(floorYears*12,60);
+  if(primaMonths<1) primaMonths=1;
+  var primaTotal=acumPrima>0?acumPrima:(sal*12*Math.min(floorYears,5));
+  var primaMensual=primaTotal/primaMonths;
+  var primaSemanal=primaMensual/4.3333;
+  var antigSem=primaSemanal*floorYears; // 7.4 auto
+  var primaDeduccion=reason==='sin_prev'?primaSemanal:0; // 7.6
+  var antigSemNeta=antigSem-primaDeduccion; // 7.7
+
+  // ── 8. Indemnización ─────────────────────────────────────────
+  var indem6mMensual=acum6m>0?(acum6m/6):sal;
+  var sal30=sal30Raw>0?sal30Raw:sal;
+  var indemSemanalFav=Math.max(indem6mMensual,sal30)/4.3333; // 8.4 más favorable
+  var indemWeeks=floorYears<=10?floorYears:10+(floorYears-10)*2; // 8.5 weeks
+  var indemBase=indemSemanalFav*indemWeeks; // 8.5
+  var recargoPct=reason==='indem_25'?0.25:reason==='indem_50'?0.50:0;
+  var recargo=indemBase*recargoPct; // 8.6
+  var indemnizacion=0; // 8.8
+  if(reason==='injustificada'||reason==='acuerdo'){ indemnizacion=indemBase; }
+  else if(reason==='indem_25'){ indemnizacion=indemBase+recargo; }
+  else if(reason==='indem_50'){ indemnizacion=indemBase+recargo; }
+
+  // ── Total antes de deducciones ────────────────────────────────
+  var total=parcial+antigSemNeta+indemnizacion;
+
+  // ── 9. Descuentos legales ─────────────────────────────────────
+  // 9.1 + 9.2: CSS base = salPend + vacProp + decProp + preaviso + otros
+  var cssBase=salPend+vacProp+decProp+preaviso+otros;
+  var css91=cssBase*0.0975;
+  var se92=cssBase*0.0125;
+  // 9.3 ISR pts 1-6
+  var annual=sal*13;
   var isrAnual=annual<=11000?0:annual<=50000?(annual-11000)*0.15:5850+(annual-50000)*0.25;
   var isrRate=annual>0?isrAnual/annual:0;
-  var vacCSS=vacProp*0.0975, vacSE=vacProp*0.0125, vacISR=vacProp*isrRate;
-  var decCSS=decProp*0.0725, decSE=decProp*0.0125; // décimo: CSS 7.25%, exento ISR
-  var prevCSS=preaviso*0.0975, prevSE=preaviso*0.0125, prevISR=preaviso*isrRate;
-  var totalLegal=(vacCSS+vacSE+vacISR)+(decCSS+decSE)+(preaviso>0?prevCSS+prevSE+prevISR:0);
+  var isr93=cssBase*isrRate;
+  // 9.4 ISR pts 7 y 8 (Art. 701)
+  var art701Base=antigSemNeta+indemnizacion;
+  var art701Sujeta=Math.max(0,art701Base-art701Base*(floorYears/100)-5000);
+  var isr94=art701Sujeta<=11000?0:art701Sujeta<=50000?(art701Sujeta-11000)*0.15:5850+(art701Sujeta-50000)*0.25;
+  var totalLegal=css91+se92+isr93+isr94;
+
+  // ── Personal deductions ───────────────────────────────────────
   var checkedDeds=[]; document.querySelectorAll('.liq-ded-check:checked').forEach(function(cb){ checkedDeds.push({desc:cb.dataset.desc,quota:parseFloat(cb.dataset.quota)||0}); });
   var totalDed=checkedDeds.reduce(function(s,d){ return s+d.quota; },0);
   var netTotal=total-totalLegal-totalDed;
+
+  // ── Show result card ──────────────────────────────────────────
   var card=document.getElementById('liq-result-card'), ph=document.getElementById('liq-placeholder');
   if(card) card.style.display=''; if(ph) ph.style.display='none';
-  var rl={voluntaria:'Renuncia Voluntaria',acuerdo:'Mutuo Acuerdo',justificada:'Despido Justificado',injustificada:'Despido Injustificado',pension:'Jubilación',vencimiento:'Vencimiento de Contrato'};
+  var rl={voluntaria:'Renuncia Voluntaria',sin_prev:'Renuncia sin Preaviso (Art. 222)',acuerdo:'Mutuo Acuerdo',justificada:'Despido Justificado',injustificada:'Despido Injustificado',despido_preaviso:'Despido con Preaviso (Art. 212)',indem_25:'Indemnización +25%',indem_50:'Indemnización +50%',pension:'Jubilación',vencimiento:'Vencimiento de Contrato'};
+  var reasonBadgeClass=reason==='injustificada'||reason==='indem_25'||reason==='indem_50'?'badge-danger':reason==='voluntaria'||reason==='pension'||reason==='vencimiento'?'badge-success':'badge-warning';
+
+  function fmtL(n){ return 'B/. '+n.toFixed(2); }
+
   var body=document.getElementById('liq-result-body');
-  if(body) body.innerHTML=
-    '<div class="row mb-3"><div class="col-6"><strong>'+e.first_name+' '+e.last_name+'</strong><br><small class="text-muted">'+(e.position||'—')+' · '+(e.department||'—')+'</small></div><div class="col-6 text-right"><span class="badge badge-primary px-3 py-2">'+(rl[reason]||reason)+'</span><br><small class="text-muted">Egreso: '+exitDate+'</small></div></div>'
-    +'<p class="text-muted small font-weight-bold mb-1">DEVENGADO BRUTO</p>'
-    +(vacProp>0?'<div class="liq-section"><div class="row"><div class="col-7">Vacaciones Proporcionales ('+vacDays+' días × '+fmt(dailyRate)+'/día)</div><div class="col-5 text-right text-success"><strong>'+fmt(vacProp)+'</strong></div></div></div>':'')
-    +(decProp>0?'<div class="liq-section"><div class="row"><div class="col-7">Décimo 3er Mes Proporcional ('+decMonths+' meses)</div><div class="col-5 text-right text-success"><strong>'+fmt(decProp)+'</strong></div></div></div>':'')
-    +'<div class="liq-section"><div class="row"><div class="col-7">Prima de Antigüedad ('+years.toFixed(2)+' años × 1 semana) — Exenta</div><div class="col-5 text-right text-success"><strong>'+fmt(antigSem)+'</strong></div></div></div>'
-    +(preaviso>0?'<div class="liq-section"><div class="row"><div class="col-7">Preaviso ('+(years<0.5?'1 semana':years<1?'2 semanas':years<5?'1 mes':'2 meses')+')</div><div class="col-5 text-right text-success"><strong>'+fmt(preaviso)+'</strong></div></div></div>':'')
-    +(indemnizacion>0?'<div class="liq-section"><div class="row"><div class="col-7">Indemnización por Despido Injustificado — Exenta</div><div class="col-5 text-right text-success"><strong>'+fmt(indemnizacion)+'</strong></div></div></div>':'')
-    +'<div class="liq-section"><div class="row"><div class="col-7 font-weight-bold">Subtotal Bruto</div><div class="col-5 text-right font-weight-bold">'+fmt(total)+'</div></div></div>'
-    +'<p class="text-muted small font-weight-bold mb-1 mt-3">RETENCIONES LEGALES</p>'
-    +(vacProp>0?'<div class="liq-section" style="border-color:#e67e22"><div class="row"><div class="col-12 text-muted small mb-1">Vacaciones Proporcionales</div></div><div class="row"><div class="col-5 small">CSS (9.75%)</div><div class="col-3 text-right text-danger small">- '+fmt(vacCSS)+'</div><div class="col-2 small">SE (1.25%)</div><div class="col-2 text-right text-danger small">- '+fmt(vacSE)+'</div></div><div class="row"><div class="col-5 small">ISR (tasa efectiva)</div><div class="col-7 text-right text-danger small">- '+fmt(vacISR)+'</div></div></div>':'')
-    +(decProp>0?'<div class="liq-section" style="border-color:#e67e22"><div class="row"><div class="col-12 text-muted small mb-1">Décimo 3er Mes — CSS especial 7.25%, exento ISR</div></div><div class="row"><div class="col-5 small">CSS (7.25%)</div><div class="col-3 text-right text-danger small">- '+fmt(decCSS)+'</div><div class="col-2 small">SE (1.25%)</div><div class="col-2 text-right text-danger small">- '+fmt(decSE)+'</div></div></div>':'')
-    +(preaviso>0?'<div class="liq-section" style="border-color:#e67e22"><div class="row"><div class="col-12 text-muted small mb-1">Preaviso</div></div><div class="row"><div class="col-5 small">CSS (9.75%)</div><div class="col-3 text-right text-danger small">- '+fmt(prevCSS)+'</div><div class="col-2 small">SE (1.25%)</div><div class="col-2 text-right text-danger small">- '+fmt(prevSE)+'</div></div><div class="row"><div class="col-5 small">ISR (tasa efectiva)</div><div class="col-7 text-right text-danger small">- '+fmt(prevISR)+'</div></div></div>':'')
-    +'<div class="liq-section"><div class="row"><div class="col-7 font-weight-bold text-danger">Total Retenciones Legales</div><div class="col-5 text-right font-weight-bold text-danger">- '+fmt(totalLegal)+'</div></div></div>'
-    +(checkedDeds.length?'<p class="text-muted small font-weight-bold mb-1 mt-3">DEDUCCIONES PERSONALES</p><div class="liq-section" style="border-color:#dc3545">'+checkedDeds.map(function(d){ return '<div class="row"><div class="col-7 text-danger small">(-) '+d.desc+'</div><div class="col-5 text-right text-danger small">- '+fmt(d.quota)+'</div></div>'; }).join('')+'</div>':'')
-    +'<div class="card bg-success text-white mt-3"><div class="card-body p-3"><div class="row align-items-center"><div class="col-6"><h5 class="mb-0"><i class="fas fa-dollar-sign mr-2"></i>NETO A PAGAR</h5><small style="opacity:.8">Bruto: '+fmt(total)+' — Ret.: '+fmt(totalLegal)+(totalDed>0?' — Ded.: '+fmt(totalDed):'')+'</small></div><div class="col-6 text-right"><h4 class="mb-0"><strong>'+fmt(netTotal)+'</strong></h4></div></div></div></div>'
-    +'<div class="text-right mt-3"><button class="btn btn-info btn-sm mr-2" onclick="saveLiqHistory(\''+empId+'\',\''+e.first_name+' '+e.last_name+'\',\''+reason+'\',\''+exitDate+'\','+netTotal+')"><i class="fas fa-save mr-1"></i>Guardar</button></div>'
-    +'<div class="mt-3 alert alert-warning small"><i class="fas fa-gavel mr-1"></i>Cálculo referencial según Arts. 225-230 C. Trabajo · Ley 51/2005 CSS · Código Fiscal Panamá.</div>';
-  document.getElementById('liq-print-btn').onclick=function(){ printLiq(e.first_name+' '+e.last_name,rl[reason]||reason,exitDate,vacProp,decProp,antigSem,preaviso,indemnizacion,total,checkedDeds,netTotal,totalLegal,{vacCSS:vacCSS,vacSE:vacSE,vacISR:vacISR,decCSS:decCSS,decSE:decSE,prevCSS:prevCSS,prevSE:prevSE,prevISR:prevISR}); };
+  if(!body) return;
+
+  body.innerHTML=
+    // ── Header ──
+    '<div class="row mb-2 align-items-center">'
+      +'<div class="col-7"><strong class="d-block">'+e.first_name+' '+e.last_name+'</strong>'
+        +'<small class="text-muted">'+(e.position||'—')+' · '+(e.department||'—')+'</small></div>'
+      +'<div class="col-5 text-right"><span class="badge '+reasonBadgeClass+' px-2 py-1 d-block mb-1">'+(rl[reason]||reason)+'</span>'
+        +'<small class="text-muted">Egreso: '+exitDate+'</small></div></div>'
+    +'<div class="alert alert-light py-1 mb-2 small"><i class="fas fa-info-circle mr-1 text-info"></i>'
+      +'Tiempo trabajado: <strong>'+years.toFixed(2)+' años</strong>'
+      +'&nbsp;|&nbsp;Semanas prima: <strong>'+floorYears+'</strong>'
+      +'&nbsp;|&nbsp;Semanas indem.: <strong>'+indemWeeks+'</strong></div>'
+    // ── Breakdown table ──
+    +'<div class="table-responsive"><table class="table table-sm mb-1" style="font-size:.82rem">'
+      +'<thead class="thead-light"><tr><th style="width:2rem">Línea</th><th>Concepto</th><th class="text-right">Calculado</th></tr></thead>'
+      +'<tbody>'
+      +'<tr><td class="font-weight-bold text-muted">1.</td><td>Salario</td><td class="text-right text-success font-weight-bold">'+fmtL(salario)+'</td></tr>'
+      +'<tr><td class="font-weight-bold text-muted">2.</td><td>Preaviso</td><td class="text-right text-success font-weight-bold">'+fmtL(preaviso)+'</td></tr>'
+      +'<tr><td class="font-weight-bold text-muted">3.</td><td>Vacaciones Proporcionales</td><td class="text-right text-success font-weight-bold">'+fmtL(vacProp)+'</td></tr>'
+      +(acumVac>0?'<tr><td></td><td class="text-muted small pl-3">('+fmtL(acumVac)+' acum. + '+fmtL(salPend)+' sal.) / 11</td><td></td></tr>':'')
+      +'<tr><td class="font-weight-bold text-muted">4.</td><td>Décimo Tercer Mes Proporcional</td><td class="text-right text-success font-weight-bold">'+fmtL(decProp)+'</td></tr>'
+      +(acumDec>0?'<tr><td></td><td class="text-muted small pl-3">('+fmtL(acumDec)+' acum. + '+fmtL(vacProp)+' vac. + '+fmtL(salPend)+' sal.) / 12</td><td></td></tr>':'')
+      +'<tr><td class="font-weight-bold text-muted">5.</td><td class="text-muted">Gasto de Representación</td><td class="text-right text-muted">'+fmtL(0)+'</td></tr>'
+      +'<tr><td class="font-weight-bold text-muted">6.</td><td>Otros Ingresos y Gastos</td><td class="text-right text-success font-weight-bold">'+fmtL(otros)+'</td></tr>'
+      +'<tr class="table-active"><td colspan="2" class="font-weight-bold text-right">PARCIAL (1–4 + 6)</td><td class="text-right font-weight-bold">'+fmtL(parcial)+'</td></tr>'
+      // 7. Prima
+      +'<tr class="table-info"><td class="font-weight-bold">7.</td><td colspan="2" class="font-weight-bold">PRIMA DE ANTIGÜEDAD</td></tr>'
+      +'<tr><td class="text-muted small">7.1</td><td class="pl-3 small">Base para el cálculo: '+fmtL(primaTotal)+' ('+primaMonths+' meses)</td><td></td></tr>'
+      +'<tr><td class="text-muted small">7.2</td><td class="pl-3 small">Promedio mensual: '+fmtL(primaTotal)+' / '+primaMonths+' = '+fmtL(primaMensual)+'</td><td></td></tr>'
+      +'<tr><td class="text-muted small">7.3</td><td class="pl-3 small">Promedio semanal: '+fmtL(primaMensual)+' / 4.3333 = '+fmtL(primaSemanal)+'</td><td></td></tr>'
+      +'<tr><td class="text-muted small">7.4</td><td class="pl-3 small">Prima (auto): '+fmtL(primaSemanal)+' × '+floorYears+' sem.</td><td class="text-right small">'+fmtL(antigSem)+'</td></tr>'
+      +'<tr><td class="text-muted small">7.5</td><td class="pl-3 small">Prima (manual)</td><td class="text-right small">'+fmtL(antigSem)+'</td></tr>'
+      +(primaDeduccion>0?'<tr><td class="text-muted small">7.6</td><td class="pl-3 small text-danger">Menos preaviso Art. 222</td><td class="text-right small text-danger">- '+fmtL(primaDeduccion)+'</td></tr>':'')
+      +'<tr><td class="text-muted small font-weight-bold">7.7</td><td class="pl-3 font-weight-bold">PRIMA A PAGAR</td><td class="text-right font-weight-bold text-success">'+fmtL(antigSemNeta)+'</td></tr>'
+      // 8. Indemnización
+      +'<tr class="table-warning"><td class="font-weight-bold">8.</td><td colspan="2" class="font-weight-bold">INDEMNIZACIÓN</td></tr>'
+      +'<tr><td class="text-muted small">8.1</td><td class="pl-3 small">Salario últimos 6 meses: '+(acum6m>0?fmtL(acum6m):'(6 × sal. actual)')+'</td><td></td></tr>'
+      +'<tr><td class="text-muted small">8.2</td><td class="pl-3 small">Promedio mensual: '+fmtL(indem6mMensual)+'</td><td></td></tr>'
+      +'<tr><td class="text-muted small">8.3</td><td class="pl-3 small">Salario últimos 30 días: '+fmtL(sal30)+'</td><td></td></tr>'
+      +'<tr><td class="text-muted small">8.4</td><td class="pl-3 small">Promedio semanal (más favorable): max('+fmtL(indem6mMensual)+', '+fmtL(sal30)+') / 4.3333</td><td class="text-right small">'+fmtL(indemSemanalFav)+'</td></tr>'
+      +'<tr><td class="text-muted small">8.5</td><td class="pl-3 small">Indemnización: '+fmtL(indemSemanalFav)+' × '+indemWeeks+' sem.</td><td class="text-right small">'+fmtL(indemBase)+'</td></tr>'
+      +(recargo>0?'<tr><td class="text-muted small">8.6</td><td class="pl-3 small">Recargo '+(recargoPct*100)+'%</td><td class="text-right small text-warning">'+fmtL(recargo)+'</td></tr>':'')
+      +'<tr><td class="text-muted small">8.7</td><td class="pl-3 small">Indemnización (manual)</td><td class="text-right small">'+fmtL(indemnizacion)+'</td></tr>'
+      +'<tr><td class="text-muted small font-weight-bold">8.8</td><td class="pl-3 font-weight-bold">INDEMNIZACIÓN A PAGAR</td><td class="text-right font-weight-bold text-success">'+fmtL(indemnizacion)+'</td></tr>'
+      +'<tr class="table-success"><td colspan="2" class="font-weight-bold text-right">TOTAL ANTES DE DEDUCCIONES</td><td class="text-right font-weight-bold">'+fmtL(total)+'</td></tr>'
+      // 9. Descuentos
+      +'<tr class="table-danger"><td class="font-weight-bold">9.</td><td colspan="2" class="font-weight-bold">DESCUENTOS LEGALES</td></tr>'
+      +'<tr><td class="text-muted small">9.1</td><td class="pl-3 small">Seguro Social (9.75%) — base: '+fmtL(cssBase)+'</td><td class="text-right small text-danger">- '+fmtL(css91)+'</td></tr>'
+      +'<tr><td class="text-muted small">9.2</td><td class="pl-3 small">Seguro Educativo (1.25%)</td><td class="text-right small text-danger">- '+fmtL(se92)+'</td></tr>'
+      +'<tr><td class="text-muted small">9.3</td><td class="pl-3 small">ISR pts 1 al 6 (tasa efectiva '+( isrRate*100).toFixed(2)+'%)</td><td class="text-right small text-danger">- '+fmtL(isr93)+'</td></tr>'
+      +'<tr><td class="text-muted small">9.4</td><td class="pl-3 small">ISR pts 7 y 8 — Art. 701 (base sujeta: '+fmtL(art701Sujeta)+')</td><td class="text-right small text-danger">- '+fmtL(isr94)+'</td></tr>'
+      +'<tr class="table-danger"><td colspan="2" class="text-right font-weight-bold text-danger">Total deducciones legales</td><td class="text-right font-weight-bold text-danger">- '+fmtL(totalLegal)+'</td></tr>'
+      +'</tbody></table></div>'
+    // Personal deductions
+    +(checkedDeds.length?'<div class="alert alert-danger py-2 small mb-2"><strong>Deducciones personales:</strong>'
+      +checkedDeds.map(function(d){ return '<div class="d-flex justify-content-between"><span>(-) '+d.desc+'</span><span>- '+fmtL(d.quota)+'</span></div>'; }).join('')
+      +'</div>':'')
+    // Net card
+    +'<div class="card bg-success text-white mt-2 mb-2"><div class="card-body p-3"><div class="row align-items-center">'
+      +'<div class="col-6"><h5 class="mb-0"><i class="fas fa-dollar-sign mr-2"></i>NETO A PAGAR</h5>'
+        +'<small style="opacity:.8">Bruto: '+fmtL(total)+' — Ret.: '+fmtL(totalLegal)+(totalDed>0?' — Ded.: '+fmtL(totalDed):'')+'</small></div>'
+      +'<div class="col-6 text-right"><h4 class="mb-0"><strong>'+fmtL(netTotal)+'</strong></h4></div>'
+    +'</div></div></div>'
+    // Save + legal
+    +'<div class="text-right mt-2"><button class="btn btn-info btn-sm mr-2" onclick="saveLiqHistory(\''+empId+'\',\''+e.first_name+' '+e.last_name+'\',\''+reason+'\',\''+exitDate+'\','+netTotal+')"><i class="fas fa-save mr-1"></i>Guardar</button></div>'
+    +'<div class="mt-2 alert alert-warning small"><i class="fas fa-gavel mr-1"></i>Cálculo referencial según Arts. 225-230 C. Trabajo · Ley 51/2005 CSS · Código Fiscal Panamá.</div>';
+
+  document.getElementById('liq-print-btn').onclick=function(){
+    printLiq(e.first_name+' '+e.last_name,rl[reason]||reason,exitDate,{
+      salario:salario,preaviso:preaviso,vacProp:vacProp,decProp:decProp,otros:otros,parcial:parcial,
+      primaTotal:primaTotal,primaMonths:primaMonths,primaMensual:primaMensual,primaSemanal:primaSemanal,
+      antigSem:antigSem,primaDeduccion:primaDeduccion,antigSemNeta:antigSemNeta,
+      indem6mMensual:indem6mMensual,sal30:sal30,indemSemanalFav:indemSemanalFav,
+      indemBase:indemBase,recargo:recargo,recargoPct:recargoPct,indemnizacion:indemnizacion,
+      total:total,css91:css91,se92:se92,isr93:isr93,isr94:isr94,cssBase:cssBase,
+      art701Sujeta:art701Sujeta,isrRate:isrRate,floorYears:floorYears,indemWeeks:indemWeeks,
+      totalLegal:totalLegal,checkedDeds:checkedDeds,totalDed:totalDed,netTotal:netTotal
+    });
+  };
 }
 async function saveLiqHistory(empId,name,reason,date,total) { await Supa.ins('liquidation_history',{employee_id:empId,employee_name:name,reason:reason,exit_date:date,total_amount:total}); toast('✅ Guardado en historial'); loadLiqHistory(); }
 async function loadLiqHistory() {
   var hist=await Supa.sel('liquidation_history'); var tb=document.getElementById('liq-hist-tbody'); if(!tb) return;
   var h=Array.isArray(hist)?hist:[];
-  var rl={voluntaria:'Renuncia',acuerdo:'Mutuo Acuerdo',justificada:'Despido Just.',injustificada:'Despido Injust.',pension:'Jubilación',vencimiento:'Vencimiento'};
+  var rl={voluntaria:'Renuncia',sin_prev:'Renuncia s/Preaviso',acuerdo:'Mutuo Acuerdo',justificada:'Despido Just.',injustificada:'Despido Injust.',despido_preaviso:'Despido c/Preaviso',indem_25:'Indemn. +25%',indem_50:'Indemn. +50%',pension:'Jubilación',vencimiento:'Vencimiento'};
   tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><strong>'+r.employee_name+'</strong></td><td>'+(rl[r.reason]||r.reason)+'</td><td>'+(r.exit_date||'—')+'</td><td class="text-success"><strong>'+fmt(r.total_amount)+'</strong></td><td><small>'+(r.created_at||'').split('T')[0]+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delLiq(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="6" class="text-center p-3 text-muted">Sin historial.</td></tr>';
 }
 async function delLiq(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('liquidation_history',id); toast('Eliminado','info'); loadLiqHistory(); }
-function printLiq(name,reason,date,vac,dec,anti,prev,indem,total,deds,netTotal,totalLegal,ret) {
-  deds=deds||[]; netTotal=netTotal!=null?netTotal:total; totalLegal=totalLegal||0; ret=ret||{};
-  var w=window.open('','_blank','width=800,height:900');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Liquidación - '+name+'</title><style>body{font-family:Arial,sans-serif;max-width:680px;margin:40px auto;font-size:13px;color:#222}.header{text-align:center;border-bottom:2px solid #333;padding-bottom:15px;margin-bottom:25px}.sec-title{font-weight:700;font-size:.75rem;text-transform:uppercase;color:#666;margin:12px 0 4px}.item{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #eee}.item.sub{font-size:.82rem;color:#555;padding:3px 0 3px 12px;border-bottom:1px dashed #f0f0f0}.item.red{color:#dc3545}.total{background:#28a745;color:#fff;padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;font-size:1.1rem;font-weight:bold;margin-top:16px}.sig-area{display:flex;justify-content:space-around;margin-top:60px;text-align:center;gap:20px}.sig-line{border-top:1px solid #333;margin-top:40px;padding-top:6px;font-size:.78rem;color:#555;min-width:180px}.footer{margin-top:40px;font-size:10px;color:#888;border-top:1px solid #ccc;padding-top:10px;text-align:center}@media print{body{margin:15mm}}</style></head><body>'
-    +'<div class="header"><h4>'+A.companyName+'</h4><h5>CARTA DE LIQUIDACIÓN</h5><small>'+new Date().toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'})+'</small></div>'
-    +'<p>Trabajador: <strong>'+name+'</strong> · Motivo: <strong>'+reason+'</strong> · Egreso: <strong>'+date+'</strong></p><hr>'
-    +'<div class="sec-title">Devengado Bruto</div>'
-    +(vac>0?'<div class="item"><span>Vacaciones Proporcionales</span><span>B/. '+vac.toFixed(2)+'</span></div>':'')
-    +(dec>0?'<div class="item"><span>Décimo 3er Mes Proporcional</span><span>B/. '+dec.toFixed(2)+'</span></div>':'')
-    +'<div class="item"><span>Prima de Antigüedad (exenta)</span><span>B/. '+anti.toFixed(2)+'</span></div>'
-    +(prev>0?'<div class="item"><span>Preaviso</span><span>B/. '+prev.toFixed(2)+'</span></div>':'')
-    +(indem>0?'<div class="item"><span>Indemnización por Despido Injustificado (exenta)</span><span>B/. '+indem.toFixed(2)+'</span></div>':'')
-    +'<div class="item" style="font-weight:700"><span>Subtotal Bruto</span><span>B/. '+total.toFixed(2)+'</span></div>'
-    +'<div class="sec-title">Retenciones Legales</div>'
-    +(vac>0?'<div class="item sub red"><span>Vacaciones — CSS 9.75%</span><span>- B/. '+(ret.vacCSS||0).toFixed(2)+'</span></div><div class="item sub red"><span>Vacaciones — SE 1.25%</span><span>- B/. '+(ret.vacSE||0).toFixed(2)+'</span></div><div class="item sub red"><span>Vacaciones — ISR</span><span>- B/. '+(ret.vacISR||0).toFixed(2)+'</span></div>':'')
-    +(dec>0?'<div class="item sub red"><span>Décimo 3er — CSS 7.25%</span><span>- B/. '+(ret.decCSS||0).toFixed(2)+'</span></div><div class="item sub red"><span>Décimo 3er — SE 1.25%</span><span>- B/. '+(ret.decSE||0).toFixed(2)+'</span></div>':'')
-    +(prev>0?'<div class="item sub red"><span>Preaviso — CSS 9.75%</span><span>- B/. '+(ret.prevCSS||0).toFixed(2)+'</span></div><div class="item sub red"><span>Preaviso — SE 1.25%</span><span>- B/. '+(ret.prevSE||0).toFixed(2)+'</span></div><div class="item sub red"><span>Preaviso — ISR</span><span>- B/. '+(ret.prevISR||0).toFixed(2)+'</span></div>':'')
-    +'<div class="item red" style="font-weight:700"><span>Total Retenciones</span><span>- B/. '+totalLegal.toFixed(2)+'</span></div>'
-    +(deds.length?'<div class="sec-title">Deducciones Personales</div>'+deds.map(function(d){ return '<div class="item red"><span>(-) '+d.desc+'</span><span>- B/. '+d.quota.toFixed(2)+'</span></div>'; }).join(''):'')
-    +'<div class="total"><span>NETO A PAGAR</span><span>B/. '+netTotal.toFixed(2)+'</span></div>'
+function printLiq(name,reason,date,d) {
+  d=d||{}; var deds=d.checkedDeds||[]; var netTotal=d.netTotal||0;
+  function fL(n){ return 'B/. '+(n||0).toFixed(2); }
+  var w=window.open('','_blank','width=800,height=900');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Liquidación - '+name+'</title>'
+    +'<style>body{font-family:Arial,sans-serif;max-width:700px;margin:30px auto;font-size:12px;color:#222}'
+    +'.header{text-align:center;border-bottom:2px solid #333;padding-bottom:12px;margin-bottom:18px}'
+    +'.sec-title{font-weight:700;font-size:.72rem;text-transform:uppercase;color:#666;margin:10px 0 3px;border-left:3px solid #007bff;padding-left:6px}'
+    +'.item{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #eee}'
+    +'.item.sub{font-size:.8rem;color:#666;padding:2px 0 2px 14px;border-bottom:1px dashed #f0f0f0}'
+    +'.item.sub-note{font-size:.75rem;color:#999;padding:1px 0 1px 14px;border:none;font-style:italic}'
+    +'.item.red{color:#dc3545}.item.bold{font-weight:700}'
+    +'.highlight{background:#f8f9fa;padding:4px 8px;border-radius:4px;margin:4px 0}'
+    +'.total-box{background:#28a745;color:#fff;padding:12px 16px;border-radius:8px;display:flex;justify-content:space-between;font-size:1.05rem;font-weight:bold;margin-top:14px}'
+    +'.sig-area{display:flex;justify-content:space-around;margin-top:50px;text-align:center;gap:16px}'
+    +'.sig-line{border-top:1px solid #333;margin-top:35px;padding-top:5px;font-size:.72rem;color:#555;min-width:160px}'
+    +'.footer{margin-top:30px;font-size:10px;color:#888;border-top:1px solid #ccc;padding-top:8px;text-align:center}'
+    +'@media print{body{margin:12mm}}</style></head><body>'
+    +'<div class="header"><h4>'+A.companyName+'</h4><h5>CARTA DE LIQUIDACIÓN</h5>'
+      +'<small>'+new Date().toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'})+'</small></div>'
+    +'<p>Trabajador: <strong>'+name+'</strong> &nbsp;|&nbsp; Motivo: <strong>'+reason+'</strong> &nbsp;|&nbsp; Egreso: <strong>'+date+'</strong></p>'
+    +'<p style="font-size:.82rem;color:#555">Tiempo trabajado: <strong>'+(d.floorYears||0)+' años</strong> &nbsp;|&nbsp; Semanas prima: <strong>'+(d.floorYears||0)+'</strong> &nbsp;|&nbsp; Semanas indem.: <strong>'+(d.indemWeeks||0)+'</strong></p><hr>'
+    // 1-6
+    +'<div class="sec-title">1–6. Conceptos de Base</div>'
+    +'<div class="item"><span>1. Salario</span><span>'+fL(d.salario)+'</span></div>'
+    +'<div class="item"><span>2. Preaviso</span><span>'+fL(d.preaviso)+'</span></div>'
+    +'<div class="item"><span>3. Vacaciones Proporcionales</span><span>'+fL(d.vacProp)+'</span></div>'
+    +'<div class="item"><span>4. Décimo Tercer Mes Proporcional</span><span>'+fL(d.decProp)+'</span></div>'
+    +'<div class="item sub"><span>5. Gasto de Representación</span><span>B/. 0.00</span></div>'
+    +'<div class="item"><span>6. Otros Ingresos y Gastos</span><span>'+fL(d.otros)+'</span></div>'
+    +'<div class="item bold highlight"><span>PARCIAL (1–4 + 6)</span><span>'+fL(d.parcial)+'</span></div>'
+    // 7
+    +'<div class="sec-title">7. Prima de Antigüedad</div>'
+    +'<div class="item sub"><span>7.1 Base para el cálculo: '+fL(d.primaTotal)+' ('+d.primaMonths+' meses)</span><span></span></div>'
+    +'<div class="item sub"><span>7.2 Promedio mensual: '+fL(d.primaTotal)+' / '+d.primaMonths+' = '+fL(d.primaMensual)+'</span><span></span></div>'
+    +'<div class="item sub"><span>7.3 Promedio semanal: '+fL(d.primaMensual)+' / 4.3333 = '+fL(d.primaSemanal)+'</span><span></span></div>'
+    +'<div class="item sub"><span>7.4 Prima (auto): '+fL(d.primaSemanal)+' × '+(d.floorYears||0)+' sem.</span><span>'+fL(d.antigSem)+'</span></div>'
+    +'<div class="item sub"><span>7.5 Prima (manual)</span><span>'+fL(d.antigSem)+'</span></div>'
+    +((d.primaDeduccion||0)>0?'<div class="item sub red"><span>7.6 Menos preaviso Art. 222</span><span>- '+fL(d.primaDeduccion)+'</span></div>':'')
+    +'<div class="item bold"><span>7.7 PRIMA A PAGAR</span><span>'+fL(d.antigSemNeta)+'</span></div>'
+    // 8
+    +'<div class="sec-title">8. Indemnización</div>'
+    +'<div class="item sub"><span>8.1 Salario últimos 6 meses</span><span>'+fL(d.indem6mMensual*6)+'</span></div>'
+    +'<div class="item sub"><span>8.2 Promedio mensual</span><span>'+fL(d.indem6mMensual)+'</span></div>'
+    +'<div class="item sub"><span>8.3 Salario 30 días</span><span>'+fL(d.sal30)+'</span></div>'
+    +'<div class="item sub"><span>8.4 Promedio semanal (más favorable)</span><span>'+fL(d.indemSemanalFav)+'</span></div>'
+    +'<div class="item sub"><span>8.5 Indemnización: '+fL(d.indemSemanalFav)+' × '+(d.indemWeeks||0)+' sem.</span><span>'+fL(d.indemBase)+'</span></div>'
+    +((d.recargo||0)>0?'<div class="item sub"><span>8.6 Recargo '+((d.recargoPct||0)*100)+'%</span><span>'+fL(d.recargo)+'</span></div>':'')
+    +'<div class="item sub"><span>8.7 Indemnización (manual)</span><span>'+fL(d.indemnizacion)+'</span></div>'
+    +'<div class="item bold"><span>8.8 INDEMNIZACIÓN A PAGAR</span><span>'+fL(d.indemnizacion)+'</span></div>'
+    +'<div class="item bold highlight"><span>TOTAL ANTES DE DEDUCCIONES</span><span>'+fL(d.total)+'</span></div>'
+    // 9
+    +'<div class="sec-title">9. Descuentos Legales</div>'
+    +'<div class="item sub red"><span>9.1 Seguro Social (9.75%) — base '+fL(d.cssBase)+'</span><span>- '+fL(d.css91)+'</span></div>'
+    +'<div class="item sub red"><span>9.2 Seguro Educativo (1.25%)</span><span>- '+fL(d.se92)+'</span></div>'
+    +'<div class="item sub red"><span>9.3 ISR pts 1 al 6 ('+((d.isrRate||0)*100).toFixed(2)+'%)</span><span>- '+fL(d.isr93)+'</span></div>'
+    +'<div class="item sub red"><span>9.4 ISR pts 7 y 8 — Art. 701 (base sujeta: '+fL(d.art701Sujeta)+')</span><span>- '+fL(d.isr94)+'</span></div>'
+    +'<div class="item bold red"><span>Total deducciones legales</span><span>- '+fL(d.totalLegal)+'</span></div>'
+    +(deds.length?'<div class="sec-title">Deducciones Personales</div>'+deds.map(function(x){ return '<div class="item sub red"><span>(-) '+x.desc+'</span><span>- '+fL(x.quota)+'</span></div>'; }).join(''):'')
+    +'<div class="total-box"><span>NETO A PAGAR</span><span>'+fL(netTotal)+'</span></div>'
     +'<div class="sig-area"><div><div class="sig-line">Firma del Trabajador<br>'+name+'</div></div><div><div class="sig-line">Firma del Empleador<br>'+A.companyName+'</div></div></div>'
     +'<div class="footer">Arts. 225-230 C. Trabajo · Ley 51/2005 CSS · Código Fiscal — República de Panamá · HR Admin Panel</div>'
     +'<script>window.onload=function(){window.print();}<\/script></body></html>');
