@@ -3719,7 +3719,7 @@ function openZKTecoTab() {
   var tc = document.querySelector('#pg-settings .tab-content');
   if(tc) Array.from(tc.children).forEach(function(p){
     p.classList.remove('show','active');
-    p.style.display = ''; // clear Bootstrap inline display
+    p.style.display = 'none';
   });
 
   var pane = document.getElementById('st-zkteco');
