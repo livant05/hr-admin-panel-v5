@@ -3715,7 +3715,6 @@ function openZKTecoTab() {
   document.querySelectorAll('#pg-settings .nav-tabs .nav-link').forEach(function(l){ l.classList.remove('active'); });
   document.getElementById('nav-zkteco-tab').classList.add('active');
 
-  // Switch pane using Bootstrap classes only — no manual display:none
   var tc = document.querySelector('#pg-settings .tab-content');
   if(tc) Array.from(tc.children).forEach(function(p){
     p.classList.remove('show','active');
@@ -3727,6 +3726,20 @@ function openZKTecoTab() {
 
   loadZKTeco();
 }
+
+// Clears ZKTeco inline display overrides when switching to any other settings tab
+(function(){
+  document.addEventListener('DOMContentLoaded', function(){
+    var nav = document.querySelector('#pg-settings .nav-tabs');
+    if(!nav) return;
+    nav.addEventListener('click', function(e){
+      var link = e.target.closest('.nav-link');
+      if(!link || link.id === 'nav-zkteco-tab') return;
+      var tc = document.querySelector('#pg-settings .tab-content');
+      if(tc) Array.from(tc.children).forEach(function(p){ p.style.display = ''; });
+    });
+  });
+})();
 
 async function loadZKTeco() {
   // Load devices
