@@ -686,30 +686,55 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 
 <!-- DEDUCTIONS -->
 <div id="pg-deductions" class="page-section">
-  <div class="content-header"><div class="container-fluid"><h1><i class="fas fa-minus-circle mr-2"></i>Deducciones Personalizadas</h1></div></div>
+  <div class="content-header"><div class="container-fluid"><h1><i class="fas fa-minus-circle mr-2"></i>Registro de Deducciones</h1></div></div>
   <section class="content"><div class="container-fluid"><div class="row">
     <div class="col-md-5"><div class="card"><div class="card-header bg-danger"><h3 class="card-title text-white">Nueva Deducción</h3></div>
       <div class="card-body">
-        <div class="form-group"><label>Empleado *</label><select id="ded-emp" class="form-control form-control-sm"><option value="">— Seleccionar —</option></select></div>
-        <div class="form-group"><select id="ded-type" class="form-control form-control-sm"><option value="prestamo">Préstamo</option><option value="anticipo">Anticipo</option><option value="embargo">Embargo</option><option value="caja_ahorro">Caja de Ahorro</option><option value="seguro">Seguro Privado</option><option value="otro">Otro</option></select></div>
+        <div class="form-row">
+          <div class="col-8 form-group"><label>Empleado *</label><select id="ded-emp" class="form-control form-control-sm" onchange="onDedEmpChange()"><option value="">— Seleccionar —</option></select></div>
+          <div class="col-4 form-group"><label>Cédula</label><input type="text" id="ded-cedula" class="form-control form-control-sm" placeholder="Auto" readonly></div>
+        </div>
+        <div class="form-row">
+          <div class="col form-group"><label>Nombre del Acreedor *</label><input type="text" id="ded-acreedor" class="form-control form-control-sm" placeholder="Ej: Banistmo S.A."></div>
+          <div class="col form-group"><label>Código Acreedor</label><input type="text" id="ded-cod-acreedor" class="form-control form-control-sm" placeholder="BANIST"></div>
+        </div>
+        <div class="form-row">
+          <div class="col form-group"><label>Tipo de Pago</label><select id="ded-tipo-pago" class="form-control form-control-sm"><option value="Cheque">Cheque</option><option value="Transferencia">Transferencia</option><option value="Ajuste de Saldo">Ajuste de Saldo</option><option value="Descuento Nómina">Descuento Nómina</option></select></div>
+          <div class="col form-group"><label>Categoría</label><select id="ded-type" class="form-control form-control-sm"><option value="prestamo">Préstamo</option><option value="anticipo">Anticipo</option><option value="embargo">Embargo</option><option value="caja_ahorro">Caja de Ahorro</option><option value="seguro">Seguro Privado</option><option value="otro">Otro</option></select></div>
+        </div>
+        <div class="form-row">
+          <div class="col form-group"><label>Centro de Costo</label><input type="text" id="ded-costo" class="form-control form-control-sm" placeholder="Ej: DAVID"></div>
+          <div class="col form-group"><label>Prioridad</label><select id="ded-prioridad" class="form-control form-control-sm"><option value="1">1 — Más alta</option><option value="2">2</option><option value="3">3</option><option value="4" selected>4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8 — Más baja</option></select></div>
+        </div>
         <div class="form-row">
           <div class="col form-group"><label>Monto Total (B/.)</label><input type="number" id="ded-total" class="form-control form-control-sm" step="0.01" oninput="calcDed()"></div>
-          <div class="col form-group"><label>Cuota/Mes (B/.)</label><input type="number" id="ded-quota" class="form-control form-control-sm" step="0.01" oninput="calcDed()"></div>
+          <div class="col form-group"><label>Monto Descontado/Cuota</label><input type="number" id="ded-quota" class="form-control form-control-sm" step="0.01" oninput="calcDed()"></div>
         </div>
-        <div class="form-group"><label>Fecha Inicio</label><input type="date" id="ded-start" class="form-control form-control-sm"></div>
-        <div class="form-group"><input type="text" id="ded-desc" class="form-control form-control-sm" placeholder="Descripción..."></div>
-        <div class="card card-outline card-danger mb-3"><div class="card-body p-3"><div class="row text-center">
+        <div class="form-row">
+          <div class="col form-group"><label>Fecha de Inicio</label><input type="date" id="ded-start" class="form-control form-control-sm"></div>
+          <div class="col form-group"><label>Fecha Final</label><input type="date" id="ded-end" class="form-control form-control-sm"></div>
+        </div>
+        <div class="form-group"><label>Descripción / Referencia</label><input type="text" id="ded-desc" class="form-control form-control-sm" placeholder="Referencia o nota..."></div>
+        <div class="card card-outline card-danger mb-3"><div class="card-body p-2"><div class="row text-center">
           <div class="col"><small class="text-muted d-block">Cuotas Est.</small><strong id="ded-cuotas">—</strong></div>
-          <div class="col"><small class="text-muted d-block">Fecha Término</small><strong id="ded-end-est">—</strong></div>
+          <div class="col"><small class="text-muted d-block">Fecha Término Est.</small><strong id="ded-end-est">—</strong></div>
         </div></div></div>
         <button class="btn btn-danger btn-block" onclick="saveDed()"><i class="fas fa-save mr-1"></i>Guardar</button>
       </div></div></div>
-    <div class="col-md-7"><div class="card"><div class="card-header"><h3 class="card-title">Deducciones Activas</h3>
-      <div class="card-tools"><button class="btn btn-sm btn-success" onclick="exportDedCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar</button></div>
-    </div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-hover mb-0">
-      <thead class="thead-light"><tr><th>Empleado</th><th>Tipo</th><th>Cuota/Mes</th><th>Restante</th><th>Inicio</th><th>Estado</th><th></th></tr></thead>
-      <tbody id="ded-tbody"></tbody>
-    </table></div></div></div></div>
+    <div class="col-md-7"><div class="card">
+      <div class="card-header">
+        <h3 class="card-title">Historial de Deducciones</h3>
+        <div class="card-tools d-flex align-items-center" style="gap:6px">
+          <button class="btn btn-sm btn-success" onclick="exportDedCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar PayDay</button>
+          <label class="btn btn-sm btn-info mb-0"><i class="fas fa-file-upload mr-1"></i>Importar PayDay<input type="file" id="ded-import-file" accept=".csv,.xlsx" style="display:none" onchange="importDedCSV(this)"></label>
+        </div>
+      </div>
+      <div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-hover mb-0">
+        <thead class="thead-light"><tr><th>Empleado</th><th>Cédula</th><th>Acreedor</th><th>Tipo Pago</th><th>Cuota</th><th>Saldo</th><th>Inicio</th><th>Fin</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="ded-tbody"></tbody>
+      </table></div></div>
+      <div class="card-footer py-1"><small class="text-muted">Formato compatible con exportación PayDay — 24 columnas (Código de Acreedor, Nombre del Empleado, Cédula, Nombre del Acreedor, Tipo de Pago, Monto descontado, Saldo del Empleado...)</small></div>
+    </div></div>
   </div></div></section>
 </div>
 
@@ -823,7 +848,14 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
         <div class="card">
           <div class="card-header bg-primary"><h3 class="card-title text-white">Registrar Período</h3></div>
           <div class="card-body">
-            <div class="form-group"><label>Empleado *</label><select id="pr-emp" class="form-control form-control-sm"><option value="">— Seleccionar —</option></select></div>
+            <div class="form-row">
+              <div class="col-8 form-group"><label>Empleado *</label><select id="pr-emp" class="form-control form-control-sm" onchange="onPREmpChange()"><option value="">— Seleccionar —</option></select></div>
+              <div class="col-4 form-group"><label>Cédula</label><input type="text" id="pr-cedula" class="form-control form-control-sm" placeholder="Auto" readonly></div>
+            </div>
+            <div class="form-row">
+              <div class="col form-group"><label>N° Planilla</label><input type="text" id="pr-num-planilla" class="form-control form-control-sm" placeholder="Ej: 4558"></div>
+              <div class="col form-group"><label>Centro de Costo</label><input type="text" id="pr-centro-costo" class="form-control form-control-sm" placeholder="Ej: DAVID"></div>
+            </div>
             <div class="form-row">
               <div class="col form-group"><label>Año</label><input type="number" id="pr-year2" class="form-control form-control-sm" value="2025"></div>
               <div class="col form-group"><label>Mes</label><select id="pr-month2" class="form-control form-control-sm">
@@ -879,7 +911,7 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
             <div class="table-responsive">
               <table class="table table-sm table-hover mb-0">
                 <thead class="thead-light">
-                  <tr><th>Empleado</th><th>Período</th><th>Bruto</th><th>HE</th><th>Comis.</th><th>CSS</th><th>SE</th><th>ISR</th><th>Neto</th><th></th></tr>
+                  <tr><th>Nombre del Empleado</th><th>Cédula</th><th>N° Planilla</th><th>Período</th><th>Centro Costo</th><th>Salario Bruto</th><th>HH.EE.</th><th>Comisiones</th><th>CSS</th><th>SE</th><th>ISR</th><th>Salario Neto</th><th></th></tr>
                 </thead>
                 <tbody id="pr-records-tbody"></tbody>
                 <tfoot id="pr-records-tfoot"></tfoot>
@@ -888,9 +920,9 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
           </div>
         </div>
         <div class="card mt-2">
-          <div class="card-header"><h3 class="card-title text-sm">Formato CSV para importar</h3></div>
+          <div class="card-header"><h3 class="card-title text-sm">Formato CSV para importar (compatible PayDay)</h3></div>
           <div class="card-body py-2">
-            <code class="small">employee_name,period_year,period_month,gross_salary,overtime_amount,commissions,bonuses,vacations_paid,other_income,css_employee,se_employee,isr,other_deductions,net_salary,notes</code>
+            <code class="small">Nombre del Empleado,Cédula del Empleado,Número de Planilla,Período,Centro de Costo,Salario Bruto,Horas Extras,Comisiones,Bonos,Vacaciones Pagadas,Otros Ingresos,CSS Empleado,SE Empleado,ISR,Otras Deducciones,Salario Neto,Notas</code>
           </div>
         </div>
       </div>
@@ -2630,8 +2662,13 @@ async function loadPayRecords() {
   var MONTHS_SHORT=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
   var tb=document.getElementById('pr-records-tbody');
   if(tb) tb.innerHTML=rows.length?rows.map(function(r){
-    return '<tr><td><strong>'+r.employee_name+'</strong></td>'
-      +'<td>'+MONTHS_SHORT[(r.period_month||1)-1]+' '+r.period_year+'</td>'
+    var per=r.periodo||(MONTHS_SHORT[(r.period_month||1)-1]+' '+r.period_year);
+    return '<tr>'
+      +'<td><strong>'+r.employee_name+'</strong></td>'
+      +'<td><small>'+(r.cedula||'—')+'</small></td>'
+      +'<td><small>'+(r.numero_planilla||'—')+'</small></td>'
+      +'<td>'+per+'</td>'
+      +'<td><small>'+(r.centro_costo||'—')+'</small></td>'
       +'<td class="text-success">'+fmt(r.gross_salary||0)+'</td>'
       +'<td>'+fmt(r.overtime_amount||0)+'</td>'
       +'<td>'+fmt(r.commissions||0)+'</td>'
@@ -2639,8 +2676,9 @@ async function loadPayRecords() {
       +'<td class="text-danger">-'+fmt(r.se_employee||0)+'</td>'
       +'<td class="text-danger">-'+fmt(r.isr||0)+'</td>'
       +'<td class="text-primary"><strong>'+fmt(r.net_salary||0)+'</strong></td>'
-      +'<td><button class="btn btn-xs btn-outline-danger" onclick="delPayRecord(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
-  }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin registros. Importá un CSV o registrá períodos manualmente.</td></tr>';
+      +'<td><button class="btn btn-xs btn-outline-danger" onclick="delPayRecord(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td>'
+      +'</tr>';
+  }).join(''):'<tr><td colspan="13" class="text-center p-3 text-muted">Sin registros. Importá un CSV o registrá períodos manualmente.</td></tr>';
   if(rows.length){
     var tot=rows.reduce(function(s,r){ return {g:s.g+(r.gross_salary||0),n:s.n+(r.net_salary||0),css:s.css+(r.css_employee||0)}; },{g:0,n:0,css:0});
     var tf=document.getElementById('pr-records-tfoot');
@@ -2683,7 +2721,20 @@ async function savePayRecord() {
   var isr=parseFloat(gv('pr-isr'))||0;
   var otherDed=parseFloat(gv('pr-other-ded'))||0;
   var net=totalEarned-css-se-isr-otherDed;
-  await Supa.ins('employee_pay_records',{employee_id:empId,employee_name:empName,period_year:yr,period_month:mo,gross_salary:gross,overtime_amount:ot,commissions:comm,bonuses:bonus,vacations_paid:vacPaid,other_income:otherInc,total_earned:totalEarned,css_employee:css,se_employee:se,isr:isr,other_deductions:otherDed,net_salary:net,notes:gv('pr-notes')});
+  var MONTHS_STR=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var periodo=MONTHS_STR[mo-1]+' '+yr;
+  await Supa.ins('employee_pay_records',{
+    employee_id:empId,employee_name:empName,
+    cedula:gv('pr-cedula')||'',
+    numero_planilla:gv('pr-num-planilla')||'',
+    centro_costo:gv('pr-centro-costo')||'',
+    period_year:yr,period_month:mo,periodo:periodo,
+    gross_salary:gross,overtime_amount:ot,commissions:comm,
+    bonuses:bonus,vacations_paid:vacPaid,other_income:otherInc,
+    total_earned:totalEarned,
+    css_employee:css,se_employee:se,isr:isr,
+    other_deductions:otherDed,net_salary:net,notes:gv('pr-notes')
+  });
   toast('Registro guardado');
   ['pr-gross','pr-ot','pr-comm','pr-bonus','pr-vac-paid','pr-other-inc','pr-css','pr-se','pr-isr','pr-other-ded'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value='0'; });
   document.getElementById('pr-notes').value='';
@@ -2698,13 +2749,33 @@ async function delPayRecord(id) {
   loadPayRecords();
 }
 
+async function onPREmpChange() {
+  var empId=gv('pr-emp'); if(!empId){document.getElementById('pr-cedula').value='';return;}
+  var emps=await Supa.sel('employees',{id:empId}), emp=Array.isArray(emps)?emps[0]:null;
+  var el=document.getElementById('pr-cedula'); if(el) el.value=emp?(emp.cedula||''):'';
+}
 function exportPayRecordsCSV() {
   Supa.sel('employee_pay_records').then(function(recs){
     if(!Array.isArray(recs)||!recs.length){toast('Sin datos','warning');return;}
-    var hdr=['employee_name','period_year','period_month','gross_salary','overtime_amount','commissions','bonuses','vacations_paid','other_income','css_employee','se_employee','isr','other_deductions','net_salary','notes'];
-    var csv=[hdr].concat(recs.map(function(r){ return hdr.map(function(k){ return '"'+(r[k]!=null?r[k]:'')+'"'; }); })).map(function(row){ return row.join(','); }).join('\n');
-    downCSV(csv,'historial_planilla.csv');
-    toast('Exportado');
+    var hdr=['Nombre del Empleado','Cédula del Empleado','Número de Planilla','Período','Centro de Costo','Salario Bruto','Horas Extras','Comisiones','Bonos','Vacaciones Pagadas','Otros Ingresos','CSS Empleado','SE Empleado','ISR','Otras Deducciones','Salario Neto','Notas'];
+    var MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    var rows=recs.map(function(r){
+      var per=r.periodo||(MONTHS[(r.period_month||1)-1]+' '+r.period_year);
+      return [
+        r.employee_name||'', r.cedula||'',
+        r.numero_planilla||'', per,
+        r.centro_costo||'',
+        r.gross_salary||0, r.overtime_amount||0,
+        r.commissions||0, r.bonuses||0,
+        r.vacations_paid||0, r.other_income||0,
+        r.css_employee||0, r.se_employee||0,
+        r.isr||0, r.other_deductions||0,
+        r.net_salary||0, r.notes||''
+      ];
+    });
+    var csv=[hdr].concat(rows).map(function(r){ return r.map(function(x){ return '"'+(x!=null?x:'')+'"'; }).join(','); }).join('\n');
+    downCSV(csv,'historial_planilla_payday.csv');
+    toast('Exportado en formato PayDay');
   });
 }
 
@@ -2715,28 +2786,47 @@ function importPayRecordsCSV(input) {
     var lines=e.target.result.split('\n').map(function(l){return l.trim();}).filter(Boolean);
     if(lines.length<2){toast('CSV vacío o inválido','warning');return;}
     var headers=lines[0].split(',').map(function(h){return h.replace(/"/g,'').trim();});
+    var idx=function(n){return headers.indexOf(n);};
+    var MONTHS_MAP={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
     var records=[];
     for(var i=1;i<lines.length;i++){
-      var vals=lines[i].split(',').map(function(v){return v.replace(/^"|"$/g,'').trim();});
-      var rec={};
-      headers.forEach(function(h,idx){ rec[h]=vals[idx]||''; });
+      var vals=lines[i].match(/(".*?"|[^,]+)(?=,|$)/g)||[];
+      vals=vals.map(function(v){return v.replace(/^"|"$/g,'').trim();});
+      var v=function(n){var ix=idx(n); return ix>=0?(vals[ix]||''):'';};
+      // Support both PayDay Spanish headers and internal English headers
+      var empName=v('Nombre del Empleado')||v('employee_name')||'';
+      var cedula=v('Cédula del Empleado')||v('cedula')||'';
+      var numPlan=v('Número de Planilla')||v('numero_planilla')||'';
+      var periodo=v('Período')||v('period')||'';
+      var costo=v('Centro de Costo')||v('centro_costo')||'';
+      var gross=parseFloat(v('Salario Bruto')||v('gross_salary'))||0;
+      var ot=parseFloat(v('Horas Extras')||v('overtime_amount'))||0;
+      var comm=parseFloat(v('Comisiones')||v('commissions'))||0;
+      var bonus=parseFloat(v('Bonos')||v('bonuses'))||0;
+      var vacP=parseFloat(v('Vacaciones Pagadas')||v('vacations_paid'))||0;
+      var otInc=parseFloat(v('Otros Ingresos')||v('other_income'))||0;
+      var css=parseFloat(v('CSS Empleado')||v('css_employee'))||0;
+      var se=parseFloat(v('SE Empleado')||v('se_employee'))||0;
+      var isr=parseFloat(v('ISR')||v('isr'))||0;
+      var otDed=parseFloat(v('Otras Deducciones')||v('other_deductions'))||0;
+      var net=parseFloat(v('Salario Neto')||v('net_salary'))||0;
+      var notes=v('Notas')||v('notes')||'';
+      // Parse period string "Enero 2025" → month/year
+      var yr=parseInt(v('period_year'))||0, mo=parseInt(v('period_month'))||0;
+      if(!yr&&periodo){
+        var parts=periodo.trim().split(/\s+/);
+        if(parts.length===2){ var mKey=parts[0].toLowerCase(); mo=MONTHS_MAP[mKey]||mo; yr=parseInt(parts[1])||yr; }
+      }
+      if(!empName||!yr) continue;
       records.push({
-        employee_name:rec.employee_name||'',
-        period_year:parseInt(rec.period_year)||0,
-        period_month:parseInt(rec.period_month)||0,
-        gross_salary:parseFloat(rec.gross_salary)||0,
-        overtime_amount:parseFloat(rec.overtime_amount)||0,
-        commissions:parseFloat(rec.commissions)||0,
-        bonuses:parseFloat(rec.bonuses)||0,
-        vacations_paid:parseFloat(rec.vacations_paid)||0,
-        other_income:parseFloat(rec.other_income)||0,
-        total_earned:(parseFloat(rec.gross_salary)||0)+(parseFloat(rec.overtime_amount)||0)+(parseFloat(rec.commissions)||0)+(parseFloat(rec.bonuses)||0)+(parseFloat(rec.vacations_paid)||0)+(parseFloat(rec.other_income)||0),
-        css_employee:parseFloat(rec.css_employee)||0,
-        se_employee:parseFloat(rec.se_employee)||0,
-        isr:parseFloat(rec.isr)||0,
-        other_deductions:parseFloat(rec.other_deductions)||0,
-        net_salary:parseFloat(rec.net_salary)||0,
-        notes:rec.notes||''
+        employee_name:empName,cedula:cedula,
+        numero_planilla:numPlan,periodo:periodo,centro_costo:costo,
+        period_year:yr,period_month:mo,
+        gross_salary:gross,overtime_amount:ot,commissions:comm,
+        bonuses:bonus,vacations_paid:vacP,other_income:otInc,
+        total_earned:gross+ot+comm+bonus+vacP+otInc,
+        css_employee:css,se_employee:se,isr:isr,
+        other_deductions:otDed,net_salary:net,notes:notes
       });
     }
     var ok=0;
@@ -2745,10 +2835,9 @@ function importPayRecordsCSV(input) {
       if(res&&!res.error) ok++;
     }
     toast('Importados '+ok+'/'+records.length+' registros');
-    input.value='';
-    loadPayRecords();
+    input.value=''; loadPayRecords();
   };
-  reader.readAsText(file);
+  reader.readAsText(file,'UTF-8');
 }
 
 async function getEmpPayBases(empId) {
@@ -2825,23 +2914,133 @@ function calcDed() {
   if(cuotasEl) cuotasEl.textContent=cuotas+' cuotas';
   if(endEl) endEl.textContent=endDate.toLocaleDateString('es-PA',{year:'numeric',month:'long'});
 }
+async function onDedEmpChange() {
+  var empId=gv('ded-emp'); if(!empId){document.getElementById('ded-cedula').value='';return;}
+  var emps=await Supa.sel('employees',{id:empId}), emp=Array.isArray(emps)?emps[0]:null;
+  var el=document.getElementById('ded-cedula'); if(el) el.value=emp?(emp.cedula||''):'';
+}
 async function saveDed() {
   var empId=gv('ded-emp'); if(!empId){toast('Selecciona empleado','warning');return;}
-  var quota=parseFloat(gv('ded-quota'))||0; if(!quota){toast('Ingresa la cuota mensual','warning');return;}
-  var total=parseFloat(gv('ded-total'))||0;
+  var quota=parseFloat(gv('ded-quota'))||0; if(!quota){toast('Ingresa el monto descontado','warning');return;}
+  if(!gv('ded-acreedor')){toast('Ingresa el nombre del acreedor','warning');return;}
+  var total=parseFloat(gv('ded-total'))||quota;
   var emps=await Supa.sel('employees',{id:empId}), emp=Array.isArray(emps)?emps[0]:null;
-  await Supa.ins('deductions',{employee_id:empId,employee_name:emp?emp.first_name+' '+emp.last_name:'—',type:gv('ded-type')||'prestamo',description:gv('ded-desc'),total_amount:total,quota:quota,remaining:total,start_date:gv('ded-start')||TS,status:'active'});
-  toast('✅ Deducción guardada'); renderDedTable();
+  var sd=gv('ded-start')||TS, ed=gv('ded-end')||null;
+  var startD=new Date(sd), endD=ed?new Date(ed):null;
+  var periodo=startD.getFullYear().toString();
+  if(endD&&endD.getFullYear()!==startD.getFullYear()) periodo+='-'+endD.getFullYear();
+  await Supa.ins('deductions',{
+    employee_id:empId,
+    employee_name:emp?emp.first_name+' '+emp.last_name:'—',
+    cedula:gv('ded-cedula')||'',
+    type:gv('ded-type')||'prestamo',
+    description:gv('ded-desc'),
+    acreedor_nombre:gv('ded-acreedor'),
+    acreedor_codigo:gv('ded-cod-acreedor'),
+    tipo_pago:gv('ded-tipo-pago')||'Cheque',
+    centro_costo:gv('ded-costo'),
+    prioridad:parseInt(gv('ded-prioridad'))||4,
+    total_amount:total,quota:quota,remaining:total,
+    start_date:sd,end_date:ed,
+    periodo:periodo,
+    status:'active'
+  });
+  toast('Deducción guardada'); renderDedTable();
 }
 function renderDedTable() {
   var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId; });
-  var tl={prestamo:'Préstamo',anticipo:'Anticipo',embargo:'Embargo',caja_ahorro:'Caja Ahorro',seguro:'Seguro',otro:'Otro'};
   var tb=document.getElementById('ded-tbody');
-  if(tb) tb.innerHTML=deds.length?deds.map(function(d){ return '<tr><td><strong>'+d.employee_name+'</strong></td><td>'+(tl[d.type]||d.type)+'</td><td class="text-danger">'+fmt(d.quota)+'/mes</td><td>'+(d.remaining>0?fmt(d.remaining):'<span class="badge badge-success">Saldado</span>')+'</td><td><small>'+d.start_date+'</small></td><td><span class="badge badge-'+(d.status==='active'?'warning':'success')+'">'+(d.status==='active'?'Activa':'Saldada')+'</span></td><td><button class="btn btn-xs btn-outline-success mr-1" onclick="saldaDed(\''+d.id+'\')" title="Marcar como saldada"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delDed(\''+d.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin deducciones registradas.</td></tr>';
+  if(tb) tb.innerHTML=deds.length?deds.map(function(d){
+    return '<tr>'
+      +'<td><strong>'+d.employee_name+'</strong></td>'
+      +'<td><small>'+(d.cedula||'—')+'</small></td>'
+      +'<td>'+(d.acreedor_nombre||d.description||d.type||'—')+'</td>'
+      +'<td><small>'+(d.tipo_pago||'—')+'</small></td>'
+      +'<td class="text-danger">'+fmt(d.quota)+'</td>'
+      +'<td>'+(d.remaining>0?fmt(d.remaining):'<span class="badge badge-success">Saldado</span>')+'</td>'
+      +'<td><small>'+(d.start_date||'—')+'</small></td>'
+      +'<td><small>'+(d.end_date||'—')+'</small></td>'
+      +'<td><span class="badge badge-'+(d.status==='active'?'warning':'success')+'">'+(d.status==='active'?'Activa':'Saldada')+'</span></td>'
+      +'<td><button class="btn btn-xs btn-outline-success mr-1" onclick="saldaDed(\''+d.id+'\')" title="Saldada"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delDed(\''+d.id+'\')"><i class="fas fa-trash"></i></button></td>'
+      +'</tr>';
+  }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin deducciones. Registrá una o importá desde PayDay.</td></tr>';
 }
-async function saldaDed(id) { await Supa.upd('deductions',id,{status:'paid',remaining:0}); toast('✅ Marcada como saldada'); renderDedTable(); }
+async function saldaDed(id) { await Supa.upd('deductions',id,{status:'paid',remaining:0}); toast('Marcada como saldada'); renderDedTable(); }
 async function delDed(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('deductions',id); toast('Eliminada','info'); renderDedTable(); }
-function exportDedCSV() { var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId; }); var csv=[['Empleado','Tipo','Descripción','Total','Cuota','Restante','Inicio','Estado']].concat(deds.map(function(d){ return [d.employee_name,d.type,d.description,d.total_amount,d.quota,d.remaining,d.start_date,d.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'deducciones.csv'); toast('Exportado 📥'); }
+async function exportDedCSV() {
+  var deds=await Supa.sel('deductions');
+  if(!Array.isArray(deds)||!deds.length){toast('Sin datos','warning');return;}
+  var hdr=['Código de Acreedor','Código de Deuda','Fondo de Cesantia','Fondo de Jubilacion','Numero de Planilla','Número de Transacción','Periodo','Referencia','Tipo de Pago','¿Cancelada?','¿Pagada?','Fecha de Inicio','Fecha Final','Centro de Costo','Id de la Compañía','Código de Empleado','Cédula del Empleado','Nombre del Empleado','Nombre del Acreedor','Monto descontado','Prioridad de desc. de la Deuda','Fecha de Planilla','Saldo del Empleado','Saldo de la Compania'];
+  var rows=deds.map(function(d){
+    var cancelada=d.status==='cancelled'?'SI':'NO';
+    var pagada=d.status==='paid'||d.remaining===0?'SI':'NO';
+    return [
+      d.acreedor_codigo||'','01','SI','NO',
+      d.numero_planilla||'','',
+      d.periodo||'','',
+      d.tipo_pago||'Cheque',cancelada,pagada,
+      d.start_date||'',d.end_date||'',
+      d.centro_costo||'','1','',
+      d.cedula||'',d.employee_name||'',
+      d.acreedor_nombre||d.description||'',
+      d.quota||0,d.prioridad||4,
+      d.start_date||'',
+      d.remaining||0,'0'
+    ];
+  });
+  var csv=[hdr].concat(rows).map(function(r){ return r.map(function(x){ return '"'+(x!=null?x:'')+'"'; }).join(','); }).join('\n');
+  downCSV(csv,'deducciones_payday.csv');
+  toast('Exportado en formato PayDay');
+}
+function importDedCSV(input) {
+  var file=input.files[0]; if(!file) return;
+  var reader=new FileReader();
+  reader.onload=async function(e){
+    var lines=e.target.result.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+    if(lines.length<2){toast('CSV vacío o inválido','warning');return;}
+    var headers=lines[0].split(',').map(function(h){return h.replace(/"/g,'').trim();});
+    var idx=function(n){return headers.indexOf(n);};
+    var ok=0;
+    for(var i=1;i<lines.length;i++){
+      var vals=lines[i].match(/(".*?"|[^,]+)(?=,|$)/g)||[];
+      vals=vals.map(function(v){return v.replace(/^"|"$/g,'').trim();});
+      var empName=vals[idx('Nombre del Empleado')]||'';
+      var acrNombre=vals[idx('Nombre del Acreedor')]||'';
+      var acrCod=vals[idx('Código de Acreedor')]||'';
+      var tipoPago=vals[idx('Tipo de Pago')]||'Cheque';
+      var monto=parseFloat(vals[idx('Monto descontado')])||0;
+      var saldo=parseFloat(vals[idx('Saldo del Empleado')])||0;
+      var inicio=vals[idx('Fecha de Inicio')]||'';
+      var fin=vals[idx('Fecha Final')]||'';
+      var costo=vals[idx('Centro de Costo')]||'';
+      var prioridad=parseInt(vals[idx('Prioridad de desc. de la Deuda')])||4;
+      var pagada=vals[idx('¿Pagada?')]||'NO';
+      var cedula=vals[idx('Cédula del Empleado')]||'';
+      var periodo=vals[idx('Periodo')]||'';
+      var numPlan=vals[idx('Numero de Planilla')]||'';
+      if(!empName||monto<=0) continue;
+      var emps=await Supa.sel('employees');
+      var emp=Array.isArray(emps)?emps.find(function(e){ return (e.first_name+' '+e.last_name).toUpperCase()===empName.toUpperCase()||(e.cedula&&e.cedula===cedula); }):null;
+      var res=await Supa.ins('deductions',{
+        employee_id:emp?emp.id:null,
+        employee_name:empName,cedula:cedula,
+        type:'otro',description:acrNombre,
+        acreedor_nombre:acrNombre,acreedor_codigo:acrCod,
+        tipo_pago:tipoPago,centro_costo:costo,
+        prioridad:prioridad,
+        total_amount:saldo+monto,quota:monto,remaining:saldo,
+        start_date:inicio?new Date(inicio).toISOString().slice(0,10):TS,
+        end_date:fin?new Date(fin).toISOString().slice(0,10):null,
+        periodo:periodo,numero_planilla:numPlan,
+        status:pagada==='SI'?'paid':'active'
+      });
+      if(res&&!res.error) ok++;
+    }
+    toast('Importados '+ok+'/'+(lines.length-1)+' registros');
+    input.value=''; loadDed();
+  };
+  reader.readAsText(file,'UTF-8');
+}
 
 // ════════════════ LIQUIDATION ════════════════════════════════
 async function loadLiqPage() {
