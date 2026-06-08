@@ -491,6 +491,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#att-reg">Registrar</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#att-hist">Historial</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#att-rep">Reporte</a></li>
+      <li class="nav-item"><a class="nav-link text-primary" data-toggle="tab" href="#att-payday"><i class="fas fa-file-export mr-1"></i>Exportar PayDay</a></li>
     </ul>
     <div class="tab-content">
       <div class="tab-pane fade show active" id="att-today">
@@ -536,6 +537,40 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="col-md-2"><button class="btn btn-success btn-sm btn-block" onclick="exportAttReport()">Exportar</button></div>
         </div>
         <div class="row" id="att-rep-content"></div>
+      </div>
+
+      <!-- PAYDAY EXPORT TAB -->
+      <div class="tab-pane fade" id="att-payday">
+        <div class="row justify-content-center">
+          <div class="col-md-6">
+            <div class="card">
+              <div class="card-header bg-primary"><h3 class="card-title text-white"><i class="fas fa-file-export mr-2"></i>Exportar Formato Reloj Resumen (PayDay)</h3></div>
+              <div class="card-body">
+                <div class="alert alert-info small mb-3">
+                  <strong>Formato PayDay TXT</strong> — 37 campos por empleado, separados por comas.<br>
+                  Renglón 1: <code>fecha_inicio,fecha_fin,sucursal</code><br>
+                  Renglón 2+: un renglón por empleado con horas ordinarias, extras, ausencias y tardanzas.
+                </div>
+                <div class="form-row">
+                  <div class="col form-group"><label>Fecha Inicio del Período *</label><input type="date" id="pd-from" class="form-control form-control-sm"></div>
+                  <div class="col form-group"><label>Fecha Fin del Período *</label><input type="date" id="pd-to" class="form-control form-control-sm"></div>
+                </div>
+                <div class="form-group"><label>Nombre de la Sucursal / Centro de Costo</label><input type="text" id="pd-branch" class="form-control form-control-sm" placeholder="Ej: Via España"></div>
+                <div class="form-group"><label>Nombre del archivo (sin extensión)</label><input type="text" id="pd-filename" class="form-control form-control-sm" placeholder="Ej: pase  o  ViaEspa"></div>
+                <button class="btn btn-primary btn-block" onclick="exportPayDayReloj()"><i class="fas fa-download mr-1"></i>Generar TXT para PayDay</button>
+                <hr>
+                <div class="small text-muted">
+                  <strong>Campos incluidos por empleado:</strong><br>
+                  Campo 1: Código de Tarjeta (Cédula) · Campo 2: Horas Ordinarias Diurnas · Campo 6: HE Diurnas ·
+                  Campo 7: HE Mixtas · Campo 8: HE Nocturnas · Campo 9: HE Domingo/Descanso ·
+                  Campo 14: HE Feriado · Campo 25: Cert. Médico · Campo 27: Tardanza (no pagada) ·
+                  Campo 28: Ausencia (no pagada) · Campo 30: Ausencia Pagada/Permiso ·
+                  Campo 32: Horas Ordinarias Mixtas · Campo 33: Horas Ordinarias Nocturnas
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div></section>
@@ -2531,6 +2566,89 @@ function loadAttReport() {
 }
 function exportAttCSV() { var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&l.date===TS; }); var csv=[['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia.csv'); toast('Exportado 📥'); }
 function exportAttReport() { var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear(); var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; }); var csv=[['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥'); }
+
+async function exportPayDayReloj() {
+  var fromStr=document.getElementById('pd-from').value;
+  var toStr=document.getElementById('pd-to').value;
+  var branch=document.getElementById('pd-branch').value||A.companyName||'Empresa';
+  var fname=(document.getElementById('pd-filename').value||'pase').replace(/[^a-zA-Z0-9_\-]/g,'');
+  if(!fromStr||!toStr){toast('Seleccioná el período','warning');return;}
+  var fromD=new Date(fromStr), toD=new Date(toStr);
+  // PayDay date format dd/mm/aaaa
+  var pdDate=function(d){ return ('0'+d.getDate()).slice(-2)+'/'+(('0'+(d.getMonth()+1)).slice(-2))+'/'+d.getFullYear(); };
+  var f2=function(n){ return parseFloat(n||0).toFixed(2); };
+  // Fetch data
+  var emps=await Supa.sel('employees',{status:'active'});
+  var attLogs=await Supa.sel('attendance_logs');
+  var otLogs=await Supa.sel('overtime_logs');
+  var leaveLogs=await Supa.sel('leave_requests');
+  if(!Array.isArray(emps)||!emps.length){toast('Sin empleados activos','warning');return;}
+  attLogs=Array.isArray(attLogs)?attLogs.filter(function(l){ var d=new Date(l.date); return d>=fromD&&d<=toD; }):[];
+  otLogs=Array.isArray(otLogs)?otLogs.filter(function(l){ var d=new Date(l.date); return d>=fromD&&d<=toD; }):[];
+  leaveLogs=Array.isArray(leaveLogs)?leaveLogs.filter(function(l){ return l.status==='approved'&&new Date(l.start_date)<=toD&&new Date(l.end_date)>=fromD; }):[];
+  var lines=[];
+  // Line 1: header
+  lines.push(pdDate(fromD)+','+pdDate(toD)+','+branch);
+  emps.forEach(function(emp){
+    var dailyH=emp.weekly_hours?Math.min(parseFloat(emp.weekly_hours)/5,8):8;
+    // Determine jornada from weekly_hours
+    var jornada=emp.weekly_hours>=47?'diurna':(emp.weekly_hours>=43?'mixta':'nocturna');
+    var empAtt=attLogs.filter(function(l){ return l.employee_id===emp.id; });
+    var empOT=otLogs.filter(function(l){ return l.employee_id===emp.id; });
+    var empLeave=leaveLogs.filter(function(l){ return l.employee_id===emp.id; });
+    // Regular worked hours (present + late)
+    var regHours=0;
+    empAtt.filter(function(l){ return l.status==='present'||l.status==='late'; }).forEach(function(l){
+      var h=hwCalc(l.time_in,l.time_out);
+      regHours+=h>0?h:dailyH;
+    });
+    // Absence hours (unpaid)
+    var absentH=empAtt.filter(function(l){ return l.status==='absent'; }).length*dailyH;
+    // Paid absence/permission hours
+    var permH=empAtt.filter(function(l){ return l.status==='permission'; }).length*dailyH;
+    // Late hours (approximate — count late records, no exact minutes)
+    var lateH=empAtt.filter(function(l){ return l.status==='late'; }).length*0.5; // ~30 min tardiness
+    // OT by type
+    var otSum=function(type){ return empOT.filter(function(l){ return l.type===type; }).reduce(function(s,l){ return s+(parseFloat(l.hours)||0); },0); };
+    var otRegular=otSum('regular');
+    var otMixed=otSum('mixed');
+    var otNight=otSum('night');
+    var otSunday=otSum('sunday');
+    var otHoliday=otSum('holiday');
+    // Medical certificate hours
+    var medH=empLeave.filter(function(l){ return l.type==='medico'||l.type==='certificado'; }).reduce(function(s,l){ return s+(parseInt(l.days)||1)*dailyH; },0);
+    // Build 37 fields array (all 0 by default)
+    var f=Array(37).fill(0);
+    f[0]=emp.cedula||emp.id.slice(0,8); // Campo 1: Código de Tarjeta
+    // Regular hours by jornada
+    if(jornada==='diurna')       f[1]=regHours;  // Campo 2
+    else if(jornada==='mixta')   f[31]=regHours; // Campo 32
+    else                         f[32]=regHours; // Campo 33
+    // OT campos
+    f[5]=otRegular;   // Campo 6: ST Diurno DiaNor ×1.25
+    f[6]=otMixed;     // Campo 7: ST Mixto DiaNor ×1.50
+    f[7]=otNight;     // Campo 8: ST Noct. DiaNor ×1.75
+    f[8]=otSunday;    // Campo 9: ST Diurno DiaDes ×1.875
+    f[13]=otHoliday;  // Campo 14: ST Diurno DiaFer ×3.125
+    f[24]=medH;       // Campo 25: Certificado Médico ×1.0
+    // Campo 26 Vacación = 0 (se ignora)
+    f[26]=lateH;      // Campo 27: Tardanza NO pagada ×0.0
+    f[27]=absentH;    // Campo 28: Ausencia NO pagada ×0.0
+    // Campo 29 Licencia = 0 (se ignora)
+    f[29]=permH;      // Campo 30: Ausencia Pagada ×1.0
+    // Format and output (field 1 as alphanumeric, rest as numeric)
+    var row=f2(f[0]); // campo 1 es el código — lo mantenemos como string
+    row=String(f[0]); // override: alphanumeric no quotes
+    for(var i=1;i<37;i++) row+=','+f2(f[i]);
+    lines.push(row);
+  });
+  // Build file content
+  var content=lines.join('\r\n');
+  var blob=new Blob([content],{type:'text/plain;charset=utf-8'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download=fname+'.txt'; a.click(); URL.revokeObjectURL(a.href);
+  toast('TXT generado: '+fname+'.txt — '+( emps.length)+' empleados');
+}
 
 // ════════════════ VACATIONS ══════════════════════════════════
 async function loadVacations() {
