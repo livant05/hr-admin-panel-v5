@@ -500,7 +500,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="card-tools"><button class="btn btn-sm btn-success" onclick="exportAttCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar</button></div>
         </div><div class="card-body p-0"><div class="table-responsive">
           <table class="table table-sm table-hover mb-0">
-            <thead class="thead-light"><tr><th>Empleado</th><th>Departamento</th><th>Entrada</th><th>Salida</th><th>Hrs</th><th>Estado</th><th></th></tr></thead>
+            <thead class="thead-light"><tr><th>Empleado</th><th>Departamento</th><th>Entrada</th><th>Salida</th><th>Hrs</th><th>Estado</th><th>Tipo Jornada</th><th></th></tr></thead>
             <tbody id="att-today-tbody"></tbody>
           </table></div></div></div>
       </div>
@@ -513,7 +513,44 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
             <div class="col form-group"><label>Hora Entrada</label><input type="time" id="att-in" class="form-control form-control-sm"></div>
             <div class="col form-group"><label>Hora Salida</label><input type="time" id="att-out" class="form-control form-control-sm"></div>
           </div>
-          <div class="form-group"><select id="att-st" class="form-control form-control-sm"><option value="present">Presente</option><option value="absent">Ausente</option><option value="late">Tardanza</option><option value="permission">Permiso</option></select></div>
+          <div class="form-group">
+            <label class="small font-weight-bold">Tipo de Jornada (PayDay)</label>
+            <select id="att-wtype" class="form-control form-control-sm" onchange="onWorkTypeChange(this.value)">
+              <option value="">— Sin especificar —</option>
+              <optgroup label="Jornada Ordinaria">
+                <option value="2">2 — JorOrd Diurna</option>
+                <option value="32">32 — JorOrd Mixta</option>
+                <option value="33">33 — JorOrd Nocturna</option>
+                <option value="3">3 — JorOrd Diu DiaFer</option>
+                <option value="34">34 — JorOrd Mix DiaFer</option>
+                <option value="35">35 — JorOrd Noc DiaFer</option>
+                <option value="36">36 — JorOrd Mix Domingo</option>
+                <option value="37">37 — JorOrd Noc Domingo</option>
+              </optgroup>
+              <optgroup label="Sobretiempo (ST)">
+                <option value="6">6 — ST Diurno DiaNor</option>
+                <option value="7">7 — ST Mixto DiaNor</option>
+                <option value="8">8 — ST Noct. DiaNor</option>
+                <option value="9">9 — ST Diurno DiasDes</option>
+                <option value="10">10 — ST Diurno DiaNor Rec</option>
+                <option value="14">14 — ST Diurno DiaFer</option>
+                <option value="18">18 — ST Noct. DiaFer</option>
+                <option value="22">22 — ST Noct. DiaFer Rec</option>
+                <option value="23">23 — SoloRecargo DiaComp Trab</option>
+              </optgroup>
+              <optgroup label="Ausencias / Permisos / Tardanzas">
+                <option value="24">24 — Feriado No Trab</option>
+                <option value="25">25 — Certificado Médico</option>
+                <option value="26">26 — Vacación (se ignora)</option>
+                <option value="27">27 — Tardanza NO pagada</option>
+                <option value="28">28 — Ausencia NO pagada</option>
+                <option value="29">29 — Licencia (se ignora)</option>
+                <option value="30">30 — Ausencia Pagada</option>
+                <option value="31">31 — Tardanza Pagada</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="form-group"><label class="small font-weight-bold">Estado</label><select id="att-st" class="form-control form-control-sm"><option value="present">Presente</option><option value="absent">Ausente</option><option value="late">Tardanza</option><option value="permission">Permiso</option></select></div>
           <div class="form-group"><input type="text" id="att-note" class="form-control form-control-sm" placeholder="Notas..."></div>
           <button class="btn btn-success btn-block" onclick="saveAttendance()"><i class="fas fa-save mr-1"></i>Guardar</button>
         </div></div>
@@ -526,7 +563,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="col-md-2"><button class="btn btn-primary btn-sm btn-block" onclick="loadAttHistory()">Filtrar</button></div>
         </div>
         <div class="card"><div class="card-body p-0"><div class="table-responsive">
-          <table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Empleado</th><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Hrs</th><th>Estado</th><th>Notas</th><th></th></tr></thead>
+          <table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Empleado</th><th>Fecha</th><th>Entrada</th><th>Salida</th><th>Hrs</th><th>Estado</th><th>Tipo Jornada</th><th>Notas</th><th></th></tr></thead>
           <tbody id="att-hist-tbody"></tbody></table></div></div></div>
       </div>
       <div class="tab-pane fade" id="att-rep">
@@ -1779,6 +1816,44 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
 'use strict';
 // ════════════════ CONSTANTS ══════════════════════════════════
 const PR = { CSS_E:.0975, SE_E:.0125, CSS_P:.1225, SE_P:.015, DEC:1/12 };
+const PAYDAY_CODES = [
+  {c:2,l:'JorOrd Diurna',s:'present',g:'Jornada Ordinaria'},
+  {c:32,l:'JorOrd Mixta',s:'present',g:'Jornada Ordinaria'},
+  {c:33,l:'JorOrd Nocturna',s:'present',g:'Jornada Ordinaria'},
+  {c:3,l:'JorOrd Diu DiaFer',s:'present',g:'Jornada Ordinaria'},
+  {c:4,l:'JorOrd Diu DiaComp Trab',s:'present',g:'Jornada Ordinaria'},
+  {c:34,l:'JorOrd Mix DiaFer',s:'present',g:'Jornada Ordinaria'},
+  {c:35,l:'JorOrd Noc DiaFer',s:'present',g:'Jornada Ordinaria'},
+  {c:36,l:'JorOrd Mix Domingo',s:'present',g:'Jornada Ordinaria'},
+  {c:37,l:'JorOrd Noc Domingo',s:'present',g:'Jornada Ordinaria'},
+  {c:6,l:'ST Diurno DiaNor',s:'present',g:'Sobretiempo'},
+  {c:7,l:'ST Mixto DiaNor',s:'present',g:'Sobretiempo'},
+  {c:8,l:'ST Noct. DiaNor',s:'present',g:'Sobretiempo'},
+  {c:9,l:'ST Diurno DiasDes',s:'present',g:'Sobretiempo'},
+  {c:10,l:'ST Diurno DiaNor Rec',s:'present',g:'Sobretiempo'},
+  {c:11,l:'ST Mixto DiasDes',s:'present',g:'Sobretiempo'},
+  {c:12,l:'ST Mixto DiaNor Rec',s:'present',g:'Sobretiempo'},
+  {c:13,l:'ST Noct. DiaNor Rec',s:'present',g:'Sobretiempo'},
+  {c:14,l:'ST Diurno DiaFer',s:'present',g:'Sobretiempo'},
+  {c:15,l:'ST Diurno DiasDes Rec',s:'present',g:'Sobretiempo'},
+  {c:17,l:'ST Mixto DiasDes Rec',s:'present',g:'Sobretiempo'},
+  {c:18,l:'ST Noct. DiaFer',s:'present',g:'Sobretiempo'},
+  {c:19,l:'ST Noct. DiasDes Rec',s:'present',g:'Sobretiempo'},
+  {c:20,l:'ST Diurno DiaFer Rec',s:'present',g:'Sobretiempo'},
+  {c:21,l:'ST Mixto DiaFer Rec',s:'present',g:'Sobretiempo'},
+  {c:22,l:'ST Noct. DiaFer Rec',s:'present',g:'Sobretiempo'},
+  {c:23,l:'SoloRecargo DiaComp Trab',s:'present',g:'Sobretiempo'},
+  {c:24,l:'Feriado No Trab',s:'absent',g:'Ausencias / Permisos'},
+  {c:25,l:'Certificado Médico',s:'permission',g:'Ausencias / Permisos'},
+  {c:26,l:'Vacación (se ignora)',s:'permission',g:'Ausencias / Permisos'},
+  {c:27,l:'Tardanza NO pagada',s:'late',g:'Ausencias / Permisos'},
+  {c:28,l:'Ausencia NO pagada',s:'absent',g:'Ausencias / Permisos'},
+  {c:29,l:'Licencia (se ignora)',s:'permission',g:'Ausencias / Permisos'},
+  {c:30,l:'Ausencia Pagada',s:'present',g:'Ausencias / Permisos'},
+  {c:31,l:'Tardanza Pagada',s:'late',g:'Ausencias / Permisos'},
+];
+function wtLabel(code){ var f=PAYDAY_CODES.find(function(c){return c.c===parseInt(code);}); return f?f.c+' — '+f.l:''; }
+function onWorkTypeChange(v){ var code=parseInt(v),st=document.getElementById('att-st'); if(!st||!code) return; var f=PAYDAY_CODES.find(function(c){return c.c===code;}); if(f) st.value=f.s; }
 const MONTHS = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
 const OT_RATES = { regular:1.25, mixed:1.50, night:1.75, sunday:1.50, holiday:2.50 };
 const fmt = n => 'B/. ' + Number(n).toFixed(2);
@@ -2615,7 +2690,7 @@ async function loadAttendance() {
   if(sr) sr.innerHTML=[{l:'Presentes',v:cnt.present,c:'success',i:'fa-user-check'},{l:'Tardanzas',v:cnt.late,c:'warning',i:'fa-user-clock'},{l:'Ausentes',v:cnt.absent,c:'danger',i:'fa-user-times'},{l:'Permisos',v:cnt.permission,c:'info',i:'fa-door-open'}].map(function(s){ return '<div class="col-md-3 col-6"><div class="small-box bg-'+s.c+' stat-card"><div class="inner"><h4>'+s.v+'</h4><p>'+s.l+'</p></div><div class="icon"><i class="fas '+s.i+'"></i></div></div></div>'; }).join('');
   var stM={present:'<span class="badge badge-success">Presente</span>',late:'<span class="badge badge-warning">Tardanza</span>',absent:'<span class="badge badge-danger">Ausente</span>',permission:'<span class="badge badge-info">Permiso</span>'};
   var tb=document.getElementById('att-today-tbody');
-  if(tb) tb.innerHTML=empList.map(function(e){ var l=logList.find(function(x){ return x.employee_id===e.id; })||{}; var hw=hwCalc(l.time_in,l.time_out); return '<tr class="'+(l.status==='present'?'att-present':l.status==='absent'?'att-absent':'')+'">'+'<td><strong>'+e.first_name+' '+e.last_name+'</strong></td><td><small>'+(e.department||'—')+'</small></td><td class="att-log-in">'+(l.time_in||'—')+'</td><td class="att-log-out">'+(l.time_out||'—')+'</td><td>'+(hw>0?hw+' hrs':'—')+'</td><td>'+(stM[l.status]||'<span class="badge badge-secondary">Sin registro</span>')+'</td><td>'+(l.id?'<button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button>':'<button class="btn btn-xs btn-outline-success" onclick="quickAtt(\''+e.id+'\')"><i class="fas fa-plus"></i></button>')+'</td></tr>'; }).join('');
+  if(tb) tb.innerHTML=empList.map(function(e){ var l=logList.find(function(x){ return x.employee_id===e.id; })||{}; var hw=hwCalc(l.time_in,l.time_out); var wl=l.work_type?'<small class="text-muted">'+wtLabel(l.work_type)+'</small>':'—'; return '<tr class="'+(l.status==='present'?'att-present':l.status==='absent'?'att-absent':'')+'">'+'<td><strong>'+e.first_name+' '+e.last_name+'</strong></td><td><small>'+(e.department||'—')+'</small></td><td class="att-log-in">'+(l.time_in||'—')+'</td><td class="att-log-out">'+(l.time_out||'—')+'</td><td>'+(hw>0?hw+' hrs':'—')+'</td><td>'+(stM[l.status]||'<span class="badge badge-secondary">Sin registro</span>')+'</td><td>'+wl+'</td><td>'+(l.id?'<button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button>':'<button class="btn btn-xs btn-outline-success" onclick="quickAtt(\''+e.id+'\')"><i class="fas fa-plus"></i></button>')+'</td></tr>'; }).join('');
   var ae=document.getElementById('att-emp'), ahe=document.getElementById('att-h-emp');
   var opts='<option value="">— Seleccionar —</option>'+empList.map(function(e){ return '<option value="'+e.id+'" data-name="'+e.first_name+' '+e.last_name+'" data-dept="'+(e.department||'')+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
   if(ae) ae.innerHTML=opts;
@@ -2630,7 +2705,8 @@ async function saveAttendance() {
   var ae=document.getElementById('att-emp'), sel=ae&&ae.options[ae.selectedIndex];
   var name=sel?sel.getAttribute('data-name'):'—', dept=sel?sel.getAttribute('data-dept'):'—';
   var existing=DS.attendance_logs.find(function(l){ return l.employee_id===empId&&l.date===date&&l.company_id===A.companyId; });
-  var data={employee_id:empId,employee_name:name,department:dept,date:date,time_in:gv('att-in'),time_out:gv('att-out'),status:gv('att-st')||'present',notes:gv('att-note')};
+  var wt=parseInt(gv('att-wtype'))||null;
+  var data={employee_id:empId,employee_name:name,department:dept,date:date,time_in:gv('att-in'),time_out:gv('att-out'),status:gv('att-st')||'present',work_type:wt,notes:gv('att-note')};
   if(existing){ await Supa.upd('attendance_logs',existing.id,data); toast('✅ Registro actualizado'); }
   else { await Supa.ins('attendance_logs',data); toast('✅ Asistencia registrada'); }
   loadAttendance();
@@ -2645,7 +2721,7 @@ function loadAttHistory() {
   logs.sort(function(a,b){ return b.date.localeCompare(a.date); });
   var stM={present:'<span class="badge badge-success">Presente</span>',late:'<span class="badge badge-warning">Tardanza</span>',absent:'<span class="badge badge-danger">Ausente</span>',permission:'<span class="badge badge-info">Permiso</span>'};
   var tb=document.getElementById('att-hist-tbody');
-  if(tb) tb.innerHTML=logs.length?logs.map(function(l){ return '<tr><td><strong>'+l.employee_name+'</strong></td><td>'+l.date+'</td><td class="att-log-in">'+(l.time_in||'—')+'</td><td class="att-log-out">'+(l.time_out||'—')+'</td><td>'+(hwCalc(l.time_in,l.time_out)>0?hwCalc(l.time_in,l.time_out)+' hrs':'—')+'</td><td>'+(stM[l.status]||l.status)+'</td><td><small>'+(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin registros</td></tr>';
+  if(tb) tb.innerHTML=logs.length?logs.map(function(l){ var wl=l.work_type?'<small class="text-muted">'+wtLabel(l.work_type)+'</small>':'—'; return '<tr><td><strong>'+l.employee_name+'</strong></td><td>'+l.date+'</td><td class="att-log-in">'+(l.time_in||'—')+'</td><td class="att-log-out">'+(l.time_out||'—')+'</td><td>'+(hwCalc(l.time_in,l.time_out)>0?hwCalc(l.time_in,l.time_out)+' hrs':'—')+'</td><td>'+(stM[l.status]||l.status)+'</td><td>'+wl+'</td><td><small>'+(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin registros</td></tr>';
 }
 function initAttRepSelectors() {
   var ms=document.getElementById('att-r-month'), ys=document.getElementById('att-r-year');
@@ -2802,7 +2878,8 @@ async function loadPayroll() {
     var eAtt=mAtt.filter(function(l){ return l.employee_id===e.id; });
     var eOT=mOT.filter(function(o){ return o.employee_id===e.id; });
     var worked=eAtt.filter(function(l){ return l.status==='present'||l.status==='late'; }).length;
-    var absent=eAtt.filter(function(l){ return l.status==='absent'; }).length;
+    // Only deduct code 28 (Ausencia NO pagada) or unlabeled absents; codes 24/25/26/29/30 are not deductible
+    var absent=eAtt.filter(function(l){ return l.work_type?l.work_type===28:(l.status==='absent'); }).length;
     var otAmt=eOT.reduce(function(s,o){ return s+(o.amount||0); },0);
     var otHrs=eOT.reduce(function(s,o){ return s+(o.hours||0); },0);
     var att={ hasData:eAtt.length>0, workedDays:worked, expectedDays:pDays, absentDays:absent, otAmount:otAmt, otHours:otHrs };
