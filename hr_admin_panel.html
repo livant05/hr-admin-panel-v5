@@ -697,8 +697,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="table-responsive"><table class="table table-sm table-hover mb-0">
             <thead class="thead-light"><tr>
               <th>#</th><th>Empleado</th><th>Cargo</th><th class="text-center">Asist.</th>
-              <th class="text-right">Bruto</th><th class="text-right text-danger">CSS 9.75%</th>
-              <th class="text-right text-danger">SE 1.25%</th><th class="text-right text-danger">ISR</th><th class="text-right text-danger">Ded.</th>
+              <th class="text-right">Bruto</th><th class="text-right text-danger">Deducciones</th>
               <th class="text-right text-success">Neto</th><th class="text-right text-warning">AP CSS</th>
               <th class="text-right text-warning">AP SE</th><th class="text-right text-warning">Décimo</th>
               <th class="text-right text-primary">Costo Emp.</th><th></th>
@@ -1868,7 +1867,7 @@ function getWorkingDays(year, month) {
   return count;
 }
 
-function prCalc(e, factor, attData) {
+function prCalc(e, factor, attData, dedData) {
   factor = factor || 1;
   var salBase = (e.salary || 0) * factor;
   var attDed = 0, otAmt = 0;
@@ -1881,11 +1880,13 @@ function prCalc(e, factor, attData) {
   var annual = (b / factor) * 13; // DGI: 12 meses + Décimo 3er Mes
   var isrAnnual = annual <= 11000 ? 0 : annual <= 50000 ? (annual - 11000) * 0.15 : 5850 + (annual - 50000) * 0.25;
   var isr = (isrAnnual / 12) * factor;
-  var ded = css + se + isr, net = b - ded;
+  var ded = css + se + isr;
+  var dedQuota = (dedData && dedData.quotaTotal) ? dedData.quotaTotal : 0;
+  var net = b - ded - dedQuota;
   var pcss = b * PR.CSS_P, pse = b * PR.SE_P, dec = b * PR.DEC;
   var decCSSP = dec * 0.0725; // CSS patronal sobre Décimo (tasa especial Ley 51/2005)
   var tot = b + pcss + pse + dec + decCSSP;
-  return { b:b, css:css, se:se, isr:isr, ded:ded, net:net, pcss:pcss, pse:pse, dec:dec, decCSSP:decCSSP, tot:tot, attDed:attDed, otAmt:otAmt };
+  return { b:b, css:css, se:se, isr:isr, ded:ded, dedQuota:dedQuota, net:net, pcss:pcss, pse:pse, dec:dec, decCSSP:decCSSP, tot:tot, attDed:attDed, otAmt:otAmt };
 }
 
 function avatarBg(id) {
@@ -2866,37 +2867,90 @@ async function loadPayroll() {
   var year=parseInt(document.getElementById('pr-year').value)||TD.getFullYear();
   var factor=period==='mensual'?1:0.5;
 
-  // Fetch attendance and overtime for the selected month
   var mPfx=year+'-'+(month<10?'0'+month:''+month);
-  var allAtt=await Supa.sel('attendance_logs'), allOT=await Supa.sel('overtime_logs');
+  var allAtt=await Supa.sel('attendance_logs');
+  var allOT=await Supa.sel('overtime_logs');
+  var allDed=await Supa.sel('deductions',{status:'active'});
   var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return l.date&&l.date.startsWith(mPfx); }):[];
   var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return o.date&&o.date.startsWith(mPfx); }):[];
+  // Medical records from in-memory cache filtered to the selected month
+  var mMed=Array.isArray(DS.medical_records)?DS.medical_records.filter(function(r){ return r.start_date&&r.start_date.substring(0,7)===mPfx&&r.status==='activa'; }):[];
+  var activeDed=Array.isArray(allDed)?allDed:[];
   var wDays=getWorkingDays(year,month);
   var pDays=period==='mensual'?wDays:Math.floor(wDays/2);
 
   _prRows=actives.map(function(e){
     var eAtt=mAtt.filter(function(l){ return l.employee_id===e.id; });
     var eOT=mOT.filter(function(o){ return o.employee_id===e.id; });
+    var eMed=mMed.filter(function(r){ return r.employee_id===e.id; });
+    var eDed=activeDed.filter(function(d){ return d.employee_id===e.id; });
     var worked=eAtt.filter(function(l){ return l.status==='present'||l.status==='late'; }).length;
-    // Only deduct code 28 (Ausencia NO pagada) or unlabeled absents; codes 24/25/26/29/30 are not deductible
+    // Only code 28 (Ausencia NO pagada) deducts; 24/25/26/29/30 do not
     var absent=eAtt.filter(function(l){ return l.work_type?l.work_type===28:(l.status==='absent'); }).length;
     var otAmt=eOT.reduce(function(s,o){ return s+(o.amount||0); },0);
     var otHrs=eOT.reduce(function(s,o){ return s+(o.hours||0); },0);
-    var att={ hasData:eAtt.length>0, workedDays:worked, expectedDays:pDays, absentDays:absent, otAmount:otAmt, otHours:otHrs };
-    return Object.assign({e:e,att:att},prCalc(e,factor,att));
+    var medDays=eMed.reduce(function(s,r){ return s+(r.days||0); },0);
+    var medEmpDays=eMed.reduce(function(s,r){ return s+(r.employer_days||Math.min(r.days||0,3)); },0);
+    var dedQuotaTotal=eDed.reduce(function(s,d){ return s+(d.quota||0); },0);
+    var att={ hasData:eAtt.length>0, workedDays:worked, expectedDays:pDays, absentDays:absent, otAmount:otAmt, otHours:otHrs, medDays:medDays, medEmpDays:medEmpDays };
+    var dedData={ quotaTotal:dedQuotaTotal, quotas:eDed };
+    return Object.assign({e:e, att:att, dedData:dedData}, prCalc(e,factor,att,dedData));
   });
 
-  var sums=_prRows.reduce(function(s,r){ return {b:s.b+r.b,css:s.css+r.css,se:s.se+r.se,isr:s.isr+r.isr,ded:s.ded+r.ded,net:s.net+r.net,pcss:s.pcss+r.pcss,pse:s.pse+r.pse,dec:s.dec+r.dec,tot:s.tot+r.tot}; },{b:0,css:0,se:0,isr:0,ded:0,net:0,pcss:0,pse:0,dec:0,tot:0});
+  var sums=_prRows.reduce(function(s,r){ return {b:s.b+r.b,ded:s.ded+r.ded,dedQuota:s.dedQuota+r.dedQuota,net:s.net+r.net,pcss:s.pcss+r.pcss,pse:s.pse+r.pse,dec:s.dec+r.dec,tot:s.tot+r.tot}; },{b:0,ded:0,dedQuota:0,net:0,pcss:0,pse:0,dec:0,tot:0});
   var sm=document.getElementById('pr-summary');
-  if(sm) sm.innerHTML=[{l:'Total Bruto',v:sums.b,c:'info'},{l:'Deducciones',v:sums.ded,c:'danger'},{l:'Total Neto',v:sums.net,c:'success'},{l:'Costo Empresa',v:sums.tot,c:'primary'}].map(function(c){ return '<div class="col-md-3 col-6 mb-3"><div class="info-box shadow-none border"><span class="info-box-icon bg-'+c.c+'"><i class="fas fa-dollar-sign" style="font-size:.8rem"></i></span><div class="info-box-content"><span class="info-box-text small">'+c.l+'</span><span class="info-box-number">'+fmt(c.v)+'</span></div></div></div>'; }).join('');
+  if(sm) sm.innerHTML=[
+    {l:'Total Bruto',v:sums.b,c:'info'},
+    {l:'Ded. Legales',v:sums.ded,c:'warning'},
+    {l:'Cuotas/Préstamos',v:sums.dedQuota,c:'danger'},
+    {l:'Total Neto',v:sums.net,c:'success'},
+    {l:'Costo Empresa',v:sums.tot,c:'primary'}
+  ].map(function(c){ return '<div class="col mb-3"><div class="info-box shadow-none border"><span class="info-box-icon bg-'+c.c+'" style="width:40px"><i class="fas fa-dollar-sign" style="font-size:.8rem"></i></span><div class="info-box-content"><span class="info-box-text small">'+c.l+'</span><span class="info-box-number" style="font-size:.9rem">'+fmt(c.v)+'</span></div></div></div>'; }).join('');
   var tb=document.getElementById('pr-tbody');
   if(tb) tb.innerHTML=_prRows.map(function(r,i){
-    var ac=r.att.hasData?(r.att.absentDays===0?'<span class="badge badge-success" title="'+r.att.workedDays+' trabajados · '+r.att.otHours+'h extras">'+r.att.workedDays+'/'+r.att.expectedDays+'</span>':'<span class="badge badge-warning" title="'+r.att.workedDays+' trabajados · '+r.att.absentDays+' ausentes · '+r.att.otHours+'h extras">'+r.att.workedDays+'/'+r.att.expectedDays+'</span>'):'<span class="text-muted small">—</span>';
-    var bc=fmt(r.b)+(r.attDed>0?'<br><small class="text-danger" title="Ausencias">-'+fmt(r.attDed)+'</small>':'')+(r.otAmt>0?'<br><small class="text-success" title="Horas extras">+'+fmt(r.otAmt)+'</small>':'');
-    return '<tr><td>'+(i+1)+'</td><td><strong>'+r.e.first_name+' '+r.e.last_name+'</strong></td><td><small>'+(r.e.position||'—')+'</small></td><td class="text-center">'+ac+'</td><td class="text-right">'+bc+'</td><td class="text-right text-danger">'+fmt(r.css)+'</td><td class="text-right text-danger">'+fmt(r.se)+'</td><td class="text-right text-danger">'+fmt(r.isr)+'</td><td class="text-right text-danger"><strong>'+fmt(r.ded)+'</strong></td><td class="text-right text-success"><strong>'+fmt(r.net)+'</strong></td><td class="text-right text-warning">'+fmt(r.pcss)+'</td><td class="text-right text-warning">'+fmt(r.pse)+'</td><td class="text-right text-warning">'+fmt(r.dec)+'</td><td class="text-right text-primary"><strong>'+fmt(r.tot)+'</strong></td><td><button class="btn btn-xs btn-outline-info" title="Recibo de pago" onclick="printPayslip(\''+r.e.id+'\')"><i class="fas fa-receipt"></i></button></td></tr>';
+    // Attendance column
+    var medBadge=r.att.medDays>0?'<br><span class="badge badge-info" title="'+r.att.medDays+' días incapacidad — empleador cubre '+r.att.medEmpDays+' días"><i class="fas fa-file-medical mr-1"></i>Inc. '+r.att.medDays+'d</span>':'';
+    var ac=(r.att.hasData
+      ?(r.att.absentDays===0
+        ?'<span class="badge badge-success" title="'+r.att.workedDays+' trabajados · '+r.att.otHours+'h HE">'+r.att.workedDays+'/'+r.att.expectedDays+'d</span>'
+        :'<span class="badge badge-warning" title="'+r.att.workedDays+' trabajados · '+r.att.absentDays+' ausentes · '+r.att.otHours+'h HE">'+r.att.workedDays+'/'+r.att.expectedDays+'d</span>')
+      :'<span class="text-muted small">—</span>')+medBadge;
+    // Bruto cell: base + HE + ausencias
+    var bc='<span class="font-weight-bold">'+fmt(r.b)+'</span>'
+      +'<br><small class="text-muted">Base: '+fmt((r.e.salary||0)*factor)+'</small>'
+      +(r.otAmt>0?'<br><small class="text-success">+HE: '+fmt(r.otAmt)+'</small>':'')
+      +(r.attDed>0?'<br><small class="text-danger">-Aus.: '+fmt(r.attDed)+'</small>':'');
+    // Deducciones cell: legales + cuotas breakdown
+    var dc='<span class="font-weight-bold text-danger">'+fmt(r.ded+r.dedQuota)+'</span>'
+      +'<br><small class="text-muted">CSS: '+fmt(r.css)+'</small>'
+      +'<br><small class="text-muted">SE: '+fmt(r.se)+'</small>'
+      +(r.isr>0?'<br><small class="text-muted">ISR: '+fmt(r.isr)+'</small>':'<br><small class="text-muted">ISR: —</small>')
+      +(r.dedQuota>0?'<br><small class="text-warning font-weight-bold">Cuotas: '+fmt(r.dedQuota)+'</small>':'');
+    return '<tr>'
+      +'<td>'+(i+1)+'</td>'
+      +'<td><strong>'+r.e.first_name+' '+r.e.last_name+'</strong></td>'
+      +'<td><small>'+(r.e.position||'—')+'</small></td>'
+      +'<td class="text-center">'+ac+'</td>'
+      +'<td class="text-right">'+bc+'</td>'
+      +'<td class="text-right">'+dc+'</td>'
+      +'<td class="text-right text-success"><strong>'+fmt(r.net)+'</strong></td>'
+      +'<td class="text-right text-warning">'+fmt(r.pcss)+'</td>'
+      +'<td class="text-right text-warning">'+fmt(r.pse)+'</td>'
+      +'<td class="text-right text-warning">'+fmt(r.dec)+'</td>'
+      +'<td class="text-right text-primary"><strong>'+fmt(r.tot)+'</strong></td>'
+      +'<td><button class="btn btn-xs btn-outline-info" title="Recibo de pago" onclick="printPayslip(\''+r.e.id+'\')"><i class="fas fa-receipt"></i></button></td>'
+      +'</tr>';
   }).join('');
   var tf=document.getElementById('pr-tfoot');
-  if(tf) tf.innerHTML='<td colspan="4"><strong>TOTAL ('+_prRows.length+')</strong></td><td class="text-right"><strong>'+fmt(sums.b)+'</strong></td><td class="text-right text-danger"><strong>'+fmt(sums.css)+'</strong></td><td class="text-right text-danger"><strong>'+fmt(sums.se)+'</strong></td><td class="text-right text-danger"><strong>'+fmt(sums.isr)+'</strong></td><td class="text-right text-danger"><strong>'+fmt(sums.ded)+'</strong></td><td class="text-right text-success"><strong>'+fmt(sums.net)+'</strong></td><td class="text-right text-warning"><strong>'+fmt(sums.pcss)+'</strong></td><td class="text-right text-warning"><strong>'+fmt(sums.pse)+'</strong></td><td class="text-right text-warning"><strong>'+fmt(sums.dec)+'</strong></td><td class="text-right text-primary"><strong>'+fmt(sums.tot)+'</strong></td><td></td>';
+  if(tf) tf.innerHTML='<td colspan="4"><strong>TOTAL ('+_prRows.length+')</strong></td>'
+    +'<td class="text-right"><strong>'+fmt(sums.b)+'</strong></td>'
+    +'<td class="text-right text-danger"><strong>'+fmt(sums.ded+sums.dedQuota)+'</strong></td>'
+    +'<td class="text-right text-success"><strong>'+fmt(sums.net)+'</strong></td>'
+    +'<td class="text-right text-warning"><strong>'+fmt(sums.pcss)+'</strong></td>'
+    +'<td class="text-right text-warning"><strong>'+fmt(sums.pse)+'</strong></td>'
+    +'<td class="text-right text-warning"><strong>'+fmt(sums.dec)+'</strong></td>'
+    +'<td class="text-right text-primary"><strong>'+fmt(sums.tot)+'</strong></td>'
+    +'<td></td>';
 }
 
 async function seedTestAttendance() {
@@ -2954,10 +3008,14 @@ async function printPayslip(empId) {
   var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
   var pr=cachedRow?{b:cachedRow.b,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot}:prCalc(e,factor);
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
-  var otLogs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId&&l.employee_id===empId; });
-  var otTotal=otLogs.reduce(function(s,l){ return s+(l.amount||0); },0);
-  var dedLogs=DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
-  var dedTotal=dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
+  // OT: filter to selected month only (was using full history before — bug fix)
+  var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
+  var slipMPfx=yr+'-'+(slipMonth<10?'0'+slipMonth:''+slipMonth);
+  var otLogs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId&&l.employee_id===empId&&l.date&&l.date.startsWith(slipMPfx); });
+  var otTotal=cachedRow?(cachedRow.att.otAmount||0):otLogs.reduce(function(s,l){ return s+(l.amount||0); },0);
+  // Deductions: use cached quotas if available (consistent with table)
+  var dedLogs=cachedRow?(cachedRow.dedData?cachedRow.dedData.quotas||[]:[]):DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
+  var dedTotal=cachedRow?(cachedRow.dedQuota||0):dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
   var showOT = document.getElementById('slip-show-ot') ? document.getElementById('slip-show-ot').checked : false;
   var showPat = document.getElementById('slip-show-pat') ? document.getElementById('slip-show-pat').checked : false;
   var otAnnual=(e.salary||0)*13; // DGI: 12 meses + Décimo 3er Mes
@@ -2965,7 +3023,8 @@ async function printPayslip(empId) {
   var otIsrRate=otAnnual>0?otIsrAnual/otAnnual:0;
   var otCSS=otTotal*0.0975, otSE=otTotal*0.0125, otISR=otTotal*otIsrRate;
   var otLegal=otCSS+otSE+otISR;
-  var netFinal=pr.net+(showOT?otTotal-otLegal:0)-dedTotal;
+  // pr.net already includes dedQuota when cachedRow exists — do NOT subtract dedTotal again
+  var netFinal=pr.net+(showOT?otTotal-otLegal:0)-(cachedRow?0:dedTotal);
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+l.type+' ('+l.hours+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
