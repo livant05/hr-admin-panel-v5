@@ -3713,9 +3713,16 @@ var ZK_LAST_POLL = null;
 function openZKTecoTab() {
   document.querySelectorAll('#pg-settings .nav-tabs .nav-link').forEach(function(l){ l.classList.remove('active'); });
   document.getElementById('nav-zkteco-tab').classList.add('active');
-  document.querySelectorAll('#pg-settings .tab-content .tab-pane').forEach(function(p){ p.classList.remove('show','active'); });
+  document.querySelectorAll('#pg-settings .tab-content .tab-pane').forEach(function(p){
+    p.classList.remove('show','active');
+    p.style.display = 'none';
+  });
   var pane = document.getElementById('st-zkteco');
-  if(pane){ pane.classList.add('show','active'); }
+  if(pane){
+    pane.classList.add('show','active');
+    pane.style.display = 'block';
+    pane.style.opacity = '1';
+  }
   loadZKTeco();
 }
 
