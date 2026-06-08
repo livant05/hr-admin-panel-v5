@@ -496,7 +496,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
     <div class="tab-content">
       <div class="tab-pane fade show active" id="att-today">
         <div class="row mb-3" id="att-stats-row"></div>
-        <div class="card"><div class="card-header"><h3 class="card-title">Asistencia: <span id="att-date-lbl"></span></h3>
+        <div class="card"><div class="card-header"><h3 class="card-title">Asistencia: <span id="att-date-lbl"></span> <span id="zk-live-badge" class="badge badge-success ml-2" style="display:none"><i class="fas fa-circle mr-1" style="font-size:.5rem"></i>ZKTeco en vivo</span></h3>
           <div class="card-tools"><button class="btn btn-sm btn-success" onclick="exportAttCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar</button></div>
         </div><div class="card-body p-0"><div class="table-responsive">
           <table class="table table-sm table-hover mb-0">
@@ -1304,6 +1304,7 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-roles" onclick="loadRoleMgmt()">Roles</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-look">Apariencia</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-backup">Backup / SQL</a></li>
+      <li class="nav-item"><a class="nav-link text-success" data-toggle="tab" href="#st-zkteco" onclick="loadZKTeco()"><i class="fas fa-fingerprint mr-1"></i>ZKTeco</a></li>
     </ul>
     <div class="tab-content">
       <div class="tab-pane fade show active" id="st-empresa"><div class="row"><div class="col-md-6"><div class="card"><div class="card-header"><h3 class="card-title">Datos de la Empresa</h3></div>
@@ -1373,6 +1374,89 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
           <hr>
           <button class="btn btn-danger btn-sm" onclick="doLogout()"><i class="fas fa-sign-out-alt mr-1"></i>Cerrar sesión</button>
         </div></div></div></div>
+      </div>
+
+      <!-- ZKTECO TAB -->
+      <div class="tab-pane fade" id="st-zkteco">
+        <div class="row">
+          <!-- Server URL config -->
+          <div class="col-md-5">
+            <div class="card">
+              <div class="card-header bg-success"><h3 class="card-title text-white"><i class="fas fa-fingerprint mr-2"></i>Configuración ADMS / Push Protocol</h3></div>
+              <div class="card-body">
+                <div class="alert alert-info small">
+                  <strong>¿Cómo configurar el reloj ZKTeco?</strong><br>
+                  En el dispositivo → <em>Menú → Configuración → Comunicación → Servidor ADMS</em> (o similar según modelo):
+                  <ol class="mb-0 mt-1">
+                    <li>Activar <strong>Push Protocol / ADMS</strong></li>
+                    <li>Copiar la URL del servidor (abajo)</li>
+                    <li>Puerto: <strong>443</strong> · HTTPS: <strong>Sí</strong></li>
+                    <li>El dispositivo empezará a enviar marcadas automáticamente</li>
+                  </ol>
+                </div>
+                <div class="form-group">
+                  <label><strong>URL del Servidor ADMS</strong></label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" id="zk-server-url" class="form-control form-control-sm font-weight-bold" readonly
+                      value="https://swciybuhetkfrtpyjvgb.supabase.co/functions/v1/zkteco-adms">
+                    <div class="input-group-append">
+                      <button class="btn btn-outline-secondary btn-sm" onclick="copyZKUrl()"><i class="fas fa-copy"></i></button>
+                    </div>
+                  </div>
+                  <small class="text-muted">Configurar en el reloj como "Server Domain" o "Cloud Service URL"</small>
+                </div>
+                <div class="form-group">
+                  <label>Mapeo de Empleados</label>
+                  <div class="alert alert-warning small mb-0">
+                    El reloj envía el <strong>PIN del empleado</strong>. La app lo busca por <strong>Cédula</strong> en el módulo de Empleados.<br>
+                    Asegurate de que el PIN configurado en el reloj coincida con la cédula registrada en el empleado.
+                  </div>
+                </div>
+                <button class="btn btn-outline-success btn-sm btn-block" onclick="testZKConnection()"><i class="fas fa-plug mr-1"></i>Probar conexión Edge Function</button>
+              </div>
+            </div>
+
+            <div class="card mt-3">
+              <div class="card-header"><h3 class="card-title text-sm"><i class="fas fa-question-circle mr-1"></i>PINs no reconocidos</h3></div>
+              <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                  <thead class="thead-light"><tr><th>PIN</th><th>Reloj (SN)</th><th>Último intento</th><th>Intentos</th></tr></thead>
+                  <tbody id="zk-unknown-tbody"><tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Devices list -->
+          <div class="col-md-7">
+            <div class="card">
+              <div class="card-header">
+                <h3 class="card-title"><i class="fas fa-clock mr-1"></i>Relojes Registrados</h3>
+                <div class="card-tools"><button class="btn btn-sm btn-outline-secondary" onclick="loadZKTeco()"><i class="fas fa-sync mr-1"></i>Actualizar</button></div>
+              </div>
+              <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                  <thead class="thead-light"><tr><th>Número de Serie</th><th>Nombre</th><th>Ubicación</th><th>Último contacto</th><th>Estado</th></tr></thead>
+                  <tbody id="zk-devices-tbody"><tr><td colspan="5" class="text-center text-muted p-3">Sin relojes conectados aún. Configurá el servidor ADMS en el dispositivo.</td></tr></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card mt-3">
+              <div class="card-header bg-dark"><h3 class="card-title text-white text-sm"><i class="fas fa-code mr-1"></i>Despliegue de la Edge Function</h3></div>
+              <div class="card-body small">
+                <ol class="mb-1">
+                  <li>Ir a <a href="https://supabase.com/dashboard/project/swciybuhetkfrtpyjvgb/functions" target="_blank">Supabase → Edge Functions</a></li>
+                  <li>Crear nueva función: <strong>zkteco-adms</strong></li>
+                  <li>Pegar el contenido de <code>supabase/functions/zkteco-adms/index.ts</code></li>
+                  <li>Hacer clic en <strong>Deploy</strong></li>
+                  <li>Ejecutar el SQL de <code>zkteco_tables.sql</code> en el SQL Editor</li>
+                </ol>
+                <div class="alert alert-secondary py-1 mb-0"><small>La función ya está en el repo: <code>supabase/functions/zkteco-adms/index.ts</code></small></div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div></section>
@@ -2023,7 +2107,7 @@ function go(pg) {
     'emp-new':       function(){ if(!A.editId) clearEmpForm(); loadEmpForm(); },
     'directory':     loadDirectory,
     'org-chart':     loadOrgChart,
-    'attendance':    loadAttendance,
+    'attendance':    function(){ loadAttendance(); startZKPolling(); },
     'vacations':     loadVacations,
     'medical':       loadMedical,
     'payroll':       function(){ initPRSelectors(); loadPayroll(); },
@@ -3620,6 +3704,106 @@ async function loadNotifications(){
     el.innerHTML=items.length?items.map(function(a){ return '<div class="notif-item notif-'+a.type+'"><i class="fas '+a.icon+' mr-2"></i>'+a.msg+(a.days<9999?' <span class="badge badge-'+(a.days<=15?'danger':'warning')+' ml-2">'+a.days+'d</span>':'')+'</div>'; }).join(''):'<div class="text-center text-muted py-3"><i class="fas fa-check-circle fa-2x d-block mb-2 text-success"></i>Sin alertas</div>';
   }
   rs('na-contracts','contract'); rs('na-permits','permit'); rs('na-vacreqs','vacreq'); rs('na-vacbal','vacbal');
+}
+
+// ════════════════ ZKTECO ══════════════════════════════════════
+var ZK_POLL_INTERVAL = null;
+var ZK_LAST_POLL = null;
+
+async function loadZKTeco() {
+  // Load devices
+  var SERVICE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDI1MDE5MiwiZXhwIjoyMDk1ODI2MTkyfQ.kBji5fQf2w-Sbzl4rdK_TFmgz0Gc848sYld4QlnteoQ';
+  var surl=A.url+'/rest/v1/zkteco_devices?select=*&order=last_seen.desc';
+  var res=await fetch(surl,{headers:{'apikey':A.key,'Authorization':'Bearer '+SERVICE_KEY}});
+  var devices=await res.json();
+  var tb=document.getElementById('zk-devices-tbody');
+  if(tb){
+    if(Array.isArray(devices)&&devices.length){
+      var now=new Date();
+      tb.innerHTML=devices.map(function(d){
+        var last=d.last_seen?new Date(d.last_seen):null;
+        var diffMin=last?Math.floor((now-last)/60000):null;
+        var online=diffMin!==null&&diffMin<5;
+        var badge='<span class="badge badge-'+(online?'success':'secondary')+'">'+(online?'En línea':'Offline')+'</span>';
+        var ago=last?(diffMin<1?'Ahora':diffMin+'m atrás'):'—';
+        return '<tr>'
+          +'<td><code>'+d.serial_number+'</code></td>'
+          +'<td>'+(d.name||'<small class="text-muted">Sin nombre</small>')+'</td>'
+          +'<td>'+(d.location||'—')+'</td>'
+          +'<td><small>'+ago+'</small></td>'
+          +'<td>'+badge+'</td>'
+          +'</tr>';
+      }).join('');
+    } else {
+      tb.innerHTML='<tr><td colspan="5" class="text-center text-muted p-3">Sin relojes conectados aún.</td></tr>';
+    }
+  }
+  // Load unknown PINs
+  var purl=A.url+'/rest/v1/zkteco_unknown_pins?select=*&resolved=eq.false&order=last_seen.desc&limit=20';
+  var pres=await fetch(purl,{headers:{'apikey':A.key,'Authorization':'Bearer '+SERVICE_KEY}});
+  var pins=await pres.json();
+  var ptb=document.getElementById('zk-unknown-tbody');
+  if(ptb){
+    if(Array.isArray(pins)&&pins.length){
+      ptb.innerHTML=pins.map(function(p){
+        return '<tr><td><strong>'+p.pin+'</strong></td><td><small>'+(p.serial_number||'—')+'</small></td>'
+          +'<td><small>'+(p.last_seen?new Date(p.last_seen).toLocaleString('es-PA'):'—')+'</small></td>'
+          +'<td><span class="badge badge-warning">'+p.attempts+'</span></td></tr>';
+      }).join('');
+    } else {
+      ptb.innerHTML='<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
+    }
+  }
+}
+
+function copyZKUrl() {
+  var el=document.getElementById('zk-server-url');
+  if(el){ navigator.clipboard.writeText(el.value).then(function(){ toast('URL copiada al portapapeles'); }); }
+}
+
+async function testZKConnection() {
+  var url='https://swciybuhetkfrtpyjvgb.supabase.co/functions/v1/zkteco-adms';
+  try {
+    var res=await fetch(url+'?SN=TEST&options=all');
+    if(res.ok){
+      var text=await res.text();
+      if(text.includes('GET OPTION')||text.includes('OK')) toast('Edge Function responde correctamente');
+      else toast('Respuesta inesperada: '+text.slice(0,50),'warning');
+    } else {
+      toast('Error HTTP '+res.status+' — ¿desplegaste la Edge Function?','warning');
+    }
+  } catch(err) {
+    toast('No se pudo conectar: '+err.message,'danger');
+  }
+}
+
+// Realtime polling for attendance (ZKTeco live updates)
+function startZKPolling() {
+  if(ZK_POLL_INTERVAL) return; // already running
+  ZK_LAST_POLL=new Date();
+  var badge=document.getElementById('zk-live-badge'); if(badge) badge.style.display='';
+  ZK_POLL_INTERVAL=setInterval(async function(){
+    // Only poll when attendance page is visible
+    var attPage=document.getElementById('pg-attendance');
+    if(!attPage||attPage.style.display==='none') return;
+    // Fetch attendance records created after last poll
+    var since=ZK_LAST_POLL.toISOString();
+    ZK_LAST_POLL=new Date();
+    var url=A.url+'/rest/v1/attendance_logs?select=employee_name,time_in,time_out,status&created_at=gt.'+encodeURIComponent(since)+'&order=created_at.desc&limit=5';
+    var res=await fetch(url,{headers:Supa.hdr()}).catch(function(){return null;});
+    if(!res) return;
+    var rows=await res.json().catch(function(){return [];});
+    if(Array.isArray(rows)&&rows.length){
+      rows.forEach(function(r){
+        toast('<i class="fas fa-fingerprint mr-1"></i>'+r.employee_name+' — '+(r.time_in||'marcó'));
+      });
+      loadAttendance(); // refresh today's list
+    }
+  }, 30000); // every 30 seconds
+}
+
+function stopZKPolling() {
+  if(ZK_POLL_INTERVAL){ clearInterval(ZK_POLL_INTERVAL); ZK_POLL_INTERVAL=null; }
 }
 
 // ════════════════ SETTINGS ═══════════════════════════════════
