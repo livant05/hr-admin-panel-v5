@@ -3711,17 +3711,20 @@ var ZK_POLL_INTERVAL = null;
 var ZK_LAST_POLL = null;
 
 function openZKTecoTab() {
+  var tc = document.querySelector('#pg-settings .tab-content');
+  var pane = document.getElementById('st-zkteco');
+  var ps = document.getElementById('pg-settings');
+  toast('pg-settings:'+(ps?getComputedStyle(ps).display:'null')+' tc:'+(tc?getComputedStyle(tc).display:'null')+' pane:'+(pane?'found':'NULL'), 'info');
   document.querySelectorAll('#pg-settings .nav-tabs .nav-link').forEach(function(l){ l.classList.remove('active'); });
   document.getElementById('nav-zkteco-tab').classList.add('active');
   document.querySelectorAll('#pg-settings .tab-content .tab-pane').forEach(function(p){
     p.classList.remove('show','active');
     p.style.display = 'none';
   });
-  var pane = document.getElementById('st-zkteco');
   if(pane){
     pane.classList.add('show','active');
     pane.style.cssText = 'display:block!important;opacity:1!important;visibility:visible!important;';
-    pane.insertAdjacentHTML('afterbegin','<div id="zk-debug-banner" class="alert alert-success m-2 p-2"><strong>ZKTeco activo</strong></div>');
+    pane.insertAdjacentHTML('afterbegin','<div class="alert alert-success m-2 p-2"><strong>ZKTeco activo</strong></div>');
   }
   loadZKTeco();
 }
