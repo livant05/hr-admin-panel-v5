@@ -3729,7 +3729,11 @@ function openZKTecoTab() {
   // loadZKTeco() temporarily disabled for debug
   setTimeout(function(){
     var p2=document.getElementById('st-zkteco');
-    toast('after 200ms: display='+(p2?getComputedStyle(p2).display:'null'),'info');
+    if(p2){
+      var cs=getComputedStyle(p2);
+      var r=p2.getBoundingClientRect();
+      toast('h='+cs.height+' oh='+cs.overflow+' rect='+Math.round(r.width)+'x'+Math.round(r.height),'info');
+    }
   },200);
 }
 
