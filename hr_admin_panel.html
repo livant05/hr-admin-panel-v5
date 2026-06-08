@@ -3726,7 +3726,11 @@ function openZKTecoTab() {
     pane.style.cssText = 'display:block!important;opacity:1!important;visibility:visible!important;';
     pane.insertAdjacentHTML('afterbegin','<div class="alert alert-success m-2 p-2"><strong>ZKTeco activo</strong></div>');
   }
-  loadZKTeco();
+  // loadZKTeco() temporarily disabled for debug
+  setTimeout(function(){
+    var p2=document.getElementById('st-zkteco');
+    toast('after 200ms: display='+(p2?getComputedStyle(p2).display:'null'),'info');
+  },200);
 }
 
 async function loadZKTeco() {
