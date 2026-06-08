@@ -3720,8 +3720,8 @@ function openZKTecoTab() {
   var pane = document.getElementById('st-zkteco');
   if(pane){
     pane.classList.add('show','active');
-    pane.style.display = 'block';
-    pane.style.opacity = '1';
+    pane.style.cssText = 'display:block!important;opacity:1!important;visibility:visible!important;';
+    pane.insertAdjacentHTML('afterbegin','<div id="zk-debug-banner" class="alert alert-success m-2 p-2"><strong>ZKTeco activo</strong></div>');
   }
   loadZKTeco();
 }
