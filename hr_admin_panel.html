@@ -3729,11 +3729,13 @@ function openZKTecoTab() {
   // loadZKTeco() temporarily disabled for debug
   setTimeout(function(){
     var p2=document.getElementById('st-zkteco');
-    if(p2){
-      var cs=getComputedStyle(p2);
-      var r=p2.getBoundingClientRect();
-      toast('h='+cs.height+' oh='+cs.overflow+' rect='+Math.round(r.width)+'x'+Math.round(r.height),'info');
-    }
+    if(!p2) return;
+    var par=p2.parentElement; // .tab-content
+    var gpar=par?par.parentElement:null; // .container-fluid
+    var rp=p2.getBoundingClientRect();
+    var rtc=par?par.getBoundingClientRect():{width:0,height:0};
+    var rgp=gpar?gpar.getBoundingClientRect():{width:0,height:0};
+    toast('pane:'+Math.round(rp.width)+'x'+Math.round(rp.height)+' tc:'+Math.round(rtc.width)+'x'+Math.round(rtc.height)+' cf:'+Math.round(rgp.width)+'x'+Math.round(rgp.height),'info');
   },200);
 }
 
