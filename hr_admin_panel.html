@@ -3717,10 +3717,13 @@ function openZKTecoTab() {
 
   // Switch pane using Bootstrap classes only — no manual display:none
   var tc = document.querySelector('#pg-settings .tab-content');
-  if(tc) Array.from(tc.children).forEach(function(p){ p.classList.remove('show','active'); });
+  if(tc) Array.from(tc.children).forEach(function(p){
+    p.classList.remove('show','active');
+    p.style.display = ''; // clear Bootstrap inline display
+  });
 
   var pane = document.getElementById('st-zkteco');
-  if(pane) pane.classList.add('show','active');
+  if(pane){ pane.classList.add('show','active'); pane.style.display = 'block'; }
 
   loadZKTeco();
 }
