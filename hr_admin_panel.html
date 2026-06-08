@@ -3711,32 +3711,18 @@ var ZK_POLL_INTERVAL = null;
 var ZK_LAST_POLL = null;
 
 function openZKTecoTab() {
-  var tc = document.querySelector('#pg-settings .tab-content');
-  var pane = document.getElementById('st-zkteco');
-  var ps = document.getElementById('pg-settings');
-  toast('pg-settings:'+(ps?getComputedStyle(ps).display:'null')+' tc:'+(tc?getComputedStyle(tc).display:'null')+' pane:'+(pane?'found':'NULL'), 'info');
+  // Update nav active states
   document.querySelectorAll('#pg-settings .nav-tabs .nav-link').forEach(function(l){ l.classList.remove('active'); });
   document.getElementById('nav-zkteco-tab').classList.add('active');
-  document.querySelectorAll('#pg-settings .tab-content .tab-pane').forEach(function(p){
-    p.classList.remove('show','active');
-    p.style.display = 'none';
-  });
-  if(pane){
-    pane.classList.add('show','active');
-    pane.style.cssText = 'display:block!important;opacity:1!important;visibility:visible!important;';
-    pane.insertAdjacentHTML('afterbegin','<div class="alert alert-success m-2 p-2"><strong>ZKTeco activo</strong></div>');
-  }
-  // loadZKTeco() temporarily disabled for debug
-  setTimeout(function(){
-    var p2=document.getElementById('st-zkteco');
-    if(!p2) return;
-    var par=p2.parentElement; // .tab-content
-    var gpar=par?par.parentElement:null; // .container-fluid
-    var rp=p2.getBoundingClientRect();
-    var rtc=par?par.getBoundingClientRect():{width:0,height:0};
-    var rgp=gpar?gpar.getBoundingClientRect():{width:0,height:0};
-    toast('pane:'+Math.round(rp.width)+'x'+Math.round(rp.height)+' tc:'+Math.round(rtc.width)+'x'+Math.round(rtc.height)+' cf:'+Math.round(rgp.width)+'x'+Math.round(rgp.height),'info');
-  },200);
+
+  // Switch pane using Bootstrap classes only — no manual display:none
+  var tc = document.querySelector('#pg-settings .tab-content');
+  if(tc) Array.from(tc.children).forEach(function(p){ p.classList.remove('show','active'); });
+
+  var pane = document.getElementById('st-zkteco');
+  if(pane) pane.classList.add('show','active');
+
+  loadZKTeco();
 }
 
 async function loadZKTeco() {
