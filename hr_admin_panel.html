@@ -1436,8 +1436,8 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
               </div>
               <div class="card-body p-0">
                 <table class="table table-sm mb-0">
-                  <thead class="thead-light"><tr><th>Número de Serie</th><th>Nombre</th><th>Ubicación</th><th>Último contacto</th><th>Estado</th></tr></thead>
-                  <tbody id="zk-devices-tbody"><tr><td colspan="5" class="text-center text-muted p-3">Sin relojes conectados aún. Configurá el servidor ADMS en el dispositivo.</td></tr></tbody>
+                  <thead class="thead-light"><tr><th>Número de Serie</th><th>Nombre</th><th>Ubicación</th><th>Último contacto</th><th>Estado</th><th></th></tr></thead>
+                  <tbody id="zk-devices-tbody"><tr><td colspan="6" class="text-center text-muted p-3">Sin relojes conectados aún. Configurá el servidor ADMS en el dispositivo.</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -3727,12 +3727,13 @@ async function loadZKTeco() {
         var online=diffMin!==null&&diffMin<5;
         var badge='<span class="badge badge-'+(online?'success':'secondary')+'">'+(online?'En línea':'Offline')+'</span>';
         var ago=last?(diffMin<1?'Ahora':diffMin+'m atrás'):'—';
-        return '<tr>'
+        return '<tr id="zkrow-'+d.id+'">'
           +'<td><code>'+d.serial_number+'</code></td>'
-          +'<td>'+(d.name||'<small class="text-muted">Sin nombre</small>')+'</td>'
-          +'<td>'+(d.location||'—')+'</td>'
+          +'<td id="zk-name-'+d.id+'">'+(d.name||'<small class="text-muted">Sin nombre</small>')+'</td>'
+          +'<td id="zk-loc-'+d.id+'">'+(d.location||'—')+'</td>'
           +'<td><small>'+ago+'</small></td>'
           +'<td>'+badge+'</td>'
+          +'<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\''+d.id+'\',\''+encodeURIComponent(d.name||'')+'\',\''+encodeURIComponent(d.location||'')+'\')"><i class="fas fa-pencil-alt"></i></button></td>'
           +'</tr>';
       }).join('');
     } else {
@@ -3755,6 +3756,32 @@ async function loadZKTeco() {
       ptb.innerHTML='<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
     }
   }
+}
+
+function editZKDevice(id, encName, encLoc) {
+  var name = decodeURIComponent(encName);
+  var loc = decodeURIComponent(encLoc);
+  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+name.replace(/"/g,'&quot;')+'" style="min-width:100px">';
+  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+loc.replace(/"/g,'&quot;')+'" style="min-width:100px">';
+  var row = document.getElementById('zkrow-'+id);
+  var lastTd = row.querySelector('td:last-child');
+  lastTd.innerHTML = '<button class="btn btn-xs btn-success mr-1" onclick="saveZKDevice(\''+id+'\')"><i class="fas fa-check"></i></button>'
+    +'<button class="btn btn-xs btn-secondary" onclick="loadZKTeco()"><i class="fas fa-times"></i></button>';
+}
+
+async function saveZKDevice(id) {
+  var nameEl = document.getElementById('zk-name-input-'+id);
+  var locEl = document.getElementById('zk-loc-input-'+id);
+  if (!nameEl) return;
+  var SERVICE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDI1MDE5MiwiZXhwIjoyMDk1ODI2MTkyfQ.kBji5fQf2w-Sbzl4rdK_TFmgz0Gc848sYld4QlnteoQ';
+  var body = { name: nameEl.value.trim() || null, location: locEl ? (locEl.value.trim() || null) : null };
+  var res = await fetch(A.url+'/rest/v1/zkteco_devices?id=eq.'+id, {
+    method: 'PATCH',
+    headers: { 'apikey': A.key, 'Authorization': 'Bearer '+SERVICE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    body: JSON.stringify(body)
+  });
+  if (res.ok) { toast('Reloj actualizado'); loadZKTeco(); }
+  else { toast('Error al guardar', 'danger'); }
 }
 
 function copyZKUrl() {
