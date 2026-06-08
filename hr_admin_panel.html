@@ -1304,7 +1304,7 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-roles" onclick="loadRoleMgmt()">Roles</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-look">Apariencia</a></li>
       <li class="nav-item"><a class="nav-link" data-toggle="tab" href="#st-backup">Backup / SQL</a></li>
-      <li class="nav-item"><a class="nav-link text-success" href="#" id="nav-zkteco-tab" onclick="event.preventDefault();openZKTecoTab();"><i class="fas fa-fingerprint mr-1"></i>ZKTeco</a></li>
+      <li class="nav-item"><a class="nav-link text-success" data-toggle="tab" href="#st-zkteco" onclick="loadZKTeco()"><i class="fas fa-fingerprint mr-1"></i>ZKTeco</a></li>
     </ul>
     <div class="tab-content">
       <div class="tab-pane fade show active" id="st-empresa"><div class="row"><div class="col-md-6"><div class="card"><div class="card-header"><h3 class="card-title">Datos de la Empresa</h3></div>
@@ -3710,34 +3710,6 @@ async function loadNotifications(){
 var ZK_POLL_INTERVAL = null;
 var ZK_LAST_POLL = null;
 
-function openZKTecoTab() {
-  // Update nav active states
-  document.querySelectorAll('#pg-settings .nav-tabs .nav-link').forEach(function(l){ l.classList.remove('active'); });
-  document.getElementById('nav-zkteco-tab').classList.add('active');
-
-  var tc = document.querySelector('#pg-settings .tab-content');
-  if(tc) Array.from(tc.children).forEach(function(p){
-    p.classList.remove('show','active');
-    p.style.display = 'none';
-  });
-
-  var pane = document.getElementById('st-zkteco');
-  if(pane){ pane.classList.add('show','active'); pane.style.display = 'block'; }
-
-  loadZKTeco();
-}
-
-// Clears ZKTeco inline display overrides when switching to any other settings tab
-(function(){
-  var nav = document.querySelector('#pg-settings .nav-tabs');
-  if(!nav) return;
-  nav.addEventListener('click', function(e){
-    var link = e.target.closest('.nav-link');
-    if(!link || link.id === 'nav-zkteco-tab') return;
-    var tc = document.querySelector('#pg-settings .tab-content');
-    if(tc) Array.from(tc.children).forEach(function(p){ p.style.display = ''; });
-  });
-})();
 
 async function loadZKTeco() {
   // Load devices
