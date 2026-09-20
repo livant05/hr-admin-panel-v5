@@ -2020,7 +2020,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -2634,8 +2634,10 @@ async function saveEmp() {
 }
 
 async function delEmp(id) {
-  if(!confirm('¿Eliminar este empleado?')) return;
-  await Supa.del('employees',id); toast('Eliminado','info'); loadEmpList();
+  if(!confirm('¿Desactivar este empleado?')) return;
+  var r=await Supa.del('employees',id);
+  if(r&&r.error){ toast(r.error.message||'No se pudo desactivar','danger'); return; }
+  toast('Desactivado','info'); loadEmpList();
 }
 function genDocForEmp(id) { A._docEmpId=id; go('documents'); setTimeout(function(){ var s=document.getElementById('dg-emp'); if(s){s.value=id;previewDoc();} },400); }
 function calcAge() { var d=gv('ef-bdate'); if(!d) return; var el=document.getElementById('ef-age'); if(el) el.value=Math.floor((new Date()-new Date(d))/(365.25*86400000)); }

@@ -13,6 +13,7 @@ import (
 type Querier interface {
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
+	CountEmployees(ctx context.Context, arg CountEmployeesParams) (int64, error)
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
 	CountEmployeesInDepartment(ctx context.Context, arg CountEmployeesInDepartmentParams) (int64, error)
 	CountEmployeesInPosition(ctx context.Context, arg CountEmployeesInPositionParams) (int64, error)
@@ -20,8 +21,16 @@ type Querier interface {
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
+	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
+	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
+	// (attendance_logs, leave_balances, leave_requests, overtime_logs,
+	// deductions, medical_records, evaluations, uniforms, enrollments) that a
+	// real DELETE would silently destroy, plus 2 tables with no ON DELETE clause
+	// (liquidation_history, generated_documents) that would block it with a raw
+	// FK error. No handler ever issues DELETE FROM employees.
+	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
@@ -29,12 +38,14 @@ type Querier interface {
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
+	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
 	GetRole(ctx context.Context, arg GetRoleParams) (Role, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
+	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
@@ -42,6 +53,7 @@ type Querier interface {
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
 	UpdateBranch(ctx context.Context, arg UpdateBranchParams) (Branch, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
+	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
 }
