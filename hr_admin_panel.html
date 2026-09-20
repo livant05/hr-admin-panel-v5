@@ -2015,8 +2015,58 @@ var VARS = {
   '{{SALARIO_HORA}}': function(e){ return ((e.salary||0) / ((e.weekly_hours||44)*52/12)).toFixed(2); }
 };
 
+// ════════════════ RRHH-GO ROUTING ═════════════════════════════
+// Phase-by-phase cutover from Supabase to the Go backend: a table is moved
+// to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
+// localStorage['hr_go_tables'] instantly reverts any subset to Supabase
+// with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles'];
+var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
+try {
+  var _goOv = localStorage.getItem('hr_go_tables');
+  if (_goOv !== null) GO_TABLES = _goOv ? _goOv.split(',').map(function(s){ return s.trim(); }) : [];
+  A_goUrl = localStorage.getItem('hr_go_url') || '';
+} catch(e) {}
+
 // ════════════════ SUPABASE CLIENT ════════════════════════════
 var Supa = {
+  goUrl: A_goUrl,
+  goTables: GO_TABLES.reduce(function(m,t){ m[t]=true; return m; }, {}),
+
+  route: function(tbl){ return this.goTables[tbl] ? 'go' : 'supa'; },
+
+  // No apikey header on the Go path — Go authenticates on the Bearer JWT alone.
+  ghdr: function() {
+    var h = {'Content-Type':'application/json'};
+    if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
+    return h;
+  },
+
+  // Maps a PostgREST-style filter object to plain query params (A4).
+  gq: function(flt) {
+    var qs = Object.keys(flt || {}).map(function(k){
+      return encodeURIComponent(k) + '=' + encodeURIComponent(flt[k]);
+    }).join('&');
+    return qs ? '?' + qs : '';
+  },
+
+  // Normalizes the Go A2 envelope ({"error":{"code","message"}}) into the
+  // {error:{message}} shape the existing call sites already read (e.g.
+  // saveEmp's `res.error.message`). Also tolerates a raw PostgREST-shaped
+  // error body ({code,message}, no `.error` key) so the same `r && r.error`
+  // call-site guard still catches it if this path is ever reused against a
+  // Supabase-shaped error response.
+  gres: async function(r) {
+    if (r.status === 204) return [];
+    var body = await r.json().catch(function(){ return null; });
+    if (!r.ok) {
+      if (body && body.error) return { error: body.error };
+      if (body && body.code && body.message) return { error: { code: body.code, message: body.message } };
+      return { error: { code:'internal', message:'HTTP '+r.status } };
+    }
+    return body;
+  },
+
   hdr: function() {
     var h = {'Content-Type':'application/json', apikey:A.key};
     if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
@@ -2053,6 +2103,8 @@ var Supa = {
       Object.keys(flt).forEach(function(k){ rows = rows.filter(function(r){ return r[k] === flt[k]; }); });
       return rows;
     }
+    if (this.route(tbl) === 'go')
+      return this.gres(await fetch(this.goUrl+'/api/'+tbl+this.gq(flt), {headers:this.ghdr()}));
     var url = A.url+'/rest/v1/'+tbl+'?select=*&company_id=eq.'+A.companyId;
     Object.keys(flt).forEach(function(k){ url += '&'+k+'=eq.'+flt[k]; });
     var r = await fetch(url, {headers:this.hdr()});
@@ -2065,6 +2117,9 @@ var Supa = {
       DS[tbl].push(row);
       return [row];
     }
+    if (this.route(tbl) === 'go')
+      return this.gres(await fetch(this.goUrl+'/api/'+tbl,
+        {method:'POST', headers:this.ghdr(), body:JSON.stringify(data)})); // company_id is NOT injected — the Go handler binds it from the JWT
     var r = await fetch(A.url+'/rest/v1/'+tbl,{method:'POST',headers:Object.assign({'Prefer':'return=representation'},this.hdr()),body:JSON.stringify(Object.assign({company_id:A.companyId},data))});
     return r.json();
   },
@@ -2074,11 +2129,16 @@ var Supa = {
       if (idx > -1) DS[tbl][idx] = Object.assign({}, DS[tbl][idx], data);
       return [DS[tbl] ? DS[tbl][idx] : null];
     }
+    if (this.route(tbl) === 'go')
+      return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id,
+        {method:'PATCH', headers:this.ghdr(), body:JSON.stringify(data)}));
     var r = await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'PATCH',headers:Object.assign({'Prefer':'return=representation'},this.hdr()),body:JSON.stringify(data)});
     return r.json();
   },
   del: async function(tbl, id) {
     if (A.demo) { if (DS[tbl]) DS[tbl] = DS[tbl].filter(function(r){ return r.id !== id; }); return; }
+    if (this.route(tbl) === 'go')
+      return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id, {method:'DELETE', headers:this.ghdr()}));
     await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'DELETE',headers:this.hdr()});
   }
 };
@@ -4059,17 +4119,17 @@ function stopZKPolling() {
 function editEntity(prefix,id,updateFn,cancelFn){ var li=document.getElementById(prefix+'-li-'+id); if(!li) return; var name=(li.querySelector('span')||{}).textContent||''; li.innerHTML='<div class="d-flex align-items-center w-100"><input type="text" id="'+prefix+'-edit-'+id+'" class="form-control form-control-sm mr-2" value="'+name.trim().replace(/"/g,'&quot;')+'" style="max-width:200px"><button class="btn btn-xs btn-success mr-1" onclick="'+updateFn+'(\''+id+'\')"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-secondary" onclick="'+cancelFn+'()"><i class="fas fa-times"></i></button></div>'; }
 async function loadEntityList(cfg){ var rows=await Supa.sel(cfg.table),el=document.getElementById(cfg.listElId); if(!el||!Array.isArray(rows)) return; el.innerHTML=rows.length?rows.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="'+cfg.prefix+'-li-'+r.id+'"><span><i class="fas '+cfg.icon+' mr-2 '+cfg.color+'"></i>'+r.name+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editEntity(\''+cfg.prefix+'\',\''+r.id+'\',\''+cfg.updateFn+'\',\''+cfg.loadFn+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-danger" onclick="'+cfg.delFn+'(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">'+cfg.empty+'</li>'; }
 async function loadDeptMgmt(){ await loadEntityList({table:'departments',listElId:'dept-list',prefix:'dept',icon:'fa-sitemap',color:'text-primary',empty:'Sin departamentos',updateFn:'updateDept',delFn:'delDept',loadFn:'loadDeptMgmt'}); }
-async function saveDept(){ var n=gv('new-dept-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('departments',{name:n}); document.getElementById('new-dept-name').value=''; toast('✅ Departamento agregado'); loadDeptMgmt(); }
-async function delDept(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('departments',id); toast('Eliminado','info'); loadDeptMgmt(); }
-async function updateDept(id){ var inp=document.getElementById('dept-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var d=DS.departments.find(function(x){return x.id===id;}); if(d) d.name=inp.value.trim();}else{await Supa.upd('departments',id,{name:inp.value.trim()});} toast('✅ Departamento actualizado'); loadDeptMgmt(); }
+async function saveDept(){ var n=gv('new-dept-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('departments',{name:n}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-dept-name').value=''; toast('✅ Departamento agregado'); loadDeptMgmt(); }
+async function delDept(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('departments',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadDeptMgmt(); }
+async function updateDept(id){ var inp=document.getElementById('dept-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var d=DS.departments.find(function(x){return x.id===id;}); if(d) d.name=inp.value.trim();}else{var r=await Supa.upd('departments',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Departamento actualizado'); loadDeptMgmt(); }
 async function loadPosMgmt(){ await loadEntityList({table:'positions',listElId:'pos-list',prefix:'pos',icon:'fa-user-tie',color:'text-success',empty:'Sin cargos',updateFn:'updatePos',delFn:'delPos',loadFn:'loadPosMgmt'}); }
-async function savePos(){ var n=gv('new-pos-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('positions',{name:n}); document.getElementById('new-pos-name').value=''; toast('✅ Cargo agregado'); loadPosMgmt(); }
-async function delPos(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('positions',id); toast('Eliminado','info'); loadPosMgmt(); }
-async function updatePos(id){ var inp=document.getElementById('pos-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var p=DS.positions.find(function(x){return x.id===id;}); if(p) p.name=inp.value.trim();}else{await Supa.upd('positions',id,{name:inp.value.trim()});} toast('✅ Cargo actualizado'); loadPosMgmt(); }
+async function savePos(){ var n=gv('new-pos-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('positions',{name:n}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-pos-name').value=''; toast('✅ Cargo agregado'); loadPosMgmt(); }
+async function delPos(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('positions',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadPosMgmt(); }
+async function updatePos(id){ var inp=document.getElementById('pos-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var p=DS.positions.find(function(x){return x.id===id;}); if(p) p.name=inp.value.trim();}else{var r=await Supa.upd('positions',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Cargo actualizado'); loadPosMgmt(); }
 async function loadBranchMgmt(){ await loadEntityList({table:'branches',listElId:'branch-list',prefix:'branch',icon:'fa-map-marker-alt',color:'text-warning',empty:'Sin sucursales',updateFn:'updateBranch',delFn:'delBranch',loadFn:'loadBranchMgmt'}); }
-async function saveBranch(){ var n=gv('new-branch-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('branches',{name:n}); document.getElementById('new-branch-name').value=''; toast('✅ Sucursal agregada'); loadBranchMgmt(); }
-async function delBranch(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('branches',id); toast('Eliminado','info'); loadBranchMgmt(); }
-async function updateBranch(id){ var inp=document.getElementById('branch-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var b=DS.branches.find(function(x){return x.id===id;}); if(b) b.name=inp.value.trim();}else{await Supa.upd('branches',id,{name:inp.value.trim()});} toast('✅ Sucursal actualizada'); loadBranchMgmt(); }
+async function saveBranch(){ var n=gv('new-branch-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('branches',{name:n}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-branch-name').value=''; toast('✅ Sucursal agregada'); loadBranchMgmt(); }
+async function delBranch(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('branches',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadBranchMgmt(); }
+async function updateBranch(id){ var inp=document.getElementById('branch-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var b=DS.branches.find(function(x){return x.id===id;}); if(b) b.name=inp.value.trim();}else{var r=await Supa.upd('branches',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Sucursal actualizada'); loadBranchMgmt(); }
 var PERM_MODULES=[
   {key:'dashboard',label:'Dashboard',icon:'fa-tachometer-alt',color:'text-secondary'},
   {key:'employees',label:'Empleados',icon:'fa-users',color:'text-primary',subs:[
@@ -4099,10 +4159,10 @@ var PERM_MODULES=[
   {key:'settings',label:'Configuración',icon:'fa-cogs',color:'text-secondary'}
 ];
 async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el||!Array.isArray(roles)) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+r.name+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
-async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} await Supa.ins('roles',{name:n,permissions:{}}); document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
-async function delRole(id){ if(!confirm('¿Eliminar?')) return; await Supa.del('roles',id); toast('Eliminado','info'); loadRoleMgmt(); }
+async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
+async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
 function editRole(id){ editEntity('role',id,'updateRole','loadRoleMgmt'); }
-async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{await Supa.upd('roles',id,{name:inp.value.trim()});} toast('✅ Rol actualizado'); loadRoleMgmt(); }
+async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
 async function openRolePermsModal(id){
   var rows=await Supa.sel('roles',{id:id}); var role=Array.isArray(rows)&&rows[0]; if(!role) return;
   document.getElementById('rpm-role-id').value=id;
@@ -4134,7 +4194,7 @@ async function openRolePermsModal(id){
 function togglePermModule(key,checked){ var m=PERM_MODULES.find(function(x){return x.key===key;}); if(!m||!m.subs) return; m.subs.forEach(function(s){ var el=document.getElementById('rpm-'+key+'-'+s.key); if(el) el.checked=checked; }); }
 function togglePermExpand(key){ var el=document.getElementById('rpm-subs-'+key),chev=document.getElementById('rpm-chev-'+key); if(!el) return; var open=el.style.display!=='none'; el.style.display=open?'none':'block'; if(chev) chev.style.transform=open?'':'rotate(90deg)'; }
 function syncParentPerm(key){ var m=PERM_MODULES.find(function(x){return x.key===key;}); if(!m||!m.subs) return; var any=m.subs.some(function(s){var el=document.getElementById('rpm-'+key+'-'+s.key); return el&&el.checked;}); var par=document.getElementById('rpm-'+key); if(par) par.checked=any; }
-async function saveRolePerms(){ var id=document.getElementById('rpm-role-id').value; var perms={}; PERM_MODULES.forEach(function(m){ if(m.subs){perms[m.key]={}; m.subs.forEach(function(s){perms[m.key][s.key]=!!(document.getElementById('rpm-'+m.key+'-'+s.key)||{}).checked;});}else{perms[m.key]=!!(document.getElementById('rpm-'+m.key)||{}).checked;}}); await Supa.upd('roles',id,{permissions:perms}); $('#rolePermsModal').modal('hide'); toast('✅ Permisos guardados'); }
+async function saveRolePerms(){ var id=document.getElementById('rpm-role-id').value; var perms={}; PERM_MODULES.forEach(function(m){ if(m.subs){perms[m.key]={}; m.subs.forEach(function(s){perms[m.key][s.key]=!!(document.getElementById('rpm-'+m.key+'-'+s.key)||{}).checked;});}else{perms[m.key]=!!(document.getElementById('rpm-'+m.key)||{}).checked;}}); var r=await Supa.upd('roles',id,{permissions:perms}); if(r&&r.error){ toast(r.error.message||'No se pudo guardar','danger'); return; } $('#rolePermsModal').modal('hide'); toast('✅ Permisos guardados'); }
 
 function saveCo(){ var n=gv('st-coname'); if(!n){toast('Ingresa el nombre','warning');return;} A.companyName=n; ['nav-co','sb-co'].forEach(function(id){ var e=document.getElementById(id); if(e) e.textContent=n; }); var bc=document.getElementById('brand-coname'); if(bc) bc.textContent=n; toast('¡Empresa actualizada!'); }
 
