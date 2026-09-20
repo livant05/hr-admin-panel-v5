@@ -2956,7 +2956,6 @@ async function loadPayroll() {
 async function seedTestAttendance() {
   var emps=await Supa.sel('employees',{status:'active'});
   if(!Array.isArray(emps)||!emps.length){ toast('No hay empleados activos','warning'); return; }
-  var SK='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDI1MDE5MiwiZXhwIjoyMDk1ODI2MTkyfQ.kBji5fQf2w-Sbzl4rdK_TFmgz0Gc848sYld4QlnteoQ';
   // Working days Jun 2026 completed so far (Mon–Fri, Jun 2–6)
   var days=['2026-06-02','2026-06-03','2026-06-04','2026-06-05','2026-06-06'];
   // Per employee: [status, time_in, time_out] for each day
@@ -2975,7 +2974,7 @@ async function seedTestAttendance() {
       var p=pat[j];
       await fetch(A.url+'/rest/v1/attendance_logs?on_conflict=employee_id,date',{
         method:'POST',
-        headers:{'apikey':A.key,'Authorization':'Bearer '+SK,'Content-Type':'application/json','Prefer':'resolution=merge-duplicates,return=minimal'},
+        headers:Object.assign({'Prefer':'resolution=merge-duplicates,return=minimal'},Supa.hdr()),
         body:JSON.stringify({company_id:e.company_id,employee_id:e.id,employee_name:e.first_name+' '+e.last_name,department:e.department||'',date:days[j],time_in:p[1],time_out:p[2],status:p[0]})
       }).catch(function(){});
       done++;
@@ -3936,9 +3935,8 @@ var ZK_LAST_POLL = null;
 
 async function loadZKTeco() {
   // Load devices
-  var SERVICE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDI1MDE5MiwiZXhwIjoyMDk1ODI2MTkyfQ.kBji5fQf2w-Sbzl4rdK_TFmgz0Gc848sYld4QlnteoQ';
   var surl=A.url+'/rest/v1/zkteco_devices?select=*&order=last_seen.desc';
-  var res=await fetch(surl,{headers:{'apikey':A.key,'Authorization':'Bearer '+SERVICE_KEY}});
+  var res=await fetch(surl,{headers:Supa.hdr()});
   var devices=await res.json();
   var tb=document.getElementById('zk-devices-tbody');
   if(tb){
@@ -3965,7 +3963,7 @@ async function loadZKTeco() {
   }
   // Load unknown PINs
   var purl=A.url+'/rest/v1/zkteco_unknown_pins?select=*&resolved=eq.false&order=last_seen.desc&limit=20';
-  var pres=await fetch(purl,{headers:{'apikey':A.key,'Authorization':'Bearer '+SERVICE_KEY}});
+  var pres=await fetch(purl,{headers:Supa.hdr()});
   var pins=await pres.json();
   var ptb=document.getElementById('zk-unknown-tbody');
   if(ptb){
@@ -3996,11 +3994,10 @@ async function saveZKDevice(id) {
   var nameEl = document.getElementById('zk-name-input-'+id);
   var locEl = document.getElementById('zk-loc-input-'+id);
   if (!nameEl) return;
-  var SERVICE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDI1MDE5MiwiZXhwIjoyMDk1ODI2MTkyfQ.kBji5fQf2w-Sbzl4rdK_TFmgz0Gc848sYld4QlnteoQ';
   var body = { name: nameEl.value.trim() || null, location: locEl ? (locEl.value.trim() || null) : null };
   var res = await fetch(A.url+'/rest/v1/zkteco_devices?id=eq.'+id, {
     method: 'PATCH',
-    headers: { 'apikey': A.key, 'Authorization': 'Bearer '+SERVICE_KEY, 'Content-Type': 'application/json', 'Prefer': 'return=minimal' },
+    headers: Object.assign({'Prefer': 'return=minimal'}, Supa.hdr()),
     body: JSON.stringify(body)
   });
   if (res.ok) { toast('Reloj actualizado'); loadZKTeco(); }
