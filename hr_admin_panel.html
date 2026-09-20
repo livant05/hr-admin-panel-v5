@@ -3147,7 +3147,7 @@ async function savePayRecord() {
   var net=totalEarned-css-se-isr-otherDed;
   var MONTHS_STR=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
   var periodo=MONTHS_STR[mo-1]+' '+yr;
-  await Supa.ins('employee_pay_records',{
+  var res=await Supa.ins('employee_pay_records',{
     employee_id:empId,employee_name:empName,
     cedula:gv('pr-cedula')||'',
     numero_planilla:gv('pr-num-planilla')||'',
@@ -3159,6 +3159,7 @@ async function savePayRecord() {
     css_employee:css,se_employee:se,isr:isr,
     other_deductions:otherDed,net_salary:net,notes:gv('pr-notes')
   });
+  if(!Array.isArray(res)){ toast('Error al guardar: '+(res&&res.message?res.message:'ver consola'),'danger'); console.error('savePayRecord failed',res); return; }
   toast('Registro guardado');
   ['pr-gross','pr-ot','pr-comm','pr-bonus','pr-vac-paid','pr-other-inc','pr-css','pr-se','pr-isr','pr-other-ded'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value='0'; });
   document.getElementById('pr-notes').value='';
@@ -3256,7 +3257,7 @@ function importPayRecordsCSV(input) {
     var ok=0;
     for(var j=0;j<records.length;j++){
       var res=await Supa.ins('employee_pay_records',records[j]);
-      if(res&&!res.error) ok++;
+      if(Array.isArray(res)&&res.length) ok++; else console.error('importPayRecordsCSV row failed',res);
     }
     toast('Importados '+ok+'/'+records.length+' registros');
     input.value=''; loadPayRecords();
