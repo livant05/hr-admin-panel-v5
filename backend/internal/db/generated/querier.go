@@ -41,6 +41,10 @@ type Querier interface {
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
 	GetRole(ctx context.Context, arg GetRoleParams) (Role, error)
+	// Used by requirePermission (Q4, Phase 2 design/authz.go) to look up the
+	// JWT's role by name within the caller's own tenant -- never by id, since
+	// the JWT carries only a role name, not a roles.id.
+	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)

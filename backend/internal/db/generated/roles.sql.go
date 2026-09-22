@@ -96,6 +96,33 @@ func (q *Queries) GetRole(ctx context.Context, arg GetRoleParams) (Role, error) 
 	return i, err
 }
 
+const getRoleByName = `-- name: GetRoleByName :one
+SELECT id, company_id, name, permissions, created_at
+FROM roles
+WHERE company_id = $1 AND name = $2
+`
+
+type GetRoleByNameParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	Name      string      `json:"name"`
+}
+
+// Used by requirePermission (Q4, Phase 2 design/authz.go) to look up the
+// JWT's role by name within the caller's own tenant -- never by id, since
+// the JWT carries only a role name, not a roles.id.
+func (q *Queries) GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error) {
+	row := q.db.QueryRow(ctx, getRoleByName, arg.CompanyID, arg.Name)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Name,
+		&i.Permissions,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listRoles = `-- name: ListRoles :many
 SELECT id, company_id, name, permissions, created_at
 FROM roles
