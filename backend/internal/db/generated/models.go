@@ -49,6 +49,7 @@ type AttendanceLog struct {
 	Status       pgtype.Text        `json:"status"`
 	Notes        pgtype.Text        `json:"notes"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	WorkType     pgtype.Int4        `json:"work_type"`
 }
 
 type Branch struct {
@@ -80,18 +81,27 @@ type Company struct {
 }
 
 type Deduction struct {
-	ID           pgtype.UUID        `json:"id"`
-	CompanyID    pgtype.UUID        `json:"company_id"`
-	EmployeeID   pgtype.UUID        `json:"employee_id"`
-	EmployeeName pgtype.Text        `json:"employee_name"`
-	Type         pgtype.Text        `json:"type"`
-	Description  pgtype.Text        `json:"description"`
-	TotalAmount  pgtype.Numeric     `json:"total_amount"`
-	Quota        pgtype.Numeric     `json:"quota"`
-	Remaining    pgtype.Numeric     `json:"remaining"`
-	StartDate    pgtype.Date        `json:"start_date"`
-	Status       pgtype.Text        `json:"status"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	ID             pgtype.UUID        `json:"id"`
+	CompanyID      pgtype.UUID        `json:"company_id"`
+	EmployeeID     pgtype.UUID        `json:"employee_id"`
+	EmployeeName   pgtype.Text        `json:"employee_name"`
+	Type           pgtype.Text        `json:"type"`
+	Description    pgtype.Text        `json:"description"`
+	TotalAmount    pgtype.Numeric     `json:"total_amount"`
+	Quota          pgtype.Numeric     `json:"quota"`
+	Remaining      pgtype.Numeric     `json:"remaining"`
+	StartDate      pgtype.Date        `json:"start_date"`
+	Status         pgtype.Text        `json:"status"`
+	CreatedAt      pgtype.Timestamptz `json:"created_at"`
+	Cedula         pgtype.Text        `json:"cedula"`
+	AcreedorNombre pgtype.Text        `json:"acreedor_nombre"`
+	AcreedorCodigo pgtype.Text        `json:"acreedor_codigo"`
+	TipoPago       pgtype.Text        `json:"tipo_pago"`
+	CentroCosto    pgtype.Text        `json:"centro_costo"`
+	Prioridad      pgtype.Int4        `json:"prioridad"`
+	EndDate        pgtype.Date        `json:"end_date"`
+	Periodo        pgtype.Text        `json:"periodo"`
+	NumeroPlanilla pgtype.Text        `json:"numero_planilla"`
 }
 
 type Department struct {
