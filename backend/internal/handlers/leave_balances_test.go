@@ -1,9 +1,13 @@
 package handlers_test
 
 import (
+	"io"
+	"log/slog"
 	"net/http"
 	"testing"
 
+	db "github.com/livant05/rrhh-go/internal/db/generated"
+	"github.com/livant05/rrhh-go/internal/scheduler"
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
 
@@ -187,5 +191,63 @@ func TestLeaveBalances_FilterByIDReturnsSingleElementArray(t *testing.T) {
 	foreignRows := testutil.DecodeRows[leaveBalanceRow](t, foreignRec)
 	if len(foreignRows) != 0 {
 		t.Fatalf("expected an empty array for a foreign tenant's uuid, got %d rows", len(foreignRows))
+	}
+}
+
+// TestLeaveBalances_AccrueRequiresPermission pins the spec's "Non-admin
+// cannot trigger manually" scenario: an empleado token gets 403 attempting
+// the manual accrual endpoint, matching leave_requests' approval gate
+// (design Q4/Q5c, same requirePermission mechanism).
+func TestLeaveBalances_AccrueRequiresPermission(t *testing.T) {
+	pool := testutil.Pool(t)
+	sched := scheduler.New(pool, db.New(pool), slog.New(slog.NewTextHandler(io.Discard, nil)), true, 2)
+	h, signer := testutil.ServerWithScheduler(t, pool, sched)
+
+	c := testutil.Company(t, pool, "LeaveBalAccruePermCo")
+	empleado := c.TokenAs(t, signer, "empleado")
+
+	rec := testutil.Do(t, h, http.MethodPost, "/api/leave_balances/accrue", empleado, nil)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 for an empleado token with no vacations permission, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if code := testutil.ErrCode(t, rec); code != "forbidden" {
+		t.Fatalf("expected error.code=forbidden, got %q", code)
+	}
+}
+
+// TestLeaveBalances_AccrueIsIdempotentViaEndpoint pins the spec's "Manual
+// trigger is idempotent" scenario end to end through the HTTP layer (the
+// scheduler package's own tests already pin AccrueCompany's idempotency
+// directly): an admin token calling the endpoint twice in succession for an
+// employee with 22 present days gets earned_days=2 both times, never 4.
+func TestLeaveBalances_AccrueIsIdempotentViaEndpoint(t *testing.T) {
+	pool := testutil.Pool(t)
+	sched := scheduler.New(pool, db.New(pool), slog.New(slog.NewTextHandler(io.Discard, nil)), true, 2)
+	h, signer := testutil.ServerWithScheduler(t, pool, sched)
+
+	c := testutil.Company(t, pool, "LeaveBalAccrueIdemCo")
+	admin := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeName("Ana", "Diaz"))
+	testutil.AttendanceDays(t, pool, c.CompanyID, emp.ID, "present", 22)
+
+	for i := 0; i < 2; i++ {
+		rec := testutil.Do(t, h, http.MethodPost, "/api/leave_balances/accrue", admin, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("run %d: expected 200, got %d (body=%s)", i, rec.Code, rec.Body.String())
+		}
+		rows := testutil.DecodeRows[leaveBalanceRow](t, rec)
+		var found bool
+		for _, row := range rows {
+			if row.EmployeeID != emp.ID {
+				continue
+			}
+			found = true
+			if row.EarnedDays != 2 {
+				t.Fatalf("run %d: expected floor(22/11)=2, got %v", i, row.EarnedDays)
+			}
+		}
+		if !found {
+			t.Fatalf("run %d: expected the accrue response to include the seeded employee's balance", i)
+		}
 	}
 }

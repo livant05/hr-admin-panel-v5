@@ -41,3 +41,14 @@ UPDATE leave_requests
 SET status = $3, notes = $4
 WHERE id = $2 AND company_id = $1 AND status = 'pending'
 RETURNING id, company_id, employee_id, employee_name, type, start_date, end_date, days, status, notes, created_at;
+
+-- name: DeleteLeaveRequest :execrows
+-- Design Q3 addendum (not in the original tasks breakdown -- added back by
+-- the orchestrator after slice 2c1 flagged the gap): hard delete, but only
+-- while status='pending' -- an approved/rejected leave is the record behind
+-- a paid absence. The `status = 'pending'` predicate closes the same race in
+-- SQL as UpdateLeaveRequestStatus: a concurrent PATCH/DELETE that already
+-- won affects zero rows here, which the handler maps to 409 (not 404 --
+-- existence was already confirmed by its own Get before calling this).
+DELETE FROM leave_requests
+WHERE id = $2 AND company_id = $1 AND status = 'pending';

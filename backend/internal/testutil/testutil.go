@@ -29,6 +29,7 @@ import (
 
 	"github.com/livant05/rrhh-go/internal/auth"
 	"github.com/livant05/rrhh-go/internal/handlers"
+	"github.com/livant05/rrhh-go/internal/scheduler"
 )
 
 // TestSecret signs every JWT minted by this harness.
@@ -142,6 +143,22 @@ func Server(t *testing.T, pool *pgxpool.Pool) (http.Handler, *auth.Signer) {
 	signer := auth.NewSigner(TestSecret, time.Hour)
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	api := handlers.New(pool, signer, log)
+	return api.Routes(signer), signer
+}
+
+// ServerWithScheduler is Server plus a wired api.Scheduler, needed only by
+// the POST /api/leave_balances/accrue tests (design Q5c) -- every other
+// handler test uses the plain Server, whose API has a nil Scheduler.
+// handlers.New deliberately takes no scheduler parameter (most callers,
+// including Server, don't need one), so this sets the field directly on the
+// constructed *API before building the mux, matching cmd/api/main.go's own
+// wiring order.
+func ServerWithScheduler(t *testing.T, pool *pgxpool.Pool, sched *scheduler.Scheduler) (http.Handler, *auth.Signer) {
+	t.Helper()
+	signer := auth.NewSigner(TestSecret, time.Hour)
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	api := handlers.New(pool, signer, log)
+	api.Scheduler = sched
 	return api.Routes(signer), signer
 }
 
