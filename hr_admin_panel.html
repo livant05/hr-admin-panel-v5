@@ -2020,7 +2020,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -2775,12 +2775,18 @@ async function saveAttendance() {
   loadAttendance();
 }
 async function delAtt(id) { await Supa.del('attendance_logs',id); toast('Eliminado','info'); loadAttendance(); }
-function loadAttHistory() {
+async function loadAttHistory() {
   var empId=document.getElementById('att-h-emp').value||'', from=gv('att-h-from'), to=gv('att-h-to');
-  var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId; });
-  if(empId) logs=logs.filter(function(l){ return l.employee_id===empId; });
-  if(from) logs=logs.filter(function(l){ return l.date>=from; });
-  if(to) logs=logs.filter(function(l){ return l.date<=to; });
+  // Push the filters server-side (employee_id/date_from/date_to) instead of
+  // fetching every log and filtering client-side — with A4's 200-row
+  // _limit a client-side filter would silently truncate a year-long history
+  // (sdd/rrhh-go-table-migration/phase2-design File Changes, hr_admin_panel.html:2778).
+  var flt={};
+  if(empId) flt.employee_id=empId;
+  if(from) flt.date_from=from;
+  if(to) flt.date_to=to;
+  var logs=await Supa.sel('attendance_logs',flt);
+  logs=Array.isArray(logs)?logs.filter(function(l){ return l.company_id===A.companyId; }):[];
   logs.sort(function(a,b){ return b.date.localeCompare(a.date); });
   var stM={present:'<span class="badge badge-success">Presente</span>',late:'<span class="badge badge-warning">Tardanza</span>',absent:'<span class="badge badge-danger">Ausente</span>',permission:'<span class="badge badge-info">Permiso</span>'};
   var tb=document.getElementById('att-hist-tbody');
@@ -3034,11 +3040,12 @@ async function seedTestAttendance() {
     var e=emps[i], pat=pats[i];
     for(var j=0;j<days.length;j++){
       var p=pat[j];
-      await fetch(A.url+'/rest/v1/attendance_logs?on_conflict=employee_id,date',{
-        method:'POST',
-        headers:Object.assign({'Prefer':'resolution=merge-duplicates,return=minimal'},Supa.hdr()),
-        body:JSON.stringify({company_id:e.company_id,employee_id:e.id,employee_name:e.first_name+' '+e.last_name,department:e.department||'',date:days[j],time_in:p[1],time_out:p[2],status:p[0]})
-      }).catch(function(){});
+      // Route through Supa.ins instead of a raw Supabase fetch (which would
+      // keep writing to the retired store post-cutover): the Go handler's
+      // POST /api/attendance_logs is already an upsert on (employee_id,date)
+      // (design Q2), so the on_conflict query param this raw fetch used to
+      // need is no longer necessary.
+      await Supa.ins('attendance_logs',{employee_id:e.id,employee_name:e.first_name+' '+e.last_name,department:e.department||'',date:days[j],time_in:p[1],time_out:p[2],status:p[0]}).catch(function(){});
       done++;
     }
   }
