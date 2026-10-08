@@ -62,6 +62,14 @@ type Querier interface {
 	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
+	// Design Q3 addendum (not in the original tasks breakdown -- added back by
+	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
+	// while status='pending' -- an approved/rejected leave is the record behind
+	// a paid absence. The `status = 'pending'` predicate closes the same race in
+	// SQL as UpdateLeaveRequestStatus: a concurrent PATCH/DELETE that already
+	// won affects zero rows here, which the handler maps to 409 (not 404 --
+	// existence was already confirmed by its own Get before calling this).
+	DeleteLeaveRequest(ctx context.Context, arg DeleteLeaveRequestParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)

@@ -252,3 +252,59 @@ func (a *API) UpdateLeaveRequest(w http.ResponseWriter, r *http.Request) {
 
 	writeRows(w, http.StatusOK, []db.LeaveRequest{row})
 }
+
+// DELETE /api/leave_requests/{id} — design Q3 addendum: hard delete, but
+// only while status='pending'; 409 once a request has been decided. No UI
+// delete exists for a decided request (hr_admin_panel.html:2901 offers only
+// approve/reject on a pending row), so this is a cancel-my-own-request
+// affordance -- an approved leave is the record behind a paid absence, same
+// reasoning as the non-pending PATCH 409.
+//
+// Guard order mirrors UpdateLeaveRequest: tenant -> Get (tenant-scoped, 404
+// if absent/foreign) -> reject a non-pending current status with 409 ->
+// DeleteLeaveRequest, whose own `WHERE status='pending'` predicate closes
+// the same race in SQL, mapped to 409 (not 404 -- existence was already
+// confirmed) if a concurrent PATCH/DELETE won first.
+func (a *API) DeleteLeaveRequest(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	current, err := a.Queries.GetLeaveRequest(r.Context(), db.GetLeaveRequestParams{
+		CompanyID: companyID,
+		ID:        id,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "get leave request")
+		return
+	}
+	if !current.Status.Valid || current.Status.String != "pending" {
+		writeErrCode(w, http.StatusConflict, codeConflict, "leave request already decided")
+		return
+	}
+
+	affected, err := a.Queries.DeleteLeaveRequest(r.Context(), db.DeleteLeaveRequestParams{
+		CompanyID: companyID,
+		ID:        id,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "delete leave request")
+		return
+	}
+	if affected == 0 {
+		// Existence was already confirmed above; zero rows affected here
+		// means a concurrent PATCH/DELETE won the race and moved status
+		// away from 'pending' between the Get and this DELETE.
+		writeErrCode(w, http.StatusConflict, codeConflict, "leave request already decided")
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}

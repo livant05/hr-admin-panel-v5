@@ -13,6 +13,7 @@ import (
 	db "github.com/livant05/rrhh-go/internal/db/generated"
 
 	"github.com/livant05/rrhh-go/internal/auth"
+	"github.com/livant05/rrhh-go/internal/scheduler"
 )
 
 type API struct {
@@ -20,6 +21,14 @@ type API struct {
 	Pool    *pgxpool.Pool
 	Signer  *auth.Signer
 	Log     *slog.Logger
+
+	// Scheduler is optional (nil in most tests): AccrueLeaveBalances (POST
+	// /api/leave_balances/accrue, design Q5c) needs it, but handlers.New
+	// deliberately does not require one at construction time, since every
+	// pre-Phase-2c2 call site (and most Phase 2 handler tests) has no
+	// scheduler to wire. Set it explicitly after New, as cmd/api/main.go and
+	// testutil.ServerWithScheduler both do.
+	Scheduler *scheduler.Scheduler
 }
 
 func New(pool *pgxpool.Pool, signer *auth.Signer, log *slog.Logger) *API {

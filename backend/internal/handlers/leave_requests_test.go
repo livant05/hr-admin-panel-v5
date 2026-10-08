@@ -422,6 +422,88 @@ func TestLeaveRequests_FilterByIDReturnsSingleElementArray(t *testing.T) {
 	}
 }
 
+// TestLeaveRequests_DeleteOnlyWhilePending pins design Q3's addendum (not in
+// the original tasks breakdown -- slice 2c1 flagged this exact gap, and the
+// orchestrator added it back for this slice): a pending request may be
+// cancelled by its own tenant, a foreign tenant's delete is 404 (never 403,
+// same A1 non-disclosure rule as every other verb), and a request that has
+// already been approved or rejected is 409, not silently deleted -- an
+// approved leave is the record behind a paid absence.
+func TestLeaveRequests_DeleteOnlyWhilePending(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "LeaveReqDeleteA")
+	b := testutil.Company(t, pool, "LeaveReqDeleteB")
+	ta, tb := a.Token(t, signer), b.Token(t, signer)
+	empA := testutil.Employee(t, pool, a, testutil.EmployeeName("Ana", "Diaz"))
+
+	t.Run("cross-tenant delete is 404 and row survives", func(t *testing.T) {
+		createRec := testutil.Do(t, h, http.MethodPost, "/api/leave_requests", ta, map[string]any{
+			"employee_id": empA.ID, "start_date": "2026-11-01", "end_date": "2026-11-03",
+		})
+		leaveReq := testutil.DecodeRows[leaveRequestRow](t, createRec)[0]
+
+		rec := testutil.Do(t, h, http.MethodDelete, "/api/leave_requests/"+leaveReq.ID, tb, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 (never 403 — that would disclose existence), got %d", rec.Code)
+		}
+		if code := testutil.ErrCode(t, rec); code != "not_found" {
+			t.Fatalf("expected error.code=not_found, got %q", code)
+		}
+
+		getRec := testutil.Do(t, h, http.MethodGet, "/api/leave_requests/"+leaveReq.ID, ta, nil)
+		if getRec.Code != http.StatusOK {
+			t.Fatalf("expected the row to survive a foreign-tenant delete attempt, got %d", getRec.Code)
+		}
+	})
+
+	t.Run("pending request can be deleted by its own tenant", func(t *testing.T) {
+		createRec := testutil.Do(t, h, http.MethodPost, "/api/leave_requests", ta, map[string]any{
+			"employee_id": empA.ID, "start_date": "2026-11-05", "end_date": "2026-11-06",
+		})
+		leaveReq := testutil.DecodeRows[leaveRequestRow](t, createRec)[0]
+
+		rec := testutil.Do(t, h, http.MethodDelete, "/api/leave_requests/"+leaveReq.ID, ta, nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("expected 204, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+
+		getRec := testutil.Do(t, h, http.MethodGet, "/api/leave_requests/"+leaveReq.ID, ta, nil)
+		if getRec.Code != http.StatusNotFound {
+			t.Fatalf("expected the deleted row to be gone, got %d", getRec.Code)
+		}
+	})
+
+	t.Run("a decided request cannot be deleted", func(t *testing.T) {
+		createRec := testutil.Do(t, h, http.MethodPost, "/api/leave_requests", ta, map[string]any{
+			"employee_id": empA.ID, "start_date": "2026-11-10", "end_date": "2026-11-12",
+		})
+		leaveReq := testutil.DecodeRows[leaveRequestRow](t, createRec)[0]
+
+		approveRec := testutil.Do(t, h, http.MethodPatch, "/api/leave_requests/"+leaveReq.ID, ta, map[string]any{
+			"status": "approved",
+		})
+		if approveRec.Code != http.StatusOK {
+			t.Fatalf("expected the approval to succeed, got %d", approveRec.Code)
+		}
+
+		rec := testutil.Do(t, h, http.MethodDelete, "/api/leave_requests/"+leaveReq.ID, ta, nil)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("expected 409 for a decided request, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "conflict" {
+			t.Fatalf("expected error.code=conflict, got %q", code)
+		}
+
+		getRec := testutil.Do(t, h, http.MethodGet, "/api/leave_requests/"+leaveReq.ID, ta, nil)
+		got := testutil.DecodeRow[leaveRequestRow](t, getRec)
+		if got.Status != "approved" {
+			t.Fatalf("expected the request to remain approved, got %q", got.Status)
+		}
+	})
+}
+
 // assertLeaveRequestValidationFailed asserts the shared shape of a rejected
 // required-field request: 400, error.code=validation_failed, and a
 // fields.<name> detail for every field expected to be flagged.

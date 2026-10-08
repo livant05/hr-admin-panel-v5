@@ -65,6 +65,31 @@ func (q *Queries) CreateLeaveRequest(ctx context.Context, arg CreateLeaveRequest
 	return i, err
 }
 
+const deleteLeaveRequest = `-- name: DeleteLeaveRequest :execrows
+DELETE FROM leave_requests
+WHERE id = $2 AND company_id = $1 AND status = 'pending'
+`
+
+type DeleteLeaveRequestParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// Design Q3 addendum (not in the original tasks breakdown -- added back by
+// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
+// while status='pending' -- an approved/rejected leave is the record behind
+// a paid absence. The `status = 'pending'` predicate closes the same race in
+// SQL as UpdateLeaveRequestStatus: a concurrent PATCH/DELETE that already
+// won affects zero rows here, which the handler maps to 409 (not 404 --
+// existence was already confirmed by its own Get before calling this).
+func (q *Queries) DeleteLeaveRequest(ctx context.Context, arg DeleteLeaveRequestParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteLeaveRequest, arg.CompanyID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getLeaveRequest = `-- name: GetLeaveRequest :one
 SELECT id, company_id, employee_id, employee_name, type, start_date, end_date, days, status, notes, created_at
 FROM leave_requests

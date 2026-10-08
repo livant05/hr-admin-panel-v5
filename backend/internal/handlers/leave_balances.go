@@ -132,6 +132,35 @@ func (a *API) UpdateLeaveBalance(w http.ResponseWriter, r *http.Request) {
 	writeRows(w, http.StatusOK, []db.LeaveBalance{row})
 }
 
+// POST /api/leave_balances/accrue — admin-gated manual trigger (design Q5c;
+// spec "Both a ticker and a manual endpoint"). Synchronous, tenant-scoped
+// via Scheduler.AccrueCompany -- never AccrueAll, whose non-nullable
+// companyID parameter makes the cross-tenant path structurally unreachable
+// from here. Gated the same way as leave_requests' approve/reject
+// (requirePermission(.., "vacations")): an admin always passes; any other
+// role needs a truthy roles.permissions.vacations entry, matching the
+// design's own choice to reuse Q4's mechanism rather than a stricter
+// admin-only check.
+func (a *API) AccrueLeaveBalances(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	if !a.requirePermission(w, r, companyID, "vacations") {
+		return
+	}
+
+	rows, err := a.Scheduler.AccrueCompany(r.Context(), companyID)
+	if err != nil {
+		a.writeDBErr(w, err, "accrue leave balances")
+		return
+	}
+
+	// A3: writes return the affected row(s) as a JSON array.
+	writeRows(w, http.StatusOK, rows)
+}
+
 // optionalIntFilter parses an optional `year` equality filter (A4). An empty
 // string means "no filter" and is represented as an invalid pgtype.Int4,
 // which the `sqlc.narg('year')::int IS NULL OR ...` predicate treats as

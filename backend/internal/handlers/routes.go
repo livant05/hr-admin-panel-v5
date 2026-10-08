@@ -50,17 +50,21 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/attendance_logs/{id}", a.UpdateAttendanceLog)
 	protected.HandleFunc("DELETE /api/attendance_logs/{id}", a.DeleteAttendanceLog) // hard delete (Q3)
 
-	// leave_balances: no POST, no DELETE (design Q3) — rows are owned by the
-	// accrual scheduler (slice 2c2); POST /api/leave_balances/accrue is also
-	// slice 2c2's job, not registered here.
+	// leave_balances: no generic POST, no DELETE (design Q3) — rows are owned
+	// by the accrual scheduler. The one exception is the admin-gated manual
+	// accrual trigger below; Go 1.22 ServeMux ranks the literal
+	// "/accrue" path above the "/{id}" pattern, so there is no registration
+	// conflict (design Q5c).
 	protected.HandleFunc("GET /api/leave_balances", a.ListLeaveBalances)
 	protected.HandleFunc("GET /api/leave_balances/{id}", a.GetLeaveBalance)
-	protected.HandleFunc("PATCH /api/leave_balances/{id}", a.UpdateLeaveBalance) // {used_days} ONLY
+	protected.HandleFunc("PATCH /api/leave_balances/{id}", a.UpdateLeaveBalance)   // {used_days} ONLY
+	protected.HandleFunc("POST /api/leave_balances/accrue", a.AccrueLeaveBalances) // requirePermission("vacations")
 
 	protected.HandleFunc("GET /api/leave_requests", a.ListLeaveRequests)
 	protected.HandleFunc("POST /api/leave_requests", a.CreateLeaveRequest)
 	protected.HandleFunc("GET /api/leave_requests/{id}", a.GetLeaveRequest)
-	protected.HandleFunc("PATCH /api/leave_requests/{id}", a.UpdateLeaveRequest) // approve/reject, requirePermission("vacations")
+	protected.HandleFunc("PATCH /api/leave_requests/{id}", a.UpdateLeaveRequest)  // approve/reject, requirePermission("vacations")
+	protected.HandleFunc("DELETE /api/leave_requests/{id}", a.DeleteLeaveRequest) // hard delete while pending only, 409 once decided (design Q3 addendum)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
