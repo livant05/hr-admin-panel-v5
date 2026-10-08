@@ -50,6 +50,18 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/attendance_logs/{id}", a.UpdateAttendanceLog)
 	protected.HandleFunc("DELETE /api/attendance_logs/{id}", a.DeleteAttendanceLog) // hard delete (Q3)
 
+	// leave_balances: no POST, no DELETE (design Q3) — rows are owned by the
+	// accrual scheduler (slice 2c2); POST /api/leave_balances/accrue is also
+	// slice 2c2's job, not registered here.
+	protected.HandleFunc("GET /api/leave_balances", a.ListLeaveBalances)
+	protected.HandleFunc("GET /api/leave_balances/{id}", a.GetLeaveBalance)
+	protected.HandleFunc("PATCH /api/leave_balances/{id}", a.UpdateLeaveBalance) // {used_days} ONLY
+
+	protected.HandleFunc("GET /api/leave_requests", a.ListLeaveRequests)
+	protected.HandleFunc("POST /api/leave_requests", a.CreateLeaveRequest)
+	protected.HandleFunc("GET /api/leave_requests/{id}", a.GetLeaveRequest)
+	protected.HandleFunc("PATCH /api/leave_requests/{id}", a.UpdateLeaveRequest) // approve/reject, requirePermission("vacations")
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/

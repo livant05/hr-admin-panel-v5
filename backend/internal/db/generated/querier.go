@@ -11,6 +11,21 @@ import (
 )
 
 type Querier interface {
+	// Design Q5a/Q5b, ported from accrue_vacation_days() (0001_init.sql:419-433).
+	// One set-based statement replaces the plpgsql FOR loop over every active
+	// employee. The LEFT JOIN preserves the original behavior of inserting a
+	// zero row for an employee with no attendance. The ON CONFLICT clause
+	// touches only earned_days -- a recompute of the absolute value, never an
+	// increment -- which is what makes repeated runs idempotent by construction
+	// (running this a hundred times in a row yields byte-identical rows).
+	//
+	// This query is created in slice 2c1 because it is a leave_balances query
+	// (design's own file-changes table assigns it here), but its only caller --
+	// the accrual scheduler's Run/AccrueAll/AccrueCompany (design Q5c) -- is
+	// slice 2c2's job, not implemented yet. sqlc.narg('company_id') is the
+	// scheduler's two-method split: AccrueAll passes NULL (no handler can reach
+	// it), AccrueCompany passes a non-nullable tenant.
+	AccrueVacationDays(ctx context.Context, arg AccrueVacationDaysParams) ([]LeaveBalance, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
 	CountEmployees(ctx context.Context, arg CountEmployeesParams) (int64, error)
@@ -22,6 +37,16 @@ type Querier interface {
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
 	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error)
+	// A1 rule 6 (design Q2, worked example in attendance_logs.sql): the tenant
+	// check on the client-supplied employee_id IS the insert -- a foreign
+	// employee_id selects zero rows from `employees`, so a cross-tenant create
+	// becomes pgx.ErrNoRows -> 404, never a row written under either tenant.
+	// employee_name is derived from the employees row, never trusted from the
+	// request body. days is accepted verbatim from the client (spec: "days is
+	// computed client-side and passed through, not recomputed server-side,
+	// matches saveLeaveReq") -- this table has no financial amount to protect
+	// the way overtime_logs does.
+	CreateLeaveRequest(ctx context.Context, arg CreateLeaveRequestParams) (LeaveRequest, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
@@ -44,6 +69,8 @@ type Querier interface {
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
+	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
+	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
 	GetRole(ctx context.Context, arg GetRoleParams) (Role, error)
 	// Used by requirePermission (Q4, Phase 2 design/authz.go) to look up the
@@ -56,6 +83,8 @@ type Querier interface {
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
+	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
+	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
@@ -69,6 +98,19 @@ type Querier interface {
 	UpdateBranch(ctx context.Context, arg UpdateBranchParams) (Branch, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
 	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
+	// PATCH restricted to used_days only (design Q3): earned_days is owned by
+	// the accrual job (AccrueVacationDays below) and would be silently reverted
+	// on the next scheduled run, and remaining_days is a GENERATED column that
+	// recomputes itself from earned_days - used_days.
+	UpdateLeaveBalance(ctx context.Context, arg UpdateLeaveBalanceParams) (LeaveBalance, error)
+	// Q4 state machine: PATCH accepts only {status,notes}; start_date/end_date/
+	// type/employee_id are immutable after creation. The `status = 'pending'`
+	// predicate closes the approve-twice race in SQL, not just in the handler's
+	// pre-check Get: a concurrent PATCH that already won sets status away from
+	// 'pending', so this UPDATE affects zero rows and returns pgx.ErrNoRows,
+	// which the handler maps to 409 (not 404 -- existence was already confirmed
+	// by the handler's own Get before calling this).
+	UpdateLeaveRequestStatus(ctx context.Context, arg UpdateLeaveRequestStatusParams) (LeaveRequest, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
