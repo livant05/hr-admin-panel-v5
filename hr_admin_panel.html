@@ -2020,7 +2020,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
