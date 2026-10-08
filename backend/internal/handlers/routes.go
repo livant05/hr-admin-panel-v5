@@ -44,6 +44,12 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/employees/{id}", a.UpdateEmployee)
 	protected.HandleFunc("DELETE /api/employees/{id}", a.DeleteEmployee) // soft delete (P6.2)
 
+	protected.HandleFunc("GET /api/attendance_logs", a.ListAttendanceLogs)
+	protected.HandleFunc("POST /api/attendance_logs", a.CreateAttendanceLog) // upsert on (employee_id,date)
+	protected.HandleFunc("GET /api/attendance_logs/{id}", a.GetAttendanceLog)
+	protected.HandleFunc("PATCH /api/attendance_logs/{id}", a.UpdateAttendanceLog)
+	protected.HandleFunc("DELETE /api/attendance_logs/{id}", a.DeleteAttendanceLog) // hard delete (Q3)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/

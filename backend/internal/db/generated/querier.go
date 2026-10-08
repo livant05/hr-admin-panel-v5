@@ -31,10 +31,15 @@ type Querier interface {
 	// (liquidation_history, generated_documents) that would block it with a raw
 	// FK error. No handler ever issues DELETE FROM employees.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (int64, error)
+	// Hard delete (design Q3): a mistyped punch is an operational correction,
+	// not history worth preserving — attendance_logs is not an FK target
+	// (rg 'REFERENCES attendance_logs' migrations/ -> zero matches).
+	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
+	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
@@ -47,6 +52,7 @@ type Querier interface {
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
+	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
@@ -55,11 +61,26 @@ type Querier interface {
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
+	// PATCH keeps employee_id and date immutable (the upsert's own unique key)
+	// -- changing which employee or day a punch belongs to is a new record, not
+	// an edit, mirroring leave_requests' Q4 precedent of restricting PATCH to
+	// the operationally-editable fields rather than a full-column replace.
+	UpdateAttendanceLog(ctx context.Context, arg UpdateAttendanceLogParams) (UpdateAttendanceLogRow, error)
 	UpdateBranch(ctx context.Context, arg UpdateBranchParams) (Branch, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
 	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
+	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
+	// client-supplied employee_id IS the insert — a foreign employee_id selects
+	// zero rows from `employees`, so a cross-tenant write becomes
+	// pgx.ErrNoRows -> 404, never a row written under the wrong (or any)
+	// company. employee_name/department are DERIVED from the employees row,
+	// never trusted from the request body (spoofing + rename-drift defense).
+	// POST is an upsert on (employee_id,date): saveAttendance's own
+	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
+	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
+	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
 }
 
 var _ Querier = (*Queries)(nil)
