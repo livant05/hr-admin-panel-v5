@@ -310,6 +310,38 @@ func AttendanceDays(t *testing.T, pool *pgxpool.Pool, companyID, employeeID, sta
 	}
 }
 
+// LeaveBalanceFixture is a leave_balances row created directly via SQL.
+// leave_balances has no POST endpoint (design Q3 — rows are owned by the
+// accrual scheduler, slice 2c2), so every test needing a balance row to
+// GET/PATCH must seed it this way, matching Employee's same bypass-the-API
+// precedent.
+type LeaveBalanceFixture struct {
+	ID         string
+	CompanyID  string
+	EmployeeID string
+}
+
+// LeaveBalance inserts a minimal leave_balances row directly via SQL for the
+// given tenant/employee/year. No separate cleanup is registered — it
+// cascades away with the tenant's company row, which Company already
+// registers.
+func LeaveBalance(t *testing.T, pool *pgxpool.Pool, tenant Tenant, employeeID, employeeName string, year int, earnedDays, usedDays float64) LeaveBalanceFixture {
+	t.Helper()
+
+	var id string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO leave_balances (company_id, employee_id, employee_name, year, earned_days, used_days)
+		 VALUES ($1, $2, $3, $4, $5, $6)
+		 RETURNING id`,
+		tenant.CompanyID, employeeID, employeeName, year, earnedDays, usedDays,
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert test leave balance: %v", err)
+	}
+
+	return LeaveBalanceFixture{ID: id, CompanyID: tenant.CompanyID, EmployeeID: employeeID}
+}
+
 // Do performs an in-process request (httptest, no listening socket). token
 // may be "" to exercise the unauthenticated path.
 func Do(t *testing.T, h http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {
