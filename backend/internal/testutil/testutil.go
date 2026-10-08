@@ -195,6 +195,121 @@ func (tn Tenant) Token(t *testing.T, signer *auth.Signer) string {
 	return tok
 }
 
+// TokenAs mints a JWT for this tenant asserting a role other than the one
+// Company created (always "admin"). The JWT role need not match a `users`
+// row for the middleware to accept it — role comes from the signed claim,
+// not a DB lookup. Needed by Phase 2's permission tests (design Q4/Q7),
+// e.g. an "empleado" token to prove requirePermission denies it.
+func (tn Tenant) TokenAs(t *testing.T, signer *auth.Signer, role string) string {
+	t.Helper()
+	tok, err := signer.Sign(tn.UserID, tn.CompanyID, role)
+	if err != nil {
+		t.Fatalf("sign test token as %s: %v", role, err)
+	}
+	return tok
+}
+
+// EmployeeFixture is a minimal employee row created directly via SQL for
+// tests that need a real employee FK. Every Phase 2 table (attendance_logs,
+// leave_balances, leave_requests, overtime_logs, deductions) requires one
+// (design Q7).
+type EmployeeFixture struct {
+	ID        string
+	CompanyID string
+	Name      string
+}
+
+// employeeOptions holds Employee's optional fields. Unset fields default to
+// a generated unique name, no department, and status "active".
+type employeeOptions struct {
+	firstName  string
+	lastName   string
+	department string
+	status     string
+}
+
+// EmployeeOption customizes a fixture created by Employee.
+type EmployeeOption func(*employeeOptions)
+
+// EmployeeName overrides the generated first/last name.
+func EmployeeName(firstName, lastName string) EmployeeOption {
+	return func(o *employeeOptions) {
+		o.firstName = firstName
+		o.lastName = lastName
+	}
+}
+
+// EmployeeDepartment sets the department string stored on the fixture — a
+// plain TEXT column with no FK to departments (design phase1-design P6).
+func EmployeeDepartment(department string) EmployeeOption {
+	return func(o *employeeOptions) { o.department = department }
+}
+
+// EmployeeStatus overrides the default "active" status, e.g. to exercise
+// the accrual scheduler's `WHERE e.status = 'active'` filter (design Q5a).
+func EmployeeStatus(status string) EmployeeOption {
+	return func(o *employeeOptions) { o.status = status }
+}
+
+// Employee inserts a minimal employee row directly via SQL (bypassing the
+// HTTP API, matching Phase 1's own seedEmployee precedent) for the given
+// tenant. No separate cleanup is registered — it cascades away with the
+// tenant's company row, which Company already registers.
+func Employee(t *testing.T, pool *pgxpool.Pool, tenant Tenant, opts ...EmployeeOption) EmployeeFixture {
+	t.Helper()
+
+	o := employeeOptions{
+		firstName: "Test",
+		lastName:  "Employee-" + uuid.NewString()[:8],
+		status:    "active",
+	}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
+	var id string
+	err := pool.QueryRow(context.Background(),
+		`INSERT INTO employees (company_id, first_name, last_name, department, status)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5)
+		 RETURNING id`,
+		tenant.CompanyID, o.firstName, o.lastName, o.department, o.status,
+	).Scan(&id)
+	if err != nil {
+		t.Fatalf("insert test employee: %v", err)
+	}
+
+	return EmployeeFixture{
+		ID:        id,
+		CompanyID: tenant.CompanyID,
+		Name:      o.firstName + " " + o.lastName,
+	}
+}
+
+// AttendanceDays inserts n attendance_logs rows for the given employee, one
+// per distinct day walking backward from today — idx_att_emp_date forces
+// distinct (employee_id,date) pairs, so a single date cannot represent
+// multiple days worked. Each row carries the given status. Used by the
+// accrual scheduler tests to produce a known days_worked count, e.g. 23
+// present days -> floor(23/11) = 2 (design Q5a/Q5b).
+func AttendanceDays(t *testing.T, pool *pgxpool.Pool, companyID, employeeID, status string, n int) {
+	t.Helper()
+	ctx := context.Background()
+	today := time.Now()
+
+	for i := 0; i < n; i++ {
+		date := today.AddDate(0, 0, -i)
+		_, err := pool.Exec(ctx,
+			`INSERT INTO attendance_logs (company_id, employee_id, date, status)
+			 VALUES ($1, $2, $3, $4)
+			 ON CONFLICT (employee_id, date) DO UPDATE SET status = EXCLUDED.status`,
+			companyID, employeeID, date.Format("2006-01-02"), status,
+		)
+		if err != nil {
+			t.Fatalf("insert test attendance day %d: %v", i, err)
+		}
+	}
+}
+
 // Do performs an in-process request (httptest, no listening socket). token
 // may be "" to exercise the unauthenticated path.
 func Do(t *testing.T, h http.Handler, method, path, token string, body any) *httptest.ResponseRecorder {
@@ -230,6 +345,19 @@ func DecodeRows[T any](t *testing.T, rec *httptest.ResponseRecorder) []T {
 		t.Fatalf("decode rows (body=%s): %v", rec.Body.String(), err)
 	}
 	return rows
+}
+
+// DecodeRow decodes a single JSON object response body (e.g. GET
+// /api/{resource}/{id}, or a bespoke admin action that returns one object)
+// into T. Use DecodeRows for an array response (A3) -- most write endpoints
+// still return a single-element array, not a bare object.
+func DecodeRow[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
+	t.Helper()
+	var row T
+	if err := json.Unmarshal(rec.Body.Bytes(), &row); err != nil {
+		t.Fatalf("decode row (body=%s): %v", rec.Body.String(), err)
+	}
+	return row
 }
 
 // ErrCode extracts error.code (A2) for assertions.
