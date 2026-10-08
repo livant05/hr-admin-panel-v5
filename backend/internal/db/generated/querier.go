@@ -26,6 +26,13 @@ type Querier interface {
 	// scheduler's two-method split: AccrueAll passes NULL (no handler can reach
 	// it), AccrueCompany passes a non-nullable tenant.
 	AccrueVacationDays(ctx context.Context, arg AccrueVacationDaysParams) ([]LeaveBalance, error)
+	// Soft delete (design Q3): exportDedCSV already reads status==='cancelled'
+	// -> "¿Cancelada? SI", and saldaDed already writes 'paid' -- the status
+	// value already exists and is already consumed by the frontend. Mirrors
+	// DeactivateEmployee's exact shape (P6.2): the `status <> 'cancelled'`
+	// guard makes a second DELETE on an already-cancelled row report 404
+	// (0 rows affected), consistent with that precedent.
+	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
 	CountEmployees(ctx context.Context, arg CountEmployeesParams) (int64, error)
@@ -35,6 +42,23 @@ type Querier interface {
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
+	// A1 rule 6 (design Q2): the tenant check on the client-supplied employee_id
+	// IS the insert, same as the other four Phase 2 tables -- a foreign
+	// employee_id selects zero rows from `employees`, so a cross-tenant create
+	// becomes pgx.ErrNoRows -> 404. employee_name is derived from the employees
+	// row when employee_id IS provided (design Q2's "store as sent" exception
+	// only covers the employee_id-absent CSV-import path in
+	// CreateDeductionWithoutEmployee below).
+	CreateDeductionWithEmployee(ctx context.Context, arg CreateDeductionWithEmployeeParams) (Deduction, error)
+	// design Q1/Q2: deductions.employee_id is nullable (migration 0006) --
+	// importDedCSV legitimately sends employee_id:null for a name/cedula that
+	// matches no employee. There is no client-supplied employee_id to
+	// tenant-check here, so this is a plain company_id-scoped insert (A1 rules
+	// 1-4); employee_name/cedula are stored exactly as the client sent them --
+	// the one deliberate exception to the "derive, never trust" rule, scoped to
+	// this employee_id-absent path only (design Q1's "deductions is the
+	// exception" note).
+	CreateDeductionWithoutEmployee(ctx context.Context, arg CreateDeductionWithoutEmployeeParams) (Deduction, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
 	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql): the tenant
@@ -47,6 +71,20 @@ type Querier interface {
 	// matches saveLeaveReq") -- this table has no financial amount to protect
 	// the way overtime_logs does.
 	CreateLeaveRequest(ctx context.Context, arg CreateLeaveRequestParams) (LeaveRequest, error)
+	// A1 rule 6 (design Q2, worked example in attendance_logs.sql/leave_requests.sql):
+	// the tenant check on the client-supplied employee_id IS the insert -- a
+	// foreign employee_id selects zero rows from `employees`, so a cross-tenant
+	// create becomes pgx.ErrNoRows -> 404, never a row written under either
+	// tenant. employee_name is derived from the employees row, never trusted
+	// from the request body. amount is computed here as
+	// hourly_rate * rate * hours using exact Postgres NUMERIC arithmetic
+	// (design Q6) -- rate is the statutory recargo resolved server-side from the
+	// otRates map (overtime.go) and passed in as sqlc.arg('rate'); the
+	// client-submitted amount is never trusted (declared in the request struct
+	// only so DisallowUnknownFields accepts the existing payload). hourly_rate
+	// itself stays client-supplied in Phase 2 -- design Q6 explicitly defers
+	// deriving it server-side from salary/weekly_hours to Phase 3's prCalc port.
+	CreateOvertimeLog(ctx context.Context, arg CreateOvertimeLogParams) (OvertimeLog, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
@@ -70,15 +108,22 @@ type Querier interface {
 	// won affects zero rows here, which the handler maps to 409 (not 404 --
 	// existence was already confirmed by its own Get before calling this).
 	DeleteLeaveRequest(ctx context.Context, arg DeleteLeaveRequestParams) (int64, error)
+	// Hard delete (design Q3): the payroll amount is snapshotted into
+	// employee_pay_records at run time (Part A B2), so deleting the log cannot
+	// retro-alter a paid slip. overtime_logs is not an FK target
+	// (rg 'REFERENCES overtime_logs' migrations/ -> zero matches).
+	DeleteOvertimeLog(ctx context.Context, arg DeleteOvertimeLogParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
+	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
+	GetOvertimeLog(ctx context.Context, arg GetOvertimeLogParams) (OvertimeLog, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
 	GetRole(ctx context.Context, arg GetRoleParams) (Role, error)
 	// Used by requirePermission (Q4, Phase 2 design/authz.go) to look up the
@@ -89,10 +134,12 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
+	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
+	ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
@@ -104,6 +151,13 @@ type Querier interface {
 	// the operationally-editable fields rather than a full-column replace.
 	UpdateAttendanceLog(ctx context.Context, arg UpdateAttendanceLogParams) (UpdateAttendanceLogRow, error)
 	UpdateBranch(ctx context.Context, arg UpdateBranchParams) (Branch, error)
+	// PATCH is a full-column replace of every editable field -- deductions has
+	// no state-machine PATCH restriction like leave_requests' Q4 (the design's
+	// Interfaces/Contracts section states PATCH -> 200 [Deduction] with no
+	// field restriction). employee_id/company_id/created_at stay immutable,
+	// matching every other table's precedent: the FK root is set at creation,
+	// never reassigned by edit.
+	UpdateDeduction(ctx context.Context, arg UpdateDeductionParams) (Deduction, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
 	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
 	// PATCH restricted to used_days only (design Q3): earned_days is owned by
@@ -119,6 +173,12 @@ type Querier interface {
 	// which the handler maps to 409 (not 404 -- existence was already confirmed
 	// by the handler's own Get before calling this).
 	UpdateLeaveRequestStatus(ctx context.Context, arg UpdateLeaveRequestStatusParams) (LeaveRequest, error)
+	// PATCH keeps employee_id/date immutable, mirroring attendance_logs' and
+	// leave_requests' precedent of restricting PATCH to the
+	// operationally-editable fields rather than a full-column replace. amount
+	// is recomputed from the (possibly changed) hours/hourly_rate/rate, never
+	// accepted as-is from the client -- same server-authority rule as create.
+	UpdateOvertimeLog(ctx context.Context, arg UpdateOvertimeLogParams) (OvertimeLog, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the

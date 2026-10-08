@@ -66,6 +66,18 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/leave_requests/{id}", a.UpdateLeaveRequest)  // approve/reject, requirePermission("vacations")
 	protected.HandleFunc("DELETE /api/leave_requests/{id}", a.DeleteLeaveRequest) // hard delete while pending only, 409 once decided (design Q3 addendum)
 
+	protected.HandleFunc("GET /api/overtime_logs", a.ListOvertimeLogs)
+	protected.HandleFunc("POST /api/overtime_logs", a.CreateOvertimeLog) // amount server-recomputed (Q6)
+	protected.HandleFunc("GET /api/overtime_logs/{id}", a.GetOvertimeLog)
+	protected.HandleFunc("PATCH /api/overtime_logs/{id}", a.UpdateOvertimeLog)
+	protected.HandleFunc("DELETE /api/overtime_logs/{id}", a.DeleteOvertimeLog) // hard delete (Q3)
+
+	protected.HandleFunc("GET /api/deductions", a.ListDeductions)
+	protected.HandleFunc("POST /api/deductions", a.CreateDeduction) // employee_id MAY be null (CSV import)
+	protected.HandleFunc("GET /api/deductions/{id}", a.GetDeduction)
+	protected.HandleFunc("PATCH /api/deductions/{id}", a.UpdateDeduction)
+	protected.HandleFunc("DELETE /api/deductions/{id}", a.DeleteDeduction) // soft delete: status='cancelled' (Q3)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/

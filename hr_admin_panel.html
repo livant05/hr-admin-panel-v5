@@ -2020,7 +2020,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -3058,7 +3058,10 @@ async function seedTestAttendance() {
   for(var k=0;k<otSeed.length;k++){
     var ot=otSeed[k]; if(!ot.emp) continue;
     var amt=Math.round(((ot.emp.salary||0)/30/8)*ot.hours*(OT_RATES[ot.type]||1.25)*100)/100;
-    await Supa.ins('overtime_logs',{employee_id:ot.emp.id,employee_name:ot.emp.first_name+' '+ot.emp.last_name,date:ot.date,hours:ot.hours,type:ot.type,amount:amt,status:'approved',notes:'Dato de prueba'}).catch(function(){});
+    // status:'approved' dropped (design Q1/phase2-tasks 4.8): overtime_logs
+    // has no status column and nothing anywhere reads ot.status -- it was
+    // write-only dead data.
+    await Supa.ins('overtime_logs',{employee_id:ot.emp.id,employee_name:ot.emp.first_name+' '+ot.emp.last_name,date:ot.date,hours:ot.hours,type:ot.type,amount:amt,notes:'Dato de prueba'}).catch(function(){});
   }
   toast('Datos de prueba cargados: '+done+' registros de asistencia + 3 overtime');
   loadPayroll();
