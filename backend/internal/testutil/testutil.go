@@ -245,6 +245,7 @@ type employeeOptions struct {
 	department string
 	status     string
 	salary     float64
+	startDate  string // "" means NULL (unset); otherwise "YYYY-MM-DD"
 }
 
 // EmployeeOption customizes a fixture created by Employee.
@@ -279,6 +280,14 @@ func EmployeeSalary(salary float64) EmployeeOption {
 	return func(o *employeeOptions) { o.salary = salary }
 }
 
+// EmployeeStartDate overrides the default NULL start_date ("YYYY-MM-DD"),
+// needed by any test that exercises payroll.CalculateLiquidation against a
+// real employee row (slice 3g's liquidación tests -- the calculation reads
+// employees.start_date via GetEmployeeForLiquidation and rejects a NULL one).
+func EmployeeStartDate(date string) EmployeeOption {
+	return func(o *employeeOptions) { o.startDate = date }
+}
+
 // Employee inserts a minimal employee row directly via SQL (bypassing the
 // HTTP API, matching Phase 1's own seedEmployee precedent) for the given
 // tenant. No separate cleanup is registered — it cascades away with the
@@ -297,10 +306,10 @@ func Employee(t *testing.T, pool *pgxpool.Pool, tenant Tenant, opts ...EmployeeO
 
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO employees (company_id, first_name, last_name, department, status, salary)
-		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6)
+		`INSERT INTO employees (company_id, first_name, last_name, department, status, salary, start_date)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, '')::date)
 		 RETURNING id`,
-		tenant.CompanyID, o.firstName, o.lastName, o.department, o.status, o.salary,
+		tenant.CompanyID, o.firstName, o.lastName, o.department, o.status, o.salary, o.startDate,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert test employee: %v", err)

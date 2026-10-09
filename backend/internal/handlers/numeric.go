@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -47,4 +48,16 @@ func numericToNum(pn pgtype.Numeric) (payroll.Num, error) {
 		return payroll.Num{}, fmt.Errorf("numericToNum: unexpected Value() type %T", v)
 	}
 	return payroll.ParseDecimal(s)
+}
+
+// numToJSONNumber serializes a calculated payroll.Num as a BARE JSON number
+// (design R6, task 7.4), built from Num.FloatString(prec) -- never through
+// pgtype.Numeric and never through float64. Two intended consequences: the
+// liquidación breakdown/inputs JSONB payload keeps printLiq's
+// `(n||0).toFixed(2)` template working unchanged once a stored record is
+// re-read client-side, and json.Number is string-preserving on decode, so a
+// Go re-read of a persisted value is exact -- decoding into float64 would
+// silently reintroduce the imprecision payroll.Num exists to avoid.
+func numToJSONNumber(n payroll.Num, prec int) json.Number {
+	return json.Number(n.FloatString(prec))
 }
