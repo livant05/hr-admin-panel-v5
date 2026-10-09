@@ -1,4 +1,4 @@
-.PHONY: test-db-up migrate-test test
+.PHONY: test-db-up migrate-test test goldens goldens-check
 
 # Starts the shared docker-compose Postgres (the same container the app
 # uses in development) and ensures the dedicated rrhh_go_test database
@@ -23,3 +23,19 @@ migrate-test:
 
 test:
 	go test ./... -count=1
+
+# Regenerates backend/internal/payroll/testdata/{prcalc,calcliq}/*.json by
+# evaluating the real, current prCalc/calcLiq straight out of
+# ../hr_admin_panel.html (see ../tools/goldens). Run this deliberately after
+# a reviewed, intentional change to either function; it overwrites the
+# committed fixtures.
+goldens:
+	cd .. && node tools/goldens/generate.mjs
+
+# CI/reviewer guard: regenerates into a temp dir and diffs against the
+# committed fixtures. Fails (non-zero exit) if they do not byte-match, which
+# means either prCalc/calcLiq changed without the fixtures being
+# regenerated, or the extracted slice drifted from the pinned SHA-256 in
+# tools/goldens/extract.mjs.
+goldens-check:
+	cd .. && node tools/goldens/generate.mjs --check

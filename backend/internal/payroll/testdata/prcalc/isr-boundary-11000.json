@@ -1,0 +1,30 @@
+{
+  "name": "isr-boundary-11000",
+  "note": "Annualized base (b/factor*13) lands exactly on 11000 — the boundary belongs to the <=11000 bracket (isrAnnual=0), not the next one. salary chosen so salBase=b=11000/13≈846.1538... exactly: using salary=11000/13 keeps b==salBase (no attendance/OT adjustment).",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 846.1538461538462
+    },
+    "factor": 1,
+    "attData": null,
+    "dedData": null
+  },
+  "expected": {
+    "b": 846.1538461538462,
+    "css": 82.5,
+    "se": 10.576923076923078,
+    "isr": 0,
+    "ded": 93.07692307692308,
+    "dedQuota": 0,
+    "net": 753.0769230769231,
+    "pcss": 103.65384615384616,
+    "pse": 12.692307692307692,
+    "dec": 70.51282051282051,
+    "decCSSP": 5.112179487179486,
+    "tot": 1038.125,
+    "attDed": 0,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}
