@@ -35,6 +35,7 @@ type Querier interface {
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
+	CountEmployeePayRecords(ctx context.Context, arg CountEmployeePayRecordsParams) (int64, error)
 	CountEmployees(ctx context.Context, arg CountEmployeesParams) (int64, error)
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
 	CountEmployeesInDepartment(ctx context.Context, arg CountEmployeesInDepartmentParams) (int64, error)
@@ -61,6 +62,36 @@ type Querier interface {
 	CreateDeductionWithoutEmployee(ctx context.Context, arg CreateDeductionWithoutEmployeeParams) (Deduction, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
 	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error)
+	// A1 rule 6 (manual-entry path, design R4a/spec "Manual entry with
+	// employee_id succeeds"): the tenant check on the client-supplied
+	// employee_id IS the insert -- a foreign employee_id selects zero rows
+	// from `employees`, so a cross-tenant create becomes pgx.ErrNoRows -> 404,
+	// never a row written under the wrong (or any) company. employee_name and
+	// cedula are DERIVED from the employees row, never trusted from the
+	// request body (spoofing + rename-drift defense; unlike deductions.go,
+	// which trusts a client-supplied cedula even on its WithEmployee path --
+	// employee_pay_records' spec requires both derived here).
+	// total_earned is RECOMPUTED server-side in NUMERIC (spec: no
+	// authoritative total_earned column exists anywhere upstream); net_salary
+	// is NOT recomputed and is stored exactly as submitted (design R4f: manual
+	// entry derives it arithmetically client-side, but the server does not
+	// re-derive it, leaving room for an operator correction).
+	// origin is hard 'manual' -- server-owned, never client-supplied (design
+	// R4a); this is the ONLY path besides CreateEmployeePayRecordWithoutEmployee
+	// that can ever write this column, and both write 'manual'. origin='run'
+	// is written exclusively by UpsertPayrollRunPayRecord (a later slice).
+	CreateEmployeePayRecordWithEmployee(ctx context.Context, arg CreateEmployeePayRecordWithEmployeeParams) (CreateEmployeePayRecordWithEmployeeRow, error)
+	// CSV-import dual path (spec "CSV row imported successfully"): CSV rows
+	// never carry an authoritative employee_id (resolved only by
+	// employee_name + cedula in the source file), so there is no
+	// client-supplied FK to tenant-check here -- a plain company_id-scoped
+	// insert (A1 rules 1-4). employee_name/cedula are stored EXACTLY as the
+	// client sent them (the deliberate exception, scoped to this
+	// employee_id-absent path only, same shape as
+	// CreateDeductionWithoutEmployee). total_earned is still recomputed;
+	// net_salary is still trusted as sent (design R4f: CSV import's net_salary
+	// is authoritative historical data from the PayDay "Salario Neto" column).
+	CreateEmployeePayRecordWithoutEmployee(ctx context.Context, arg CreateEmployeePayRecordWithoutEmployeeParams) (CreateEmployeePayRecordWithoutEmployeeRow, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql): the tenant
 	// check on the client-supplied employee_id IS the insert -- a foreign
 	// employee_id selects zero rows from `employees`, so a cross-tenant create
@@ -100,6 +131,9 @@ type Querier interface {
 	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
+	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
+	// existing behavior; no soft-delete semantics apply to this table).
+	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
 	// while status='pending' -- an approved/rejected leave is the record behind
@@ -121,6 +155,7 @@ type Querier interface {
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
+	GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRecordParams) (GetEmployeePayRecordRow, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetOvertimeLog(ctx context.Context, arg GetOvertimeLogParams) (OvertimeLog, error)
@@ -136,6 +171,9 @@ type Querier interface {
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
+	// Fixed ORDER BY period_year DESC, period_month DESC, created_at DESC
+	// (design R7) -- newest period first, ties broken by insertion order.
+	ListEmployeePayRecords(ctx context.Context, arg ListEmployeePayRecordsParams) ([]ListEmployeePayRecordsRow, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
@@ -160,6 +198,16 @@ type Querier interface {
 	UpdateDeduction(ctx context.Context, arg UpdateDeductionParams) (Deduction, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
 	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
+	// Full-column replace of every editable business field (deductions.go's
+	// UpdateDeduction precedent -- employee_pay_records keeps PATCH, unlike
+	// payroll_history/liquidation_history, per design R7's "employee_pay_records
+	// DOES keep PATCH -- loadPayRecords is an editable operator ledger").
+	// employee_id, company_id, origin, created_at stay immutable: the FK root,
+	// the tenant, and the write-path provenance are set at creation and never
+	// reassigned by edit. total_earned is RECOMPUTED here too (same rule as
+	// create -- it is a derived column regardless of which verb wrote it);
+	// net_salary is NOT recomputed, matching create.
+	UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmployeePayRecordParams) (UpdateEmployeePayRecordRow, error)
 	// PATCH restricted to used_days only (design Q3): earned_days is owned by
 	// the accrual job (AccrueVacationDays below) and would be silently reverted
 	// on the next scheduled run, and remaining_days is a GENERATED column that
