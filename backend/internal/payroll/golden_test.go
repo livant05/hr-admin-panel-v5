@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // prcalcFixture mirrors the JSON shape generate.mjs writes under
@@ -208,6 +209,301 @@ func TestPrCalcGolden(t *testing.T) {
 					t.Fatalf("%s: fixture field %q is not a valid decimal literal: %v", fx.Name, field, err)
 				}
 				if got, want := gotNum.FloatString(2), wantNum.FloatString(2); got != want {
+					t.Errorf("%s: field %q = %s, want %s", fx.Name, field, got, want)
+				}
+			}
+		})
+	}
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// calcLiq golden walk (slice 3c)
+// ─────────────────────────────────────────────────────────────────────────
+
+// calcliqFixture mirrors the JSON shape generate.mjs writes under
+// testdata/calcliq/*.json (slice 3a): {"name","note","js_source_sha",
+// "input":{"employee":{...},"elements":{...},"dedChecks":[...]},
+// "expected":{...},"expected_deviation":{...},"unexposed":[...]}. Fields
+// listed in "unexposed" (always "years","totalMonths" -- printLiq never
+// exposes either, and 3a's harness could not recover them from innerHTML)
+// are skipped entirely: this port still computes LiquidationResult.Years
+// internally (preaviso's bracket thresholds and PrimaMonths' acumulados
+// branch both consume it), but there is no fixture value to assert it
+// against.
+type calcliqFixture struct {
+	Name              string                     `json:"name"`
+	Note              string                     `json:"note"`
+	JSSourceSHA       string                     `json:"js_source_sha"`
+	Input             calcliqFixtureInput        `json:"input"`
+	Expected          map[string]json.RawMessage `json:"expected"`
+	ExpectedDeviation map[string]json.RawMessage `json:"expected_deviation"`
+	Unexposed         []string                   `json:"unexposed"`
+}
+
+type calcliqFixtureInput struct {
+	Employee  calcliqFixtureEmployee   `json:"employee"`
+	Elements  calcliqFixtureElements   `json:"elements"`
+	DedChecks []calcliqFixtureDedCheck `json:"dedChecks"`
+}
+
+type calcliqFixtureEmployee struct {
+	Salary    json.Number `json:"salary"`
+	StartDate string      `json:"start_date"`
+}
+
+// calcliqFixtureElements mirrors the raw #liq-* form element values. Every
+// numeric one is captured as a JSON STRING by generate.mjs (`gv(id)` returns
+// the element's .value, which is always a string), so these decode as plain
+// Go strings and feed ParseDecimal directly -- never json.Number here.
+type calcliqFixtureElements struct {
+	LiqDate      string `json:"liq-date"`
+	LiqReason    string `json:"liq-reason"`
+	LiqSalPend   string `json:"liq-sal-pend"`
+	LiqOtros     string `json:"liq-otros"`
+	LiqVac       string `json:"liq-vac"`
+	LiqDec       string `json:"liq-dec"`
+	LiqAcumVac   string `json:"liq-acum-vac"`
+	LiqAcumDec   string `json:"liq-acum-dec"`
+	LiqAcumPrima string `json:"liq-acum-prima"`
+	LiqSal30     string `json:"liq-sal30"`
+	LiqAcum6m    string `json:"liq-acum-6m"`
+}
+
+type calcliqFixtureDedCheck struct {
+	ID      string      `json:"id"`
+	Desc    string      `json:"desc"`
+	Quota   json.Number `json:"quota"`
+	Checked bool        `json:"checked"`
+}
+
+func (fx calcliqFixture) toInput(t *testing.T) LiquidationInput {
+	t.Helper()
+
+	salary, err := ParseDecimal(fx.Input.Employee.Salary.String())
+	if err != nil {
+		t.Fatalf("%s: parsing employee.salary: %v", fx.Name, err)
+	}
+	startDate, err := time.Parse("2006-01-02", fx.Input.Employee.StartDate)
+	if err != nil {
+		t.Fatalf("%s: parsing employee.start_date: %v", fx.Name, err)
+	}
+	exitDate, err := time.Parse("2006-01-02", fx.Input.Elements.LiqDate)
+	if err != nil {
+		t.Fatalf("%s: parsing elements.liq-date: %v", fx.Name, err)
+	}
+	reason, ok := ParseReason(fx.Input.Elements.LiqReason)
+	if !ok {
+		t.Fatalf("%s: elements.liq-reason %q is not a recognized Reason", fx.Name, fx.Input.Elements.LiqReason)
+	}
+
+	parseElement := func(field, raw string) Num {
+		n, err := ParseDecimal(raw)
+		if err != nil {
+			t.Fatalf("%s: parsing elements.%s = %q: %v", fx.Name, field, raw, err)
+		}
+		return n
+	}
+
+	dedTotal := Zero()
+	for _, d := range fx.Input.DedChecks {
+		if !d.Checked {
+			continue
+		}
+		quota, err := ParseDecimal(d.Quota.String())
+		if err != nil {
+			t.Fatalf("%s: parsing dedChecks quota %q: %v", fx.Name, d.Quota, err)
+		}
+		dedTotal = dedTotal.Add(quota)
+	}
+
+	return LiquidationInput{
+		Salary:    salary,
+		StartDate: startDate,
+		ExitDate:  exitDate,
+		Reason:    reason,
+
+		SalPend:   parseElement("liq-sal-pend", fx.Input.Elements.LiqSalPend),
+		Otros:     parseElement("liq-otros", fx.Input.Elements.LiqOtros),
+		VacDays:   parseElement("liq-vac", fx.Input.Elements.LiqVac),
+		DecMonths: parseElement("liq-dec", fx.Input.Elements.LiqDec),
+
+		AcumVac:   parseElement("liq-acum-vac", fx.Input.Elements.LiqAcumVac),
+		AcumDec:   parseElement("liq-acum-dec", fx.Input.Elements.LiqAcumDec),
+		AcumPrima: parseElement("liq-acum-prima", fx.Input.Elements.LiqAcumPrima),
+		Acum6m:    parseElement("liq-acum-6m", fx.Input.Elements.LiqAcum6m),
+		Sal30Raw:  parseElement("liq-sal30", fx.Input.Elements.LiqSal30),
+
+		DeductionQuotaTotal: dedTotal,
+	}
+}
+
+// calcliqResultFields exposes LiquidationResult's fields by their JSON
+// fixture key, mirroring resultFields' role for the prCalc golden walk.
+func calcliqResultFields(r LiquidationResult) map[string]Num {
+	return map[string]Num{
+		"salario":         r.Salario,
+		"preaviso":        r.Preaviso,
+		"vacProp":         r.VacProp,
+		"decProp":         r.DecProp,
+		"parcial":         r.Parcial,
+		"primaTotal":      r.PrimaTotal,
+		"primaMonths":     r.PrimaMonths,
+		"primaMensual":    r.PrimaMensual,
+		"primaSemanal":    r.PrimaSemanal,
+		"antigSem":        r.AntigSem,
+		"primaDeduccion":  r.PrimaDeduccion,
+		"antigSemNeta":    r.AntigSemNeta,
+		"indem6mMensual":  r.Indem6mMensual,
+		"sal30":           r.Sal30,
+		"indemSemanalFav": r.IndemSemanalFav,
+		"indemBase":       r.IndemBase,
+		"recargo":         r.Recargo,
+		"recargoPct":      r.RecargoPct,
+		"indemnizacion":   r.Indemnizacion,
+		"total":           r.Total,
+		"css91":           r.CSS91,
+		"se92":            r.SE92,
+		"isr93":           r.ISR93,
+		"isr94":           r.ISR94,
+		"cssBase":         r.CSSBase,
+		"art701Sujeta":    r.Art701Sujeta,
+		"isrRate":         r.ISRRate,
+		"floorYears":      r.RoundedYears, // hazard 2: JSON key stays "floorYears" for print/template compatibility
+		"indemWeeks":      r.IndemWeeks,
+		"totalLegal":      r.TotalLegal,
+		"totalDed":        r.TotalDed,
+		"netTotal":        r.NetTotal,
+	}
+}
+
+// calcliqRatioFields are compared at FloatString(6) (design R2's "ratios"
+// precision); every other field above is money or a bounded count and is
+// compared at FloatString(2) (storage precision, NUMERIC(_,2)).
+var calcliqRatioFields = map[string]bool{
+	"isrRate":    true,
+	"recargoPct": true,
+}
+
+// calcliqNonResultFields are fixture "expected" keys that do not map to any
+// LiquidationResult Num field: "otros" simply echoes the #liq-otros input
+// value back (no corresponding computed output field -- Otros stays an
+// input in LiquidationInput, per design), and "checkedDeds" is a
+// descriptive array ({desc,quota} per checked deduction), not a Num.
+// "years"/"totalMonths" are handled separately via the fixture's own
+// "unexposed" list, not here.
+var calcliqNonResultFields = map[string]bool{
+	"otros":       true,
+	"checkedDeds": true,
+}
+
+// knownCalcLiqGoldenTieDeviations documents any calcliq fixture+field pair
+// where the live JS's own float64 computation lands on the opposite side of
+// an exact decimal .xx5 rounding tie from this port's exact-rational
+// arithmetic (the same failure mode 3b found and resolved for
+// prcalc/factor05-quincenal.decCSSP -- see knownGoldenTieDeviations above).
+// `node tools/goldens/generate.mjs --warn-ties` (run during this slice)
+// flagged 6 calcliq fixture+field pairs near a .xx5 boundary
+// (only-acum-vac/prima/6m/sal30.css91; indem-weeks-under-10/over-10.
+// {css91,se92}) -- every one was independently verified (by computing
+// cssBase*0.0975 / cssBase*0.0125 by hand from each fixture's own cssBase
+// value) to be a GENUINE exact tie with NO perturbation in the stored
+// literal (e.g. "105.625", not "105.62499999999999" or
+// "89.37500000000001" landing strictly above the tie) -- i.e. the raw JSON
+// literal and this port's exact computation round through the IDENTICAL
+// FloatString(2) half-away-from-zero path to the same two-decimal value.
+// None of them actually diverge, so this map is empty: it exists (like
+// 3b's) to make that verification an asserted, documented fact instead of
+// an unexamined "the test happened to pass."
+var knownCalcLiqGoldenTieDeviations = map[string]map[string]string{}
+
+// TestCalcLiqGolden walks every fixture under testdata/calcliq/*.json
+// (generated in slice 3a from the live JS) and asserts
+// CalculateLiquidation's output against it field-by-field, at FloatString(2)
+// for money/counts and FloatString(6) for ratios (isrRate, recargoPct),
+// via exact string equality -- design R2's binding comparison rule, never
+// an epsilon. Covers the full calcliq fixture inventory: all 10 reasons ×
+// acumulados-present, the 5-reason acumulados-absent sample, the 5
+// single-branch cases, both indem-weeks boundary cases,
+// art701-sujeta-clamped-to-zero, zero-salary-nan (hazard 3, corrected --
+// asserts isrRate=0, matching the real JS, not a NaN deviation), and
+// one-month-service (hazard 4's primaMonths>=1 clamp).
+func TestCalcLiqGolden(t *testing.T) {
+	files, err := filepath.Glob("testdata/calcliq/*.json")
+	if err != nil {
+		t.Fatalf("globbing testdata/calcliq: %v", err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no fixtures found under testdata/calcliq -- slice 3a's golden-fixture toolchain must run first")
+	}
+
+	for _, path := range files {
+		path := path
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("reading %s: %v", path, err)
+			}
+
+			dec := json.NewDecoder(bytes.NewReader(data))
+			dec.UseNumber()
+			var fx calcliqFixture
+			if err := dec.Decode(&fx); err != nil {
+				t.Fatalf("decoding %s: %v", path, err)
+			}
+
+			in := fx.toInput(t)
+
+			got, err := CalculateLiquidation(in)
+			if err != nil {
+				t.Fatalf("%s: CalculateLiquidation returned unexpected error: %v", fx.Name, err)
+			}
+
+			actual := calcliqResultFields(got)
+
+			unexposed := map[string]bool{}
+			for _, f := range fx.Unexposed {
+				unexposed[f] = true
+			}
+
+			effective := map[string]json.RawMessage{}
+			for k, v := range fx.Expected {
+				effective[k] = v
+			}
+			for k, v := range fx.ExpectedDeviation {
+				effective[k] = v
+			}
+
+			for field, raw := range effective {
+				if unexposed[field] || calcliqNonResultFields[field] {
+					continue
+				}
+
+				gotNum, ok := actual[field]
+				if !ok {
+					t.Fatalf("%s: fixture asserts unknown field %q", fx.Name, field)
+				}
+
+				prec := 2
+				if calcliqRatioFields[field] {
+					prec = 6
+				}
+
+				if deviationValue, isKnownTie := knownCalcLiqGoldenTieDeviations[filepath.Base(path)][field]; isKnownTie {
+					if got := gotNum.FloatString(prec); got != deviationValue {
+						t.Errorf("%s: field %q = %s, want documented tie-deviation value %s (see knownCalcLiqGoldenTieDeviations)", fx.Name, field, got, deviationValue)
+					}
+					continue
+				}
+
+				var wantLiteral json.Number
+				if err := json.Unmarshal(raw, &wantLiteral); err != nil {
+					t.Fatalf("%s: fixture field %q is not a valid decimal literal: %v", fx.Name, field, err)
+				}
+				wantNum, err := ParseDecimal(wantLiteral.String())
+				if err != nil {
+					t.Fatalf("%s: fixture field %q is not a valid decimal literal: %v", fx.Name, field, err)
+				}
+				if got, want := gotNum.FloatString(prec), wantNum.FloatString(prec); got != want {
 					t.Errorf("%s: field %q = %s, want %s", fx.Name, field, got, want)
 				}
 			}

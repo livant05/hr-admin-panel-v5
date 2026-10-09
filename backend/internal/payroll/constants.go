@@ -36,6 +36,12 @@ var (
 	weeksPerMonthPreaviso = MustParseDecimal("4.333")  // preaviso ONLY
 	weeksPerMonthPrima    = MustParseDecimal("4.3333") // prima + indemnización ONLY
 
+	// preavisoYearsThreshold (calcLiq only, slice 3c) -- the first bracket
+	// boundary of preaviso's 4-way years-of-service ladder
+	// (hr_admin_panel.html:84): years<0.5 -> sal/4.333. The other two
+	// boundaries (2, 5) are plain integers and need no decimal literal.
+	preavisoYearsThreshold = MustParseDecimal("0.5")
+
 	vacDivisor = MustParseDecimal("11")
 	decDivisor = MustParseDecimal("12")
 
