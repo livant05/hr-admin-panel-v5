@@ -1,0 +1,30 @@
+{
+  "name": "factor1-no-attendance",
+  "note": "Mensual (factor=1), no attendance record for the period at all (attData=null) — the common \"Calcular\" path for an employee with a clean period and no deductions.",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 1200
+    },
+    "factor": 1,
+    "attData": null,
+    "dedData": null
+  },
+  "expected": {
+    "b": 1200,
+    "css": 117,
+    "se": 15,
+    "isr": 57.5,
+    "ded": 189.5,
+    "dedQuota": 0,
+    "net": 1010.5,
+    "pcss": 147,
+    "pse": 18,
+    "dec": 100,
+    "decCSSP": 7.249999999999999,
+    "tot": 1472.25,
+    "attDed": 0,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}

@@ -1,0 +1,30 @@
+{
+  "name": "factor05-quincenal",
+  "note": "Quincenal (factor=0.5) — the biweekly pay-period path.",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 1200
+    },
+    "factor": 0.5,
+    "attData": null,
+    "dedData": null
+  },
+  "expected": {
+    "b": 600,
+    "css": 58.5,
+    "se": 7.5,
+    "isr": 28.75,
+    "ded": 94.75,
+    "dedQuota": 0,
+    "net": 505.25,
+    "pcss": 73.5,
+    "pse": 9,
+    "dec": 50,
+    "decCSSP": 3.6249999999999996,
+    "tot": 736.125,
+    "attDed": 0,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}

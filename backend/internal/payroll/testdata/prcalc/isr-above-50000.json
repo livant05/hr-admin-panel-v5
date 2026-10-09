@@ -1,0 +1,30 @@
+{
+  "name": "isr-above-50000",
+  "note": "Annualized base above 50000 — exercises the top bracket: isrAnnual=5850+(annual-50000)*0.25.",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 4615.384615384615
+    },
+    "factor": 1,
+    "attData": null,
+    "dedData": null
+  },
+  "expected": {
+    "b": 4615.384615384615,
+    "css": 450,
+    "se": 57.69230769230769,
+    "isr": 695.8333333333334,
+    "ded": 1203.525641025641,
+    "dedQuota": 0,
+    "net": 3411.858974358974,
+    "pcss": 565.3846153846154,
+    "pse": 69.23076923076923,
+    "dec": 384.6153846153846,
+    "decCSSP": 27.88461538461538,
+    "tot": 5662.5,
+    "attDed": 0,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}
