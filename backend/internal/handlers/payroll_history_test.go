@@ -140,15 +140,19 @@ type payrollHistoryRow struct {
 }
 
 // mustCommitPayrollRun POSTs the exact payload shape savePayrollRun sends
-// (hr_admin_panel.html:3121-3127) -- including the client-computed totals
-// that design R4e/task 6.4 requires the server to ignore and overwrite --
-// and fails the test if the commit does not succeed.
+// (hr_admin_panel.html's current savePayrollRun, slice 3h) -- including the
+// client-computed totals AND employee_count that design R4e/task 6.4
+// requires the server to ignore and overwrite -- and fails the test if the
+// commit does not succeed. Regression coverage for a real bug caught during
+// 3h's review: the request struct originally omitted EmployeeCount, so this
+// exact payload 400'd under DisallowUnknownFields despite every other test
+// in this file using a payload that happened to omit the field too.
 func mustCommitPayrollRun(t *testing.T, h http.Handler, tok string, year, month int, period string) payrollHistoryRow {
 	t.Helper()
 	rec := testutil.Do(t, h, http.MethodPost, "/api/payroll_history", tok, map[string]any{
 		"period": period, "month": month, "year": year,
 		"total_bruto": 999999, "total_isr": 999999, "total_neto": 999999, "total_empresa": 999999,
-		"month_name": "Bogus",
+		"month_name": "Bogus", "employee_count": 999999,
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("commit payroll run: expected 201, got %d (body=%s)", rec.Code, rec.Body.String())

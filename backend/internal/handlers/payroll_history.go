@@ -190,7 +190,7 @@ func (a *API) CalculatePayroll(w http.ResponseWriter, r *http.Request) {
 
 // createPayrollRunRequest is the exact contract savePayrollRun sends
 // (hr_admin_panel.html:3121-3127, design R4e). total_bruto/total_isr/
-// total_neto/total_empresa/month_name are declared ONLY so
+// total_neto/total_empresa/month_name/employee_count are declared ONLY so
 // DisallowUnknownFields accepts that existing payload shape -- every one of
 // those values is computed server-side below and NEVER read (Q6's
 // precedent, extended here to an aggregate write). The effective body is
@@ -200,11 +200,12 @@ type createPayrollRunRequest struct {
 	Month  int32  `json:"month"`
 	Year   int32  `json:"year"`
 
-	TotalBruto   pgtype.Numeric `json:"total_bruto"`
-	TotalIsr     pgtype.Numeric `json:"total_isr"`
-	TotalNeto    pgtype.Numeric `json:"total_neto"`
-	TotalEmpresa pgtype.Numeric `json:"total_empresa"`
-	MonthName    pgtype.Text    `json:"month_name"`
+	TotalBruto    pgtype.Numeric `json:"total_bruto"`
+	TotalIsr      pgtype.Numeric `json:"total_isr"`
+	TotalNeto     pgtype.Numeric `json:"total_neto"`
+	TotalEmpresa  pgtype.Numeric `json:"total_empresa"`
+	MonthName     pgtype.Text    `json:"month_name"`
+	EmployeeCount pgtype.Int4    `json:"employee_count"`
 }
 
 // POST /api/payroll_history -- the committing payroll run (design R4,
