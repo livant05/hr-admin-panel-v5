@@ -40,6 +40,7 @@ type Querier interface {
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
 	CountEmployeesInDepartment(ctx context.Context, arg CountEmployeesInDepartmentParams) (int64, error)
 	CountEmployeesInPosition(ctx context.Context, arg CountEmployeesInPositionParams) (int64, error)
+	CountLiquidationHistory(ctx context.Context, arg CountLiquidationHistoryParams) (int64, error)
 	CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error)
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
@@ -103,6 +104,26 @@ type Querier interface {
 	// matches saveLeaveReq") -- this table has no financial amount to protect
 	// the way overtime_logs does.
 	CreateLeaveRequest(ctx context.Context, arg CreateLeaveRequestParams) (LeaveRequest, error)
+	// A1 rule 6 (design R3, task 7.2): the tenant check on the client-supplied
+	// employee_id IS the insert -- a foreign employee_id selects zero rows from
+	// `employees`, so a cross-tenant create becomes pgx.ErrNoRows -> 404 (same
+	// shape as CreateEmployeePayRecordWithEmployee / UpsertPayrollRunPayRecord).
+	// Kept STRUCTURALLY even though the caller already read the employee via
+	// GetEmployeeForLiquidation (slice 3e) to run the calculation -- the same
+	// "kept structurally" precedent UpsertPayrollRunPayRecord's own comment
+	// states (design R4c).
+	// employee_name is DERIVED from the employees row here too, never trusted
+	// from the request body -- saveLiqHistory's own call signature sends a name
+	// argument, but it is declared-and-ignored by the handler (Q6 precedent).
+	// total_amount keeps meaning netTotal (design R6, verified against
+	// saveLiqHistory's call site and loadLiqHistory's render site) -- it is
+	// NOT available for repurposing, and it is ALWAYS the server-recomputed
+	// CalculateLiquidation.NetTotal, never the client-sent value.
+	// start_date/breakdown/inputs/calc_version are the decision-#2/#3 audit
+	// payload (design R6, migration 0007): breakdown holds the full calculated
+	// LiquidationResult, inputs holds the raw acumulados inputs plus which of
+	// the five independent branches fired.
+	CreateLiquidationHistoryWithEmployee(ctx context.Context, arg CreateLiquidationHistoryWithEmployeeParams) (LiquidationHistory, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql/leave_requests.sql):
 	// the tenant check on the client-supplied employee_id IS the insert -- a
 	// foreign employee_id selects zero rows from `employees`, so a cross-tenant
@@ -148,6 +169,13 @@ type Querier interface {
 	// won affects zero rows here, which the handler maps to 409 (not 404 --
 	// existence was already confirmed by its own Get before calling this).
 	DeleteLeaveRequest(ctx context.Context, arg DeleteLeaveRequestParams) (int64, error)
+	// Hard delete (spec "List, get, delete" -- matches delLiq's existing
+	// behavior; no PATCH exists for this resource -- immutable historical
+	// record, design R7). There is nothing to cascade: liquidation_history has
+	// no FK relationship to employee_pay_records at all (unlike payroll_history,
+	// design R5's no-cascade decision is not even a design choice here, it is
+	// structurally the only possible behavior).
+	DeleteLiquidationHistory(ctx context.Context, arg DeleteLiquidationHistoryParams) (int64, error)
 	// Hard delete (design Q3): the payroll amount is snapshotted into
 	// employee_pay_records at run time (Part A B2), so deleting the log cannot
 	// retro-alter a paid slip. overtime_logs is not an FK target
@@ -190,6 +218,7 @@ type Querier interface {
 	GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRecordParams) (GetEmployeePayRecordRow, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
+	GetLiquidationHistory(ctx context.Context, arg GetLiquidationHistoryParams) (LiquidationHistory, error)
 	GetOvertimeLog(ctx context.Context, arg GetOvertimeLogParams) (OvertimeLog, error)
 	GetPayrollHistory(ctx context.Context, arg GetPayrollHistoryParams) (PayrollHistory, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
@@ -210,6 +239,12 @@ type Querier interface {
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
+	// Filterable by employee_id (spec "List filtered by employee returns only
+	// that employee's liquidaciones") and id (same symmetry every other List
+	// query in this codebase keeps). ORDER BY created_at DESC (design R7 -- no
+	// PATCH exists for this resource, so there is no "last edited" concept to
+	// order by, only newest-first).
+	ListLiquidationHistory(ctx context.Context, arg ListLiquidationHistoryParams) ([]LiquidationHistory, error)
 	ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error)
 	// Fixed ORDER BY year DESC, month DESC (design R7) -- replaces
 	// loadPayrollHistory's client-side sort (hr_admin_panel.html:3131).

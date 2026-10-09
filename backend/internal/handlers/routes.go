@@ -95,6 +95,16 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("GET /api/payroll_history/{id}", a.GetPayrollHistory)
 	protected.HandleFunc("DELETE /api/payroll_history/{id}", a.DeletePayrollHistory) // hard; no ledger cascade
 
+	// liquidation_history: no PATCH -- immutable historical record (design
+	// R7). No cascade on delete -- no FK to employee_pay_records exists at
+	// all. Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
+	// (Q5c).
+	protected.HandleFunc("GET /api/liquidation_history", a.ListLiquidationHistory)
+	protected.HandleFunc("GET /api/liquidation_history/calculate", a.CalculateLiquidation) // preview, writes nothing
+	protected.HandleFunc("POST /api/liquidation_history", a.CreateLiquidation)             // recomputes server-side
+	protected.HandleFunc("GET /api/liquidation_history/{id}", a.GetLiquidationHistory)
+	protected.HandleFunc("DELETE /api/liquidation_history/{id}", a.DeleteLiquidationHistory) // hard
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/
