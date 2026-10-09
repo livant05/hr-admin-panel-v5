@@ -85,11 +85,15 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/employee_pay_records/{id}", a.UpdateEmployeePayRecord)
 	protected.HandleFunc("DELETE /api/employee_pay_records/{id}", a.DeleteEmployeePayRecord) // hard delete
 
-	// payroll_history: only the preview endpoint exists this slice (3e).
-	// List/Get/Create(commit)/Delete land in 3f; the literal "/calculate"
-	// path is registered now so the ordering convention (literal > /{id},
-	// Q5c) is established before /{id} exists.
+	// payroll_history: the committing run (slice 3f). No PATCH -- immutable
+	// historical record (design R7). No ledger cascade on delete (design
+	// R5). Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
+	// (Q5c).
+	protected.HandleFunc("GET /api/payroll_history", a.ListPayrollHistory)
 	protected.HandleFunc("GET /api/payroll_history/calculate", a.CalculatePayroll) // preview, writes nothing
+	protected.HandleFunc("POST /api/payroll_history", a.CreatePayrollRun)          // tx: 1 aggregate + N ledger rows
+	protected.HandleFunc("GET /api/payroll_history/{id}", a.GetPayrollHistory)
+	protected.HandleFunc("DELETE /api/payroll_history/{id}", a.DeletePayrollHistory) // hard; no ledger cascade
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/

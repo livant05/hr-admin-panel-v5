@@ -11,6 +11,208 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countPayrollHistory = `-- name: CountPayrollHistory :one
+SELECT count(*) FROM payroll_history
+WHERE company_id = $1
+  AND ($2::uuid IS NULL OR id = $2)
+  AND ($3::int IS NULL OR year = $3)
+  AND ($4::int IS NULL OR month = $4)
+`
+
+type CountPayrollHistoryParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	Column2   pgtype.UUID `json:"column_2"`
+	Year      pgtype.Int4 `json:"year"`
+	Month     pgtype.Int4 `json:"month"`
+}
+
+func (q *Queries) CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPayrollHistory,
+		arg.CompanyID,
+		arg.Column2,
+		arg.Year,
+		arg.Month,
+	)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const createPayrollHistory = `-- name: CreatePayrollHistory :one
+INSERT INTO payroll_history (
+  company_id, period, month, year, month_name, employee_count,
+  total_bruto, total_isr, total_neto, total_empresa
+) VALUES (
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+)
+RETURNING id, company_id, period, month, year, month_name, employee_count,
+  total_bruto, total_isr, total_neto, total_empresa, created_at
+`
+
+type CreatePayrollHistoryParams struct {
+	CompanyID     pgtype.UUID    `json:"company_id"`
+	Period        string         `json:"period"`
+	Month         int32          `json:"month"`
+	Year          int32          `json:"year"`
+	MonthName     pgtype.Text    `json:"month_name"`
+	EmployeeCount pgtype.Int4    `json:"employee_count"`
+	TotalBruto    pgtype.Numeric `json:"total_bruto"`
+	TotalIsr      pgtype.Numeric `json:"total_isr"`
+	TotalNeto     pgtype.Numeric `json:"total_neto"`
+	TotalEmpresa  pgtype.Numeric `json:"total_empresa"`
+}
+
+// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
+// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
+// (the P6.1 department-rename-propagation tx shape) -- a failure in any
+// later upsert rolls this back too (TestPayrollRun_IsAtomic).
+func (q *Queries) CreatePayrollHistory(ctx context.Context, arg CreatePayrollHistoryParams) (PayrollHistory, error) {
+	row := q.db.QueryRow(ctx, createPayrollHistory,
+		arg.CompanyID,
+		arg.Period,
+		arg.Month,
+		arg.Year,
+		arg.MonthName,
+		arg.EmployeeCount,
+		arg.TotalBruto,
+		arg.TotalIsr,
+		arg.TotalNeto,
+		arg.TotalEmpresa,
+	)
+	var i PayrollHistory
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Period,
+		&i.Month,
+		&i.Year,
+		&i.MonthName,
+		&i.EmployeeCount,
+		&i.TotalBruto,
+		&i.TotalIsr,
+		&i.TotalNeto,
+		&i.TotalEmpresa,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deletePayrollHistory = `-- name: DeletePayrollHistory :execrows
+DELETE FROM payroll_history
+WHERE id = $2 AND company_id = $1
+`
+
+type DeletePayrollHistoryParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// Hard delete, no cascade to employee_pay_records (design R5 -- no FK
+// exists between the two tables; TestPayrollHistory_DeleteLeavesPayRecords
+// pins this as the default, not an implementation).
+func (q *Queries) DeletePayrollHistory(ctx context.Context, arg DeletePayrollHistoryParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deletePayrollHistory, arg.CompanyID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getPayrollHistory = `-- name: GetPayrollHistory :one
+SELECT id, company_id, period, month, year, month_name, employee_count,
+  total_bruto, total_isr, total_neto, total_empresa, created_at
+FROM payroll_history
+WHERE id = $2 AND company_id = $1
+`
+
+type GetPayrollHistoryParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) GetPayrollHistory(ctx context.Context, arg GetPayrollHistoryParams) (PayrollHistory, error) {
+	row := q.db.QueryRow(ctx, getPayrollHistory, arg.CompanyID, arg.ID)
+	var i PayrollHistory
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Period,
+		&i.Month,
+		&i.Year,
+		&i.MonthName,
+		&i.EmployeeCount,
+		&i.TotalBruto,
+		&i.TotalIsr,
+		&i.TotalNeto,
+		&i.TotalEmpresa,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listPayrollHistory = `-- name: ListPayrollHistory :many
+SELECT id, company_id, period, month, year, month_name, employee_count,
+  total_bruto, total_isr, total_neto, total_empresa, created_at
+FROM payroll_history
+WHERE company_id = $1
+  AND ($2::uuid IS NULL OR id = $2)
+  AND ($5::int IS NULL OR year = $5)
+  AND ($6::int IS NULL OR month = $6)
+ORDER BY year DESC, month DESC
+LIMIT $3 OFFSET $4
+`
+
+type ListPayrollHistoryParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	Column2   pgtype.UUID `json:"column_2"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+	Year      pgtype.Int4 `json:"year"`
+	Month     pgtype.Int4 `json:"month"`
+}
+
+// Fixed ORDER BY year DESC, month DESC (design R7) -- replaces
+// loadPayrollHistory's client-side sort (hr_admin_panel.html:3131).
+func (q *Queries) ListPayrollHistory(ctx context.Context, arg ListPayrollHistoryParams) ([]PayrollHistory, error) {
+	rows, err := q.db.Query(ctx, listPayrollHistory,
+		arg.CompanyID,
+		arg.Column2,
+		arg.Limit,
+		arg.Offset,
+		arg.Year,
+		arg.Month,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []PayrollHistory
+	for rows.Next() {
+		var i PayrollHistory
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.Period,
+			&i.Month,
+			&i.Year,
+			&i.MonthName,
+			&i.EmployeeCount,
+			&i.TotalBruto,
+			&i.TotalIsr,
+			&i.TotalNeto,
+			&i.TotalEmpresa,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPayrollRunInputs = `-- name: ListPayrollRunInputs :many
 SELECT
   e.id, e.first_name, e.last_name, e.cedula, e.salary,

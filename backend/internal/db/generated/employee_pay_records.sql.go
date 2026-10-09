@@ -719,3 +719,146 @@ func (q *Queries) UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmploye
 	)
 	return i, err
 }
+
+const upsertPayrollRunPayRecord = `-- name: UpsertPayrollRunPayRecord :one
+INSERT INTO employee_pay_records (
+  company_id, employee_id, employee_name, cedula, periodo,
+  period_year, period_month,
+  gross_salary, overtime_amount,
+  commissions, bonuses, vacations_paid, other_income,
+  total_earned, css_employee, se_employee, isr, other_deductions, net_salary,
+  numero_planilla, centro_costo, notes, origin
+)
+SELECT $1, e.id, e.first_name || ' ' || e.last_name, e.cedula, $3,
+  $4, $5,
+  $6, $7,
+  0, 0, 0, 0,
+  $8, $9, $10, $11, $12, $13,
+  NULL, NULL, NULL, 'run'
+FROM employees e
+WHERE e.id = $2 AND e.company_id = $1
+ON CONFLICT (company_id, employee_id, period_year, period_month)
+  WHERE origin = 'run'
+DO UPDATE SET
+  employee_name    = EXCLUDED.employee_name,
+  cedula           = EXCLUDED.cedula,
+  periodo          = EXCLUDED.periodo,
+  gross_salary     = EXCLUDED.gross_salary,
+  overtime_amount  = EXCLUDED.overtime_amount,
+  total_earned     = EXCLUDED.total_earned,
+  css_employee     = EXCLUDED.css_employee,
+  se_employee      = EXCLUDED.se_employee,
+  isr              = EXCLUDED.isr,
+  other_deductions = EXCLUDED.other_deductions,
+  net_salary       = EXCLUDED.net_salary
+RETURNING id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
+  period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
+  other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
+  origin, created_at
+`
+
+type UpsertPayrollRunPayRecordParams struct {
+	CompanyID       pgtype.UUID    `json:"company_id"`
+	ID              pgtype.UUID    `json:"id"`
+	Periodo         pgtype.Text    `json:"periodo"`
+	PeriodYear      int32          `json:"period_year"`
+	PeriodMonth     int32          `json:"period_month"`
+	GrossSalary     pgtype.Numeric `json:"gross_salary"`
+	OvertimeAmount  pgtype.Numeric `json:"overtime_amount"`
+	TotalEarned     pgtype.Numeric `json:"total_earned"`
+	CssEmployee     pgtype.Numeric `json:"css_employee"`
+	SeEmployee      pgtype.Numeric `json:"se_employee"`
+	Isr             pgtype.Numeric `json:"isr"`
+	OtherDeductions pgtype.Numeric `json:"other_deductions"`
+	NetSalary       pgtype.Numeric `json:"net_salary"`
+}
+
+type UpsertPayrollRunPayRecordRow struct {
+	ID              pgtype.UUID        `json:"id"`
+	CompanyID       pgtype.UUID        `json:"company_id"`
+	EmployeeID      pgtype.UUID        `json:"employee_id"`
+	EmployeeName    pgtype.Text        `json:"employee_name"`
+	Cedula          pgtype.Text        `json:"cedula"`
+	NumeroPlanilla  pgtype.Text        `json:"numero_planilla"`
+	CentroCosto     pgtype.Text        `json:"centro_costo"`
+	Periodo         pgtype.Text        `json:"periodo"`
+	PeriodYear      int32              `json:"period_year"`
+	PeriodMonth     int32              `json:"period_month"`
+	GrossSalary     pgtype.Numeric     `json:"gross_salary"`
+	OvertimeAmount  pgtype.Numeric     `json:"overtime_amount"`
+	Commissions     pgtype.Numeric     `json:"commissions"`
+	Bonuses         pgtype.Numeric     `json:"bonuses"`
+	VacationsPaid   pgtype.Numeric     `json:"vacations_paid"`
+	OtherIncome     pgtype.Numeric     `json:"other_income"`
+	TotalEarned     pgtype.Numeric     `json:"total_earned"`
+	CssEmployee     pgtype.Numeric     `json:"css_employee"`
+	SeEmployee      pgtype.Numeric     `json:"se_employee"`
+	Isr             pgtype.Numeric     `json:"isr"`
+	OtherDeductions pgtype.Numeric     `json:"other_deductions"`
+	NetSalary       pgtype.Numeric     `json:"net_salary"`
+	Notes           pgtype.Text        `json:"notes"`
+	Origin          string             `json:"origin"`
+	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+// Settled decision #1 (design R4/R4a/R4c, task 6.2). The ONLY writer of
+// origin='run'. A1 rule 6 shape is kept STRUCTURALLY even though the caller
+// (CreatePayrollRun) enumerates the employees itself via
+// ListPayrollRunInputs: employee_name/cedula are DERIVED from the employees
+// row, so a mis-targeted id can never write under the wrong company.
+// Upsert, not append: re-running a period REPLACES that period's run row
+// (ON CONFLICT ... WHERE origin='run' DO UPDATE), while every manual/CSV row
+// for the same period is left untouched -- the partial index
+// uq_epr_run_period (migration 0007) is what makes that true
+// (TestPayrollRun_RerunUpsertsNotDuplicates, TestPayrollRun_PreservesManualAndCSVRows).
+// commissions/bonuses/vacations_paid/other_income are hard 0 -- Calculate
+// has no corresponding input; only manual entry and CSV import populate
+// them. numero_planilla/centro_costo/notes are hard NULL -- no equivalent in
+// a run. total_earned is `b` and is NOT the sum of the income columns here
+// (design R4f, pinned by TestPayrollRun_TotalEarnedInvariant).
+func (q *Queries) UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayrollRunPayRecordParams) (UpsertPayrollRunPayRecordRow, error) {
+	row := q.db.QueryRow(ctx, upsertPayrollRunPayRecord,
+		arg.CompanyID,
+		arg.ID,
+		arg.Periodo,
+		arg.PeriodYear,
+		arg.PeriodMonth,
+		arg.GrossSalary,
+		arg.OvertimeAmount,
+		arg.TotalEarned,
+		arg.CssEmployee,
+		arg.SeEmployee,
+		arg.Isr,
+		arg.OtherDeductions,
+		arg.NetSalary,
+	)
+	var i UpsertPayrollRunPayRecordRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.EmployeeID,
+		&i.EmployeeName,
+		&i.Cedula,
+		&i.NumeroPlanilla,
+		&i.CentroCosto,
+		&i.Periodo,
+		&i.PeriodYear,
+		&i.PeriodMonth,
+		&i.GrossSalary,
+		&i.OvertimeAmount,
+		&i.Commissions,
+		&i.Bonuses,
+		&i.VacationsPaid,
+		&i.OtherIncome,
+		&i.TotalEarned,
+		&i.CssEmployee,
+		&i.SeEmployee,
+		&i.Isr,
+		&i.OtherDeductions,
+		&i.NetSalary,
+		&i.Notes,
+		&i.Origin,
+		&i.CreatedAt,
+	)
+	return i, err
+}
