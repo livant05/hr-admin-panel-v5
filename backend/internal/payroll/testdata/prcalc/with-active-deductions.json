@@ -1,0 +1,32 @@
+{
+  "name": "with-active-deductions",
+  "note": "Mensual with a non-zero dedData.quotaTotal (sum of the employee's active deductions' quotas) — exercises the dedQuota/net subtraction.",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 1500
+    },
+    "factor": 1,
+    "attData": null,
+    "dedData": {
+      "quotaTotal": 120.75
+    }
+  },
+  "expected": {
+    "b": 1500,
+    "css": 146.25,
+    "se": 18.75,
+    "isr": 106.25,
+    "ded": 271.25,
+    "dedQuota": 120.75,
+    "net": 1108,
+    "pcss": 183.75,
+    "pse": 22.5,
+    "dec": 125,
+    "decCSSP": 9.0625,
+    "tot": 1840.3125,
+    "attDed": 0,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}

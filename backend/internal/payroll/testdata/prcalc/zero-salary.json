@@ -1,0 +1,30 @@
+{
+  "name": "zero-salary",
+  "note": "salary=0 — defensive case for prCalc's own arithmetic (the real divide-by-zero hazards named in the design, 1/2/3/4, all belong to calcLiq, not prCalc; this fixture only confirms prCalc itself does not panic/NaN at salary=0: b=0, every derived field is 0, and annual=(0/1)*13=0 so isrAnnual=0 (0<=11000), never a division).",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 0
+    },
+    "factor": 1,
+    "attData": null,
+    "dedData": null
+  },
+  "expected": {
+    "b": 0,
+    "css": 0,
+    "se": 0,
+    "isr": 0,
+    "ded": 0,
+    "dedQuota": 0,
+    "net": 0,
+    "pcss": 0,
+    "pse": 0,
+    "dec": 0,
+    "decCSSP": 0,
+    "tot": 0,
+    "attDed": 0,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}

@@ -1,0 +1,34 @@
+{
+  "name": "absent-all-days-b-clamped-to-zero",
+  "note": "attDed (salary/30 * absentDays) exceeds salBase+otAmt, so b=max(0, salBase-attDed+otAmt) must clamp to exactly 0, not go negative — exercises the Math.max(0, ...) clamp.",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 900
+    },
+    "factor": 1,
+    "attData": {
+      "hasData": true,
+      "absentDays": 31,
+      "otAmount": 0
+    },
+    "dedData": null
+  },
+  "expected": {
+    "b": 0,
+    "css": 0,
+    "se": 0,
+    "isr": 0,
+    "ded": 0,
+    "dedQuota": 0,
+    "net": 0,
+    "pcss": 0,
+    "pse": 0,
+    "dec": 0,
+    "decCSSP": 0,
+    "tot": 0,
+    "attDed": 930,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}

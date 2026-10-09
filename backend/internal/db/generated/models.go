@@ -186,6 +186,7 @@ type EmployeePayRecord struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+	Origin          string             `json:"origin"`
 }
 
 type Enrollment struct {
@@ -277,6 +278,10 @@ type LiquidationHistory struct {
 	TotalAmount  pgtype.Numeric     `json:"total_amount"`
 	Notes        pgtype.Text        `json:"notes"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	StartDate    pgtype.Date        `json:"start_date"`
+	Breakdown    json.RawMessage    `json:"breakdown"`
+	Inputs       json.RawMessage    `json:"inputs"`
+	CalcVersion  pgtype.Text        `json:"calc_version"`
 }
 
 type MedicalRecord struct {

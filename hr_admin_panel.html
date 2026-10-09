@@ -820,7 +820,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="alert alert-info small"><i class="fas fa-gavel mr-1"></i>Arts. 225-230 del Código de Trabajo de Panamá.</div>
           <div class="form-group"><label>Empleado *</label><select id="liq-emp" class="form-control" onchange="loadLiqEmp()"><option value="">— Seleccionar —</option></select></div>
           <div id="liq-emp-info" class="alert alert-secondary py-2 small" style="display:none"></div>
-          <div class="form-group"><label>Motivo de Egreso</label><select id="liq-reason" class="form-control form-control-sm" onchange="calcLiq()">
+          <div class="form-group"><label>Motivo de Egreso</label><select id="liq-reason" class="form-control form-control-sm" onchange="calcLiqDebounced()">
             <option value="voluntaria">Renuncia Voluntaria</option>
             <option value="sin_prev">Renuncia sin Preaviso (Art. 222)</option>
             <option value="acuerdo">Mutuo Acuerdo</option>
@@ -832,21 +832,21 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
             <option value="pension">Jubilación / Pensión</option>
             <option value="vencimiento">Vencimiento de Contrato</option>
           </select></div>
-          <div class="form-group"><label>Fecha de Egreso</label><input type="date" id="liq-date" class="form-control form-control-sm" onchange="calcLiq()"></div>
-          <div class="form-group"><label>1. Salario días pendientes (B/.)</label><input type="number" id="liq-sal-pend" class="form-control form-control-sm" value="0" step="0.01" oninput="calcLiq()"></div>
-          <div class="form-group"><label>6. Otros ingresos / gastos (B/.)</label><input type="number" id="liq-otros" class="form-control form-control-sm" value="0" step="0.01" oninput="calcLiq()"></div>
-          <div class="form-group"><label>3. Vacaciones (días pendientes)</label><input type="number" id="liq-vac" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiq()"></div>
-          <div class="form-group"><label>4. Décimo (meses pendientes)</label><input type="number" id="liq-dec" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiq()"></div>
+          <div class="form-group"><label>Fecha de Egreso</label><input type="date" id="liq-date" class="form-control form-control-sm" onchange="calcLiqDebounced()"></div>
+          <div class="form-group"><label>1. Salario días pendientes (B/.)</label><input type="number" id="liq-sal-pend" class="form-control form-control-sm" value="0" step="0.01" oninput="calcLiqDebounced()"></div>
+          <div class="form-group"><label>6. Otros ingresos / gastos (B/.)</label><input type="number" id="liq-otros" class="form-control form-control-sm" value="0" step="0.01" oninput="calcLiqDebounced()"></div>
+          <div class="form-group"><label>3. Vacaciones (días pendientes)</label><input type="number" id="liq-vac" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiqDebounced()"></div>
+          <div class="form-group"><label>4. Décimo (meses pendientes)</label><input type="number" id="liq-dec" class="form-control form-control-sm" value="0" step="0.5" oninput="calcLiqDebounced()"></div>
           <div class="mt-2">
             <a data-toggle="collapse" href="#liq-acum-section" class="small text-muted"><i class="fas fa-chevron-down mr-1"></i>Acumulados (para cálculo preciso)</a>
             <div class="collapse" id="liq-acum-section">
               <div class="border rounded p-2 mt-1 bg-light">
                 <small class="text-muted d-block mb-2">Ingresá los acumulados del empleado para mayor precisión (opcional).</small>
-                <div class="form-group mb-1"><label class="small">Acum. vacaciones — últimos 11 meses (B/.)</label><input type="number" id="liq-acum-vac" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
-                <div class="form-group mb-1"><label class="small">Acum. XIII mes — últimos 12 meses (B/.)</label><input type="number" id="liq-acum-dec" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
-                <div class="form-group mb-1"><label class="small">Acum. prima — últimos 60 meses (B/.)</label><input type="number" id="liq-acum-prima" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
-                <div class="form-group mb-1"><label class="small">Salario últimos 30 días (B/.)</label><input type="number" id="liq-sal30" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
-                <div class="form-group mb-0"><label class="small">Acum. últimos 6 meses (B/.)</label><input type="number" id="liq-acum-6m" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiq()"></div>
+                <div class="form-group mb-1"><label class="small">Acum. vacaciones — últimos 11 meses (B/.)</label><input type="number" id="liq-acum-vac" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiqDebounced()"></div>
+                <div class="form-group mb-1"><label class="small">Acum. XIII mes — últimos 12 meses (B/.)</label><input type="number" id="liq-acum-dec" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiqDebounced()"></div>
+                <div class="form-group mb-1"><label class="small">Acum. prima — últimos 60 meses (B/.)</label><input type="number" id="liq-acum-prima" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiqDebounced()"></div>
+                <div class="form-group mb-1"><label class="small">Salario últimos 30 días (B/.)</label><input type="number" id="liq-sal30" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiqDebounced()"></div>
+                <div class="form-group mb-0"><label class="small">Acum. últimos 6 meses (B/.)</label><input type="number" id="liq-acum-6m" class="form-control form-control-sm" step="0.01" placeholder="0.00" oninput="calcLiqDebounced()"></div>
               </div>
             </div>
           </div>
@@ -883,36 +883,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 <div id="pg-pay-records" class="page-section">
   <div class="content-header"><div class="container-fluid"><h1><i class="fas fa-history mr-2"></i>Historial de Planilla por Empleado</h1></div></div>
   <section class="content"><div class="container-fluid">
-
-    <!-- Schema setup alert -->
-    <div class="alert alert-warning alert-dismissible fade show small mb-3" id="pr-schema-alert">
-      <button type="button" class="close" data-dismiss="alert"><span>&times;</span></button>
-      <strong>Primera vez:</strong> Ejecutá este SQL en Supabase → SQL Editor para crear la tabla:
-      <pre class="mt-2 mb-0 bg-dark text-light p-2 rounded" style="font-size:.75rem">CREATE TABLE IF NOT EXISTS employee_pay_records (
-  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
-  company_id uuid REFERENCES companies(id) ON DELETE CASCADE,
-  employee_id uuid,
-  employee_name text,
-  period_year integer NOT NULL,
-  period_month integer NOT NULL,
-  gross_salary numeric(10,2) DEFAULT 0,
-  overtime_amount numeric(10,2) DEFAULT 0,
-  commissions numeric(10,2) DEFAULT 0,
-  bonuses numeric(10,2) DEFAULT 0,
-  vacations_paid numeric(10,2) DEFAULT 0,
-  other_income numeric(10,2) DEFAULT 0,
-  total_earned numeric(10,2) DEFAULT 0,
-  css_employee numeric(10,2) DEFAULT 0,
-  se_employee numeric(10,2) DEFAULT 0,
-  isr numeric(10,2) DEFAULT 0,
-  other_deductions numeric(10,2) DEFAULT 0,
-  net_salary numeric(10,2) DEFAULT 0,
-  notes text,
-  created_at timestamptz DEFAULT now()
-);
-ALTER TABLE employee_pay_records ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELECT company_id FROM users WHERE id = auth.uid()));</pre>
-    </div>
 
     <div class="row">
       <!-- Left: Register record -->
@@ -979,6 +949,7 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
               <label class="btn btn-sm btn-info mb-0"><i class="fas fa-file-upload mr-1"></i>Importar<input type="file" id="pr-import-file" accept=".csv" style="display:none" onchange="importPayRecordsCSV(this)"></label>
             </div>
           </div>
+          <div class="alert alert-warning small mx-3 mt-2 mb-0" id="pr-import-skipped" style="display:none"></div>
           <div class="card-body p-0">
             <div class="table-responsive">
               <table class="table table-sm table-hover mb-0">
@@ -1814,7 +1785,11 @@ CREATE POLICY "company_access" ON employee_pay_records USING (company_id = (SELE
 <script>
 'use strict';
 // ════════════════ CONSTANTS ══════════════════════════════════
-const PR = { CSS_E:.0975, SE_E:.0125, CSS_P:.1225, SE_P:.015, DEC:1/12 };
+// PR (the prCalc money-formula constants) was removed in Phase 3 slice 3h:
+// the formula itself now lives server-side in internal/payroll (the
+// byte-faithful Go port, slice 3b), and the vendored, pinned-digest copy of
+// the retired JS is tools/goldens/legacy/ -- the standing ground truth now
+// that this source no longer contains it.
 const PAYDAY_CODES = [
   {c:2,l:'JorOrd Diurna',s:'present',g:'Jornada Ordinaria'},
   {c:32,l:'JorOrd Mixta',s:'present',g:'Jornada Ordinaria'},
@@ -1867,27 +1842,13 @@ function getWorkingDays(year, month) {
   return count;
 }
 
-function prCalc(e, factor, attData, dedData) {
-  factor = factor || 1;
-  var salBase = (e.salary || 0) * factor;
-  var attDed = 0, otAmt = 0;
-  if (attData && attData.hasData) {
-    attDed = ((e.salary || 0) / 30) * (attData.absentDays || 0);
-    otAmt = attData.otAmount || 0;
-  }
-  var b = Math.max(0, salBase - attDed + otAmt);
-  var css = b * PR.CSS_E, se = b * PR.SE_E;
-  var annual = (b / factor) * 13; // DGI: 12 meses + Décimo 3er Mes
-  var isrAnnual = annual <= 11000 ? 0 : annual <= 50000 ? (annual - 11000) * 0.15 : 5850 + (annual - 50000) * 0.25;
-  var isr = (isrAnnual / 12) * factor;
-  var ded = css + se + isr;
-  var dedQuota = (dedData && dedData.quotaTotal) ? dedData.quotaTotal : 0;
-  var net = b - ded - dedQuota;
-  var pcss = b * PR.CSS_P, pse = b * PR.SE_P, dec = b * PR.DEC;
-  var decCSSP = dec * 0.0725; // CSS patronal sobre Décimo (tasa especial Ley 51/2005)
-  var tot = b + pcss + pse + dec + decCSSP;
-  return { b:b, css:css, se:se, isr:isr, ded:ded, dedQuota:dedQuota, net:net, pcss:pcss, pse:pse, dec:dec, decCSSP:decCSSP, tot:tot, attDed:attDed, otAmt:otAmt };
-}
+// prCalc (hr_admin_panel.html, byte-faithful through Phase 3 slice 3a's
+// golden fixtures) was deleted here in slice 3h -- the one-way door. Its
+// arithmetic now lives in internal/payroll.Calculate (slice 3b); every
+// caller below is repointed at GET /api/payroll_history/calculate, the
+// read-only preview endpoint that runs the same Go port server-side
+// (design R4e/R8). The retired JS is vendored verbatim, with its SHA-256
+// provenance header, at tools/goldens/legacy/prcalc-calcliq.js.
 
 function avatarBg(id) {
   var sum = 0;
@@ -2020,7 +1981,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -2140,6 +2101,14 @@ var Supa = {
     if (this.route(tbl) === 'go')
       return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id, {method:'DELETE', headers:this.ghdr()}));
     await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'DELETE',headers:this.hdr()});
+  },
+  // Direct fetch against a literal Go path that isn't a plain table CRUD
+  // route (e.g. /payroll_history/calculate, /liquidation_history/calculate,
+  // /employee_pay_records/bases) -- the Phase 3 "Calcular" preview endpoints
+  // that replace the deleted prCalc/calcLiq JS formulas (design R4e/R8).
+  // `path` already includes its own query string.
+  goFetch: async function(path, opts) {
+    return this.gres(await fetch(this.goUrl+path, Object.assign({headers:this.ghdr()}, opts||{})));
   }
 };
 
@@ -2441,7 +2410,14 @@ async function loadDash() {
   document.getElementById('st-active').textContent=active.length;
   var present=Array.isArray(logs)?logs.filter(function(l){ return l.status==='present'||l.status==='late'; }).length:0;
   document.getElementById('st-att').textContent=present;
-  var prSums=active.reduce(function(s,e){ var pr=prCalc(e,1); return {b:s.b+pr.b,ded:s.ded+pr.ded,net:s.net+pr.net,tot:s.tot+pr.tot}; },{b:0,ded:0,net:0,tot:0});
+  // Payroll summary for the current month, via the server preview endpoint
+  // (design R4e) -- prCalc was deleted in slice 3h. This now reflects the
+  // real attendance deduction/overtime/dedQuota for the current period
+  // instead of the old factor=1-no-attendance full-salary estimate (an
+  // intentional improvement: the formula being server-only means there is
+  // no cheap client-side "ignore attendance" shortcut left to keep).
+  var dashCalc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:TD.getMonth()+1,year:TD.getFullYear(),period:'mensual'})).catch(function(){ return []; });
+  var prSums=(Array.isArray(dashCalc)?dashCalc:[]).reduce(function(s,r){ return {b:s.b+(r.b||0),ded:s.ded+(r.ded||0),net:s.net+(r.net||0),tot:s.tot+(r.tot||0)}; },{b:0,ded:0,net:0,tot:0});
   document.getElementById('pr-dash-bruto').textContent=fmt(prSums.b);
   document.getElementById('pr-dash-ded').textContent=fmt(prSums.ded);
   document.getElementById('pr-dash-neto').textContent=fmt(prSums.net);
@@ -2651,7 +2627,17 @@ async function showEmpProfile(id) {
   var e=Array.isArray(emps)?emps.find(function(x){ return x.id===id; }):null;
   if(!e) return;
   var bal=DS.leave_balances.find(function(b){ return b.employee_id===id&&b.company_id===A.companyId; });
-  var pr=prCalc(e);
+  // Planilla tab estimate, via the server preview endpoint (design R4e) --
+  // prCalc was deleted in slice 3h. The preview only covers ACTIVE
+  // employees for the current month (ListPayrollRunInputs' WHERE clause),
+  // so an inactive employee's Planilla tab now honestly shows zeros rather
+  // than a theoretical always-full-salary estimate.
+  var pr={b:0,css:0,se:0,isr:0,net:0,pcss:0,pse:0,dec:0,tot:0};
+  if(e.status==='active'){
+    var profCalc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:TD.getMonth()+1,year:TD.getFullYear(),period:'mensual'})).catch(function(){ return []; });
+    var profRow=Array.isArray(profCalc)?profCalc.find(function(r){ return r.employee_id===id; }):null;
+    if(profRow) pr={b:profRow.b||0,css:profRow.css||0,se:profRow.se||0,isr:profRow.isr||0,net:profRow.net||0,pcss:profRow.pcss||0,pse:profRow.pse||0,dec:profRow.dec||0,tot:profRow.tot||0};
+  }
   var badges='';
   if(e.contract_expiry){ var d=daysTo(e.contract_expiry); if(d!==null&&d<=60) badges+='<span class="badge badge-danger ml-1">⚠ Contrato '+d+'d</span>'; }
   document.getElementById('emp-modal-body').innerHTML=
@@ -2938,31 +2924,45 @@ async function loadPayroll() {
   var mPfx=year+'-'+(month<10?'0'+month:''+month);
   var allAtt=await Supa.sel('attendance_logs');
   var allOT=await Supa.sel('overtime_logs');
-  var allDed=await Supa.sel('deductions',{status:'active'});
   var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return l.date&&l.date.startsWith(mPfx); }):[];
   var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return o.date&&o.date.startsWith(mPfx); }):[];
   // Medical records from in-memory cache filtered to the selected month
   var mMed=Array.isArray(DS.medical_records)?DS.medical_records.filter(function(r){ return r.start_date&&r.start_date.substring(0,7)===mPfx&&r.status==='activa'; }):[];
-  var activeDed=Array.isArray(allDed)?allDed:[];
   var wDays=getWorkingDays(year,month);
   var pDays=period==='mensual'?wDays:Math.floor(wDays/2);
+
+  // The money calculation itself (prCalc, deleted in slice 3h) now runs
+  // server-side, once, for every active employee in this period (design
+  // R4e) -- attendance_logs/overtime_logs are still fetched above, but only
+  // for the display-only badge counts (workedDays/absentDays/otHours) and
+  // the medical-records columns, which the preview response does not carry
+  // (an accepted open item -- medDays/medEmpDays stay client-cached until a
+  // later phase owns DS.medical_records server-side).
+  var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:month,year:year,period:period}));
+  var calcByEmp={};
+  if(Array.isArray(calc)) calc.forEach(function(row){ calcByEmp[row.employee_id]=row; });
 
   _prRows=actives.map(function(e){
     var eAtt=mAtt.filter(function(l){ return l.employee_id===e.id; });
     var eOT=mOT.filter(function(o){ return o.employee_id===e.id; });
     var eMed=mMed.filter(function(r){ return r.employee_id===e.id; });
-    var eDed=activeDed.filter(function(d){ return d.employee_id===e.id; });
     var worked=eAtt.filter(function(l){ return l.status==='present'||l.status==='late'; }).length;
-    // Only code 28 (Ausencia NO pagada) deducts; 24/25/26/29/30 do not
+    // Display-only count (the authoritative deduction is now computed
+    // server-side, hazard 5, design R4d's ListPayrollRunInputs); only code
+    // 28 (Ausencia NO pagada) deducts, 24/25/26/29/30 do not.
     var absent=eAtt.filter(function(l){ return l.work_type?l.work_type===28:(l.status==='absent'); }).length;
-    var otAmt=eOT.reduce(function(s,o){ return s+(o.amount||0); },0);
     var otHrs=eOT.reduce(function(s,o){ return s+(o.hours||0); },0);
     var medDays=eMed.reduce(function(s,r){ return s+(r.days||0); },0);
     var medEmpDays=eMed.reduce(function(s,r){ return s+(r.employer_days||Math.min(r.days||0,3)); },0);
-    var dedQuotaTotal=eDed.reduce(function(s,d){ return s+(d.quota||0); },0);
-    var att={ hasData:eAtt.length>0, workedDays:worked, expectedDays:pDays, absentDays:absent, otAmount:otAmt, otHours:otHrs, medDays:medDays, medEmpDays:medEmpDays };
-    var dedData={ quotaTotal:dedQuotaTotal, quotas:eDed };
-    return Object.assign({e:e, att:att, dedData:dedData}, prCalc(e,factor,att,dedData));
+    var att={ hasData:eAtt.length>0, workedDays:worked, expectedDays:pDays, absentDays:absent, otHours:otHrs, medDays:medDays, medEmpDays:medEmpDays };
+    var row=calcByEmp[e.id]||{};
+    var r={
+      b:row.b||0, css:row.css||0, se:row.se||0, isr:row.isr||0, ded:row.ded||0,
+      dedQuota:row.ded_quota||0, net:row.net||0, pcss:row.pcss||0, pse:row.pse||0,
+      dec:row.dec||0, decCSSP:row.dec_cssp||0, tot:row.tot||0,
+      attDed:row.att_ded||0, otAmt:row.ot_amt||0
+    };
+    return Object.assign({e:e, att:att}, r);
   });
 
   var sums=_prRows.reduce(function(s,r){ return {b:s.b+r.b,ded:s.ded+r.ded,dedQuota:s.dedQuota+r.dedQuota,net:s.net+r.net,pcss:s.pcss+r.pcss,pse:s.pse+r.pse,dec:s.dec+r.dec,tot:s.tot+r.tot}; },{b:0,ded:0,dedQuota:0,net:0,pcss:0,pse:0,dec:0,tot:0});
@@ -3080,7 +3080,22 @@ async function printPayslip(empId) {
   var factor=period==='mensual'?1:0.5;
   // Use cached attendance data from loadPayroll if available
   var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
-  var pr=cachedRow?{b:cachedRow.b,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot}:prCalc(e,factor);
+  var pr;
+  if(cachedRow){
+    pr={b:cachedRow.b,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
+  } else {
+    // No cached row (payroll "Calcular" was never run for this period) --
+    // prCalc's degraded no-attendance/no-dedQuota recompute is retired
+    // (design R8's "no payslip endpoint" note): the payslip now always
+    // calls the same authoritative server preview the main table uses,
+    // never a locally-approximated figure.
+    var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
+    var slipYr=parseInt(yr)||TD.getFullYear();
+    var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
+    var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
+    if(!row){ toast('No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
+    pr={b:row.b||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
+  }
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
   // OT: filter to selected month only (was using full history before — bug fix)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
@@ -3122,16 +3137,29 @@ async function savePayrollRun() {
   var mo=parseInt(document.getElementById('pr-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('pr-year').value)||TD.getFullYear(), period=document.getElementById('pr-period').value||'mensual';
   if(!_prRows.length){ toast('Calculá primero la planilla','warning'); return; }
   var sums=_prRows.reduce(function(s,r){ return {b:s.b+r.b,isr:s.isr+r.isr,net:s.net+r.net,tot:s.tot+r.tot}; },{b:0,isr:0,net:0,tot:0});
+  // The server ignores every client-computed total and the per-employee
+  // ledger write (design R4e) -- it recomputes the same server-side Calculate
+  // and, in the same transaction, upserts one employee_pay_records row per
+  // active employee (origin='run').
   await Supa.ins('payroll_history',{period:period,month:mo,year:yr,month_name:MONTHS[mo-1],employee_count:_prRows.length,total_bruto:sums.b,total_isr:sums.isr,total_neto:sums.net,total_empresa:sums.tot});
-  toast('Guardado en historial'); loadPayrollHistory();
+  toast('Guardado en historial — también se registraron los períodos de cada empleado en el historial de planilla'); loadPayrollHistory();
 }
 async function loadPayrollHistory() {
   var hist=await Supa.sel('payroll_history');
   var tb=document.getElementById('pr-hist-tbody'); if(!tb) return;
-  var h=Array.isArray(hist)?hist.sort(function(a,b){ return b.year-a.year||b.month-a.month; }):[];
+  // The server now orders year DESC, month DESC (design R7) -- the
+  // client-side .sort() this used to need is gone.
+  var h=Array.isArray(hist)?hist:[];
   tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+r.period+'</span></td><td><strong>'+r.month_name+' '+r.year+'</strong></td><td>'+r.employee_count+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+(r.created_at||'').split('T')[0]+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
 }
-async function delPRRun(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('payroll_history',id); loadPayrollHistory(); }
+async function delPRRun(id) {
+  // design R5: deleting the run row does NOT delete the per-employee
+  // employee_pay_records rows it wrote -- they survive and keep feeding
+  // liquidación's acumulados. The confirm text must disclose that; before
+  // this phase, deleting the run deleted everything it produced.
+  if(!confirm('¿Eliminar este registro de planilla? Los períodos individuales de cada empleado en el historial de planilla NO se eliminarán.')) return;
+  await Supa.del('payroll_history',id); loadPayrollHistory();
+}
 
 // ════════════════ PAY RECORDS (per-employee monthly) ══════════════════════════
 async function loadPayRecords() {
@@ -3254,29 +3282,39 @@ async function onPREmpChange() {
   var emps=await Supa.sel('employees',{id:empId}), emp=Array.isArray(emps)?emps[0]:null;
   var el=document.getElementById('pr-cedula'); if(el) el.value=emp?(emp.cedula||''):'';
 }
-function exportPayRecordsCSV() {
-  Supa.sel('employee_pay_records').then(function(recs){
-    if(!Array.isArray(recs)||!recs.length){toast('Sin datos','warning');return;}
-    var hdr=['Nombre del Empleado','Cédula del Empleado','Número de Planilla','Período','Centro de Costo','Salario Bruto','Horas Extras','Comisiones','Bonos','Vacaciones Pagadas','Otros Ingresos','CSS Empleado','SE Empleado','ISR','Otras Deducciones','Salario Neto','Notas'];
-    var MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
-    var rows=recs.map(function(r){
-      var per=r.periodo||(MONTHS[(r.period_month||1)-1]+' '+r.period_year);
-      return [
-        r.employee_name||'', r.cedula||'',
-        r.numero_planilla||'', per,
-        r.centro_costo||'',
-        r.gross_salary||0, r.overtime_amount||0,
-        r.commissions||0, r.bonuses||0,
-        r.vacations_paid||0, r.other_income||0,
-        r.css_employee||0, r.se_employee||0,
-        r.isr||0, r.other_deductions||0,
-        r.net_salary||0, r.notes||''
-      ];
-    });
-    var csv=[hdr].concat(rows).map(function(r){ return r.map(function(x){ return '"'+(x!=null?x:'')+'"'; }).join(','); }).join('\n');
-    downCSV(csv,'historial_planilla_payday.csv');
-    toast('Exportado en formato PayDay');
+async function exportPayRecordsCSV() {
+  // A4's _limit default (200) would silently truncate a bare Supa.sel on a
+  // company with >200 pay records -- page with _limit=1000&_offset= until
+  // a short page returns (design R10, task 8.5), rather than a one-shot
+  // _limit=1000.
+  var recs=[], offset=0, pageSize=1000;
+  while(true){
+    var page=await Supa.sel('employee_pay_records',{_limit:pageSize,_offset:offset});
+    if(!Array.isArray(page)||!page.length) break;
+    recs=recs.concat(page);
+    if(page.length<pageSize) break;
+    offset+=pageSize;
+  }
+  if(!recs.length){toast('Sin datos','warning');return;}
+  var hdr=['Nombre del Empleado','Cédula del Empleado','Número de Planilla','Período','Centro de Costo','Salario Bruto','Horas Extras','Comisiones','Bonos','Vacaciones Pagadas','Otros Ingresos','CSS Empleado','SE Empleado','ISR','Otras Deducciones','Salario Neto','Notas'];
+  var MONTHS=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  var rows=recs.map(function(r){
+    var per=r.periodo||(MONTHS[(r.period_month||1)-1]+' '+r.period_year);
+    return [
+      r.employee_name||'', r.cedula||'',
+      r.numero_planilla||'', per,
+      r.centro_costo||'',
+      r.gross_salary||0, r.overtime_amount||0,
+      r.commissions||0, r.bonuses||0,
+      r.vacations_paid||0, r.other_income||0,
+      r.css_employee||0, r.se_employee||0,
+      r.isr||0, r.other_deductions||0,
+      r.net_salary||0, r.notes||''
+    ];
   });
+  var csv=[hdr].concat(rows).map(function(r){ return r.map(function(x){ return '"'+(x!=null?x:'')+'"'; }).join(','); }).join('\n');
+  downCSV(csv,'historial_planilla_payday.csv');
+  toast('Exportado en formato PayDay');
 }
 
 function importPayRecordsCSV(input) {
@@ -3288,7 +3326,8 @@ function importPayRecordsCSV(input) {
     var headers=lines[0].split(',').map(function(h){return h.replace(/"/g,'').trim();});
     var idx=function(n){return headers.indexOf(n);};
     var MONTHS_MAP={enero:1,febrero:2,marzo:3,abril:4,mayo:5,junio:6,julio:7,agosto:8,septiembre:9,octubre:10,noviembre:11,diciembre:12};
-    var records=[];
+    var records=[], skipped=[];
+    var skipBoxInit=document.getElementById('pr-import-skipped'); if(skipBoxInit) skipBoxInit.style.display='none';
     for(var i=1;i<lines.length;i++){
       var vals=lines[i].match(/(".*?"|[^,]+)(?=,|$)/g)||[];
       vals=vals.map(function(v){return v.replace(/^"|"$/g,'').trim();});
@@ -3317,8 +3356,10 @@ function importPayRecordsCSV(input) {
         var parts=periodo.trim().split(/\s+/);
         if(parts.length===2){ var mKey=parts[0].toLowerCase(); mo=MONTHS_MAP[mKey]||mo; yr=parseInt(parts[1])||yr; }
       }
-      if(!empName||!yr) continue;
+      if(!empName){ skipped.push({row:i+1,reason:'Sin nombre de empleado'}); continue; }
+      if(!yr){ skipped.push({row:i+1,reason:'No se pudo resolver el año del período'}); continue; }
       records.push({
+        row:i+1,
         employee_name:empName,cedula:cedula,
         numero_planilla:numPlan,periodo:periodo,centro_costo:costo,
         period_year:yr,period_month:mo,
@@ -3331,32 +3372,41 @@ function importPayRecordsCSV(input) {
     }
     var ok=0;
     for(var j=0;j<records.length;j++){
-      var res=await Supa.ins('employee_pay_records',records[j]);
-      if(Array.isArray(res)&&res.length) ok++; else console.error('importPayRecordsCSV row failed',res);
+      var rec=records[j], rowNum=rec.row; delete rec.row;
+      var res=await Supa.ins('employee_pay_records',rec);
+      if(Array.isArray(res)&&res.length){ ok++; }
+      else {
+        var reason=(res&&res.error&&res.error.message)?res.error.message:'ver consola';
+        skipped.push({row:rowNum,reason:reason});
+        console.error('importPayRecordsCSV row failed',res);
+      }
     }
-    toast('Importados '+ok+'/'+records.length+' registros');
+    var summary='Importados '+ok+'/'+(ok+skipped.length)+' registros';
+    toast(summary,skipped.length?'warning':'success');
+    if(skipped.length){
+      var box=document.getElementById('pr-import-skipped');
+      if(box){
+        box.style.display='';
+        box.innerHTML='<strong>'+skipped.length+' fila(s) omitida(s):</strong><ul class="mb-0 small">'
+          +skipped.map(function(s){ return '<li>Fila '+s.row+': '+s.reason+'</li>'; }).join('')
+          +'</ul>';
+      }
+    }
     input.value=''; loadPayRecords();
   };
   reader.readAsText(file,'UTF-8');
 }
 
 async function getEmpPayBases(empId) {
-  var recs=await Supa.sel('employee_pay_records');
-  if(!Array.isArray(recs)) return null;
-  var empRecs=recs.filter(function(r){ return r.employee_id===empId; })
-    .sort(function(a,b){ return b.period_year-a.period_year||b.period_month-a.period_month; });
-  if(!empRecs.length) return null;
-  var last60=empRecs.slice(0,60);
-  var last6=empRecs.slice(0,6);
-  var last1=empRecs[0];
-  var acumPrima=last60.reduce(function(s,r){ return s+(r.total_earned||0); },0);
-  var acum6m=last6.reduce(function(s,r){ return s+(r.gross_salary||0)+(r.overtime_amount||0)+(r.commissions||0)+(r.bonuses||0)+(r.other_income||0); },0);
-  var sal30=last1?(last1.gross_salary||0):0;
-  var last11=empRecs.slice(0,11);
-  var acumVac=last11.reduce(function(s,r){ return s+(r.gross_salary||0)+(r.overtime_amount||0)+(r.commissions||0)+(r.bonuses||0)+(r.other_income||0); },0);
-  var last12=empRecs.slice(0,12);
-  var acumDec=last12.reduce(function(s,r){ return s+(r.total_earned||0); },0);
-  return {acumPrima:acumPrima,acum6m:acum6m,sal30:sal30,acumVac:acumVac,acumDec:acumDec,months:last60.length};
+  // Replaces the whole-table client-side fetch + reduce with the
+  // server-side GetEmployeePayBases query (design R9): one DISTINCT ON
+  // dedup pass, run-origin preferred, over five windows -- closing the
+  // A4 200-row _limit default's silent-truncation risk this used to have,
+  // and the double-count risk settled decision #1 introduced (a run row
+  // and a manual/CSV row can now legitimately share one period).
+  var bases=await Supa.goFetch('/api/employee_pay_records/bases'+Supa.gq({employee_id:empId})).catch(function(){ return null; });
+  if(!bases||bases.error) return null;
+  return {acumPrima:bases.acum_prima||0,acum6m:bases.acum_6m||0,sal30:bases.sal30||0,acumVac:bases.acum_vac||0,acumDec:bases.acum_dec||0,months:bases.months||0};
 }
 
 function exportPayrollCSV() { var rows=document.querySelectorAll('#pr-tbody tr'); var hdr=['#','Empleado','Cargo','Bruto','CSS','SE','ISR','Ded.','Neto','AP CSS','AP SE','Décimo','Costo']; var csv=[hdr].concat([].slice.call(rows).map(function(tr){ return [].slice.call(tr.querySelectorAll('td')).slice(0,13).map(function(td){ return td.textContent.trim(); }); })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'planilla.csv'); toast('Exportado 📥'); }
@@ -3568,25 +3618,30 @@ async function loadLiqEmp() {
       wrap.style.display='';
     } else { wrap.style.display='none'; }
   }
-  // Auto-fill acumulados from pay records if available
+  // Auto-fill acumulados from pay records if available. The bases endpoint
+  // always returns a bare object (R9) -- all-zero sums and months:0 when
+  // there is no history, never null -- so the truthy check alone would now
+  // always pass; months>0 is the real "has history" signal.
   var bases=await getEmpPayBases(empId);
-  if(bases){
+  if(bases&&bases.months>0){
     var acumFields={'liq-acum-prima':bases.acumPrima,'liq-acum-6m':bases.acum6m,'liq-sal30':bases.sal30,'liq-acum-vac':bases.acumVac,'liq-acum-dec':bases.acumDec};
     Object.keys(acumFields).forEach(function(id){ var el=document.getElementById(id); if(el&&acumFields[id]>0) el.value=acumFields[id].toFixed(2); });
     var section=document.getElementById('liq-acum-section'); if(section) section.classList.add('show');
   }
   calcLiq();
 }
+var _liqCalcTimer=null;
+function calcLiqDebounced() {
+  // calcLiq fires on every keystroke across 7+ form inputs; a server round
+  // trip per keypress is unacceptable, so every oninput/onchange handler
+  // calls this 350ms debounce instead of calcLiq() directly (design R10).
+  if(_liqCalcTimer) clearTimeout(_liqCalcTimer);
+  _liqCalcTimer=setTimeout(calcLiq,350);
+}
 async function calcLiq() {
   var empId=gv('liq-emp'); if(!empId) return;
   var emps=await Supa.sel('employees',{id:empId}), e=Array.isArray(emps)?emps[0]:null; if(!e) return;
   var exitDate=gv('liq-date')||TS, reason=gv('liq-reason')||'voluntaria';
-  var sal=e.salary||0;
-  var ms=new Date(exitDate)-new Date(e.start_date||exitDate), years=Math.max(0,ms/(365.25*86400000));
-  // PayDay counts complete months then rounds: (exitYear*12+exitMonth) - (startYear*12+startMonth)
-  var ed=new Date(exitDate), sd=new Date(e.start_date||exitDate);
-  var totalMonths=Math.max(0,(ed.getFullYear()*12+ed.getMonth())-(sd.getFullYear()*12+sd.getMonth()));
-  var floorYears=Math.round(totalMonths/12); // PayDay rounds to nearest year
 
   // ── Input fields ──────────────────────────────────────────────
   var salPend=parseFloat(gv('liq-sal-pend'))||0;
@@ -3599,85 +3654,68 @@ async function calcLiq() {
   var sal30Raw=parseFloat(document.getElementById('liq-sal30')?document.getElementById('liq-sal30').value:0)||0;
   var acum6m=parseFloat(document.getElementById('liq-acum-6m')?document.getElementById('liq-acum-6m').value:0)||0;
 
-  // ── 1. Salario pendiente ──────────────────────────────────────
-  var salario=salPend;
-
-  // ── 2. Preaviso ───────────────────────────────────────────────
-  var _prevMeses=years<0.5?sal/4.333:years<2?(sal/4.333)*2:years<5?sal:sal*2;
-  var preaviso=(reason==='despido_preaviso'||reason==='pension')?_prevMeses:0;
-
-  // ── 3. Vacaciones proporcionales ──────────────────────────────
-  // (acumVac + salPend) / 11  — if acumVac provided, else fallback to days × daily rate
-  var vacProp;
-  if(acumVac>0){
-    vacProp=(acumVac+salPend+otros)/11; // PayDay: "salarios en esta transacción" includes otros
-  } else {
-    var dailyRate=sal/30;
-    vacProp=vacDays*dailyRate;
-  }
-
-  // ── 4. Décimo tercer mes proporcional ─────────────────────────
-  // (acumDec + vacProp + salPend + otros) / 12  — fallback: (sal/12)*months
-  var decProp;
-  if(acumDec>0){
-    decProp=(acumDec+vacProp+salPend+otros)/12; // PayDay includes vac+sal+otros de la transacción
-  } else {
-    decProp=(sal/12)*decMonths;
-  }
-
-  // ── 5. Gasto de representación (always 0) ─────────────────────
-  // ── 6. Otros ingresos/gastos ──────────────────────────────────
-  // (already in `otros`)
-
-  // ── Parcial 1-4+6 ────────────────────────────────────────────
-  var parcial=salario+preaviso+vacProp+decProp+otros;
-
-  // ── 7. Prima de antigüedad ────────────────────────────────────
-  var primaMonths=acumPrima>0?Math.min(Math.round(years*12),60):Math.min(floorYears*12,60);
-  if(primaMonths<1) primaMonths=1;
-  var primaTotal=acumPrima>0?acumPrima:(sal*12*Math.min(floorYears,5));
-  var primaMensual=primaTotal/primaMonths;
-  var primaSemanal=primaMensual/4.3333;
-  var antigSem=primaSemanal*floorYears; // 7.4 auto
-  var primaDeduccion=reason==='sin_prev'?primaSemanal:0; // 7.6
-  var antigSemNeta=antigSem-primaDeduccion; // 7.7
-
-  // ── 8. Indemnización ─────────────────────────────────────────
-  var indem6mMensual=acum6m>0?(acum6m/6):sal;
-  var sal30=sal30Raw>0?sal30Raw:sal;
-  var indemSemanalFav=Math.max(indem6mMensual,sal30)/4.3333; // 8.4 más favorable
-  var indemWeeks=floorYears<=10?floorYears:10+(floorYears-10)*2; // 8.5 weeks
-  var indemBase=indemSemanalFav*indemWeeks; // 8.5
-  var recargoPct=reason==='indem_25'?0.25:reason==='indem_50'?0.50:0;
-  var recargo=indemBase*recargoPct; // 8.6
-  var indemnizacion=0; // 8.8
-  if(reason==='injustificada'||reason==='acuerdo'){ indemnizacion=indemBase; }
-  else if(reason==='indem_25'){ indemnizacion=indemBase+recargo; }
-  else if(reason==='indem_50'){ indemnizacion=indemBase+recargo; }
-
-  // ── Total antes de deducciones ────────────────────────────────
-  var total=parcial+antigSemNeta+indemnizacion;
-
-  // ── 9. Descuentos legales ─────────────────────────────────────
-  // 9.1 + 9.2: CSS base = salPend + vacProp + decProp + preaviso + otros
-  var cssBase=salPend+vacProp+decProp+preaviso+otros;
-  var css91=cssBase*0.0975;
-  var se92=cssBase*0.0125;
-  // 9.3 ISR pts 1-6
-  var annual=sal*13;
-  var isrAnual=annual<=11000?0:annual<=50000?(annual-11000)*0.15:5850+(annual-50000)*0.25;
-  var isrRate=annual>0?isrAnual/annual:0;
-  var isr93=cssBase*isrRate;
-  // 9.4 ISR pts 7 y 8 (Art. 701)
-  var art701Base=antigSemNeta+indemnizacion;
-  var art701Sujeta=Math.max(0,art701Base-art701Base*(floorYears/100)-5000);
-  var isr94=art701Sujeta<=11000?0:art701Sujeta<=50000?(art701Sujeta-11000)*0.15:5850+(art701Sujeta-50000)*0.25;
-  var totalLegal=css91+se92+isr93+isr94;
-
   // ── Personal deductions ───────────────────────────────────────
-  var checkedDeds=[]; document.querySelectorAll('.liq-ded-check:checked').forEach(function(cb){ checkedDeds.push({desc:cb.dataset.desc,quota:parseFloat(cb.dataset.quota)||0}); });
-  var totalDed=checkedDeds.reduce(function(s,d){ return s+d.quota; },0);
-  var netTotal=total-totalLegal-totalDed;
+  var checkedDeds=[]; document.querySelectorAll('.liq-ded-check:checked').forEach(function(cb){ checkedDeds.push({id:cb.value,desc:cb.dataset.desc,quota:parseFloat(cb.dataset.quota)||0}); });
+  var deductionIds=checkedDeds.map(function(d){ return d.id; });
+  var deductionQuotaTotal=checkedDeds.reduce(function(s,d){ return s+d.quota; },0);
+
+  // calcLiq's own byte-faithful arithmetic (hr_admin_panel.html:3580-3771,
+  // deleted here in slice 3h) now runs server-side in
+  // internal/payroll.CalculateLiquidation (slice 3c) -- this is a pure
+  // preview call, writes nothing (design R8). Every breakdown key below is
+  // named identically to this function's old local variables (design R6:
+  // "keys use the JS names verbatim"), so the render path that follows is
+  // otherwise unchanged.
+  var breakdown=await Supa.goFetch('/api/liquidation_history/calculate'+Supa.gq({
+    employee_id:empId, reason:reason, exit_date:exitDate,
+    sal_pend:salPend, otros:otros, vac_days:vacDays, dec_months:decMonths,
+    acum_vac:acumVac, acum_dec:acumDec, acum_prima:acumPrima, acum_6m:acum6m, sal30:sal30Raw,
+    deduction_quota_total:deductionQuotaTotal
+  })).catch(function(){ return null; });
+  if(!breakdown||breakdown.error){
+    toast('No se pudo calcular la liquidación'+(breakdown&&breakdown.error?': '+breakdown.error.message:''),'danger');
+    return;
+  }
+
+  var years=parseFloat(breakdown.years)||0;
+  var floorYears=parseFloat(breakdown.floorYears)||0;
+  var salario=parseFloat(breakdown.salario)||0;
+  var preaviso=parseFloat(breakdown.preaviso)||0;
+  var vacProp=parseFloat(breakdown.vacProp)||0;
+  var decProp=parseFloat(breakdown.decProp)||0;
+  var parcial=parseFloat(breakdown.parcial)||0;
+  var primaMonths=parseFloat(breakdown.primaMonths)||0;
+  var primaTotal=parseFloat(breakdown.primaTotal)||0;
+  var primaMensual=parseFloat(breakdown.primaMensual)||0;
+  var primaSemanal=parseFloat(breakdown.primaSemanal)||0;
+  var antigSem=parseFloat(breakdown.antigSem)||0;
+  var primaDeduccion=parseFloat(breakdown.primaDeduccion)||0;
+  var antigSemNeta=parseFloat(breakdown.antigSemNeta)||0;
+  var indem6mMensual=parseFloat(breakdown.indem6mMensual)||0;
+  var sal30=parseFloat(breakdown.sal30)||0;
+  var indemSemanalFav=parseFloat(breakdown.indemSemanalFav)||0;
+  var indemWeeks=parseFloat(breakdown.indemWeeks)||0;
+  var indemBase=parseFloat(breakdown.indemBase)||0;
+  var recargoPct=parseFloat(breakdown.recargoPct)||0;
+  var recargo=parseFloat(breakdown.recargo)||0;
+  var indemnizacion=parseFloat(breakdown.indemnizacion)||0;
+  var total=parseFloat(breakdown.total)||0;
+  var cssBase=parseFloat(breakdown.cssBase)||0;
+  var css91=parseFloat(breakdown.css91)||0;
+  var se92=parseFloat(breakdown.se92)||0;
+  var isrRate=parseFloat(breakdown.isrRate)||0;
+  var isr93=parseFloat(breakdown.isr93)||0;
+  var art701Sujeta=parseFloat(breakdown.art701Sujeta)||0;
+  var isr94=parseFloat(breakdown.isr94)||0;
+  var totalLegal=parseFloat(breakdown.totalLegal)||0;
+  var totalDed=parseFloat(breakdown.totalDed)||0;
+  var netTotal=parseFloat(breakdown.netTotal)||0;
+
+  // Cached so saveLiqHistory() can resend the exact inputs this breakdown
+  // was computed from -- saveLiqHistory's own POST body structurally needs
+  // all of them (the server recomputes server-side; it cannot be handed
+  // only the 5 fields the old Supabase-era call site sent).
+  A._liqCalc={empId:empId,reason:reason,exitDate:exitDate,salPend:salPend,otros:otros,vacDays:vacDays,decMonths:decMonths,acumVac:acumVac,acumDec:acumDec,acumPrima:acumPrima,acum6m:acum6m,sal30Raw:sal30Raw,deductionIds:deductionIds,deductionQuotaTotal:deductionQuotaTotal};
 
   // ── Show result card ──────────────────────────────────────────
   var card=document.getElementById('liq-result-card'), ph=document.getElementById('liq-placeholder');
@@ -3753,7 +3791,7 @@ async function calcLiq() {
       +'<div class="col-6 text-right"><h4 class="mb-0"><strong>'+fmtL(netTotal)+'</strong></h4></div>'
     +'</div></div></div>'
     // Save + legal
-    +'<div class="text-right mt-2"><button class="btn btn-info btn-sm mr-2" onclick="saveLiqHistory(\''+empId+'\',\''+e.first_name+' '+e.last_name+'\',\''+reason+'\',\''+exitDate+'\','+netTotal+')"><i class="fas fa-save mr-1"></i>Guardar</button></div>'
+    +'<div class="text-right mt-2"><button class="btn btn-info btn-sm mr-2" onclick="saveLiqHistory()"><i class="fas fa-save mr-1"></i>Guardar</button></div>'
     +'<div class="mt-2 alert alert-warning small"><i class="fas fa-gavel mr-1"></i>Cálculo referencial según Arts. 225-230 C. Trabajo · Ley 51/2005 CSS · Código Fiscal Panamá.</div>';
 
   document.getElementById('liq-print-btn').onclick=function(){
@@ -3769,7 +3807,21 @@ async function calcLiq() {
     });
   };
 }
-async function saveLiqHistory(empId,name,reason,date,total) { await Supa.ins('liquidation_history',{employee_id:empId,employee_name:name,reason:reason,exit_date:date,total_amount:total}); toast('✅ Guardado en historial'); loadLiqHistory(); }
+async function saveLiqHistory() {
+  // The server recomputes server-side from these raw inputs and persists
+  // the full breakdown+inputs JSONB audit payload (design R6); the client
+  // no longer sends a pre-computed total_amount at all.
+  var c=A._liqCalc;
+  if(!c){ toast('Calculá primero','warning'); return; }
+  var res=await Supa.ins('liquidation_history',{
+    employee_id:c.empId, reason:c.reason, exit_date:c.exitDate,
+    sal_pend:c.salPend, otros:c.otros, vac_days:c.vacDays, dec_months:c.decMonths,
+    acum_vac:c.acumVac, acum_dec:c.acumDec, acum_prima:c.acumPrima, acum_6m:c.acum6m, sal30:c.sal30Raw,
+    deduction_ids:c.deductionIds, deduction_quota_total:c.deductionQuotaTotal
+  });
+  if(!Array.isArray(res)){ toast('Error al guardar: '+(res&&res.error?res.error.message:'ver consola'),'danger'); console.error('saveLiqHistory failed',res); return; }
+  toast('✅ Guardado en historial'); loadLiqHistory();
+}
 async function loadLiqHistory() {
   var hist=await Supa.sel('liquidation_history'); var tb=document.getElementById('liq-hist-tbody'); if(!tb) return;
   var h=Array.isArray(hist)?hist:[];

@@ -78,6 +78,33 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/deductions/{id}", a.UpdateDeduction)
 	protected.HandleFunc("DELETE /api/deductions/{id}", a.DeleteDeduction) // soft delete: status='cancelled' (Q3)
 
+	protected.HandleFunc("GET /api/employee_pay_records", a.ListEmployeePayRecords)
+	protected.HandleFunc("POST /api/employee_pay_records", a.CreateEmployeePayRecord)  // employee_id MAY be null (CSV import)
+	protected.HandleFunc("GET /api/employee_pay_records/bases", a.GetEmployeePayBases) // literal > /{id} (Q5c)
+	protected.HandleFunc("GET /api/employee_pay_records/{id}", a.GetEmployeePayRecord)
+	protected.HandleFunc("PATCH /api/employee_pay_records/{id}", a.UpdateEmployeePayRecord)
+	protected.HandleFunc("DELETE /api/employee_pay_records/{id}", a.DeleteEmployeePayRecord) // hard delete
+
+	// payroll_history: the committing run (slice 3f). No PATCH -- immutable
+	// historical record (design R7). No ledger cascade on delete (design
+	// R5). Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
+	// (Q5c).
+	protected.HandleFunc("GET /api/payroll_history", a.ListPayrollHistory)
+	protected.HandleFunc("GET /api/payroll_history/calculate", a.CalculatePayroll) // preview, writes nothing
+	protected.HandleFunc("POST /api/payroll_history", a.CreatePayrollRun)          // tx: 1 aggregate + N ledger rows
+	protected.HandleFunc("GET /api/payroll_history/{id}", a.GetPayrollHistory)
+	protected.HandleFunc("DELETE /api/payroll_history/{id}", a.DeletePayrollHistory) // hard; no ledger cascade
+
+	// liquidation_history: no PATCH -- immutable historical record (design
+	// R7). No cascade on delete -- no FK to employee_pay_records exists at
+	// all. Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
+	// (Q5c).
+	protected.HandleFunc("GET /api/liquidation_history", a.ListLiquidationHistory)
+	protected.HandleFunc("GET /api/liquidation_history/calculate", a.CalculateLiquidation) // preview, writes nothing
+	protected.HandleFunc("POST /api/liquidation_history", a.CreateLiquidation)             // recomputes server-side
+	protected.HandleFunc("GET /api/liquidation_history/{id}", a.GetLiquidationHistory)
+	protected.HandleFunc("DELETE /api/liquidation_history/{id}", a.DeleteLiquidationHistory) // hard
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/

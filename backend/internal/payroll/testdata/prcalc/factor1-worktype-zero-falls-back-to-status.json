@@ -1,0 +1,34 @@
+{
+  "name": "factor1-worktype-zero-falls-back-to-status",
+  "note": "Hazard 5 anchor (ported to SQL in slice 3e, hr_admin_panel.html:2957: l.work_type?l.work_type===28:(l.status==='absent')). This fixture pins prCalc's output for the already-correctly-reduced attData that 3e's SQL layer must independently produce when a raw attendance row has work_type=0 (falsy in JS) and status='absent' — i.e. one day counted via the legacy-status fallback, not via a work_type===28 match. prCalc itself never sees work_type; this fixture is the downstream half of the hazard-5 cross-check, not a test of the SQL reduction itself.",
+  "js_source_sha": "1cb8d95744f4be04ea60c3349e8e257342999c7e73394db921aaa7cf69af0a87",
+  "input": {
+    "e": {
+      "salary": 900
+    },
+    "factor": 1,
+    "attData": {
+      "hasData": true,
+      "absentDays": 1,
+      "otAmount": 0
+    },
+    "dedData": null
+  },
+  "expected": {
+    "b": 870,
+    "css": 84.825,
+    "se": 10.875,
+    "isr": 3.875,
+    "ded": 99.575,
+    "dedQuota": 0,
+    "net": 770.425,
+    "pcss": 106.575,
+    "pse": 13.049999999999999,
+    "dec": 72.5,
+    "decCSSP": 5.25625,
+    "tot": 1067.38125,
+    "attDed": 30,
+    "otAmt": 0
+  },
+  "expected_deviation": {}
+}
