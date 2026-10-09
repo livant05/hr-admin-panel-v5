@@ -418,3 +418,46 @@ func (a *API) DeleteEmployeePayRecord(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// employeePayBasesResponse mirrors GetEmployeePayBasesRow's column order
+// exactly (acum_prima, acum_6m, sal30, acum_vac, acum_dec, months) for the
+// same direct struct-to-struct conversion every other response type in this
+// file uses.
+type employeePayBasesResponse struct {
+	AcumPrima pgtype.Numeric `json:"acum_prima"`
+	Acum6m    pgtype.Numeric `json:"acum_6m"`
+	Sal30     pgtype.Numeric `json:"sal30"`
+	AcumVac   pgtype.Numeric `json:"acum_vac"`
+	AcumDec   pgtype.Numeric `json:"acum_dec"`
+	Months    int64          `json:"months"`
+}
+
+// GET /api/employee_pay_records/bases?employee_id= -- port of
+// getEmpPayBases (hr_admin_panel.html:3343-3360), server-side (design R9,
+// task 5.3). The underlying query is a plain aggregate with no GROUP BY, so
+// it always returns exactly one row: an employee with no history gets
+// all-zero sums and months:0 -- a bare object, never null and never 404
+// (task 5.1's TestPayBases_EmptyHistoryReturnsZerosWithMonthsZero).
+func (a *API) GetEmployeePayBases(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	employeeID, err := stringToUUID(r.URL.Query().Get("employee_id"))
+	if err != nil {
+		writeFieldErr(w, map[string]string{"employee_id": "required"})
+		return
+	}
+
+	row, err := a.Queries.GetEmployeePayBases(r.Context(), db.GetEmployeePayBasesParams{
+		CompanyID:  companyID,
+		EmployeeID: employeeID,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "get employee pay bases")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, employeePayBasesResponse(row))
+}

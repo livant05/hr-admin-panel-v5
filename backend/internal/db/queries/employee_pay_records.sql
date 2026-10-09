@@ -118,3 +118,48 @@ RETURNING id, company_id, employee_id, employee_name, cedula, numero_planilla, c
 -- existing behavior; no soft-delete semantics apply to this table).
 DELETE FROM employee_pay_records
 WHERE id = $2 AND company_id = $1;
+
+-- name: GetEmployeePayBases :one
+-- Port of getEmpPayBases (hr_admin_panel.html:3343-3360), server-side: five
+-- windows over one ordered set, replacing a whole-table client-side fetch
+-- that A4's 200-row _limit would silently truncate.
+-- design R9 / settled decision (obs #841): de-duplicated to ONE row per
+-- period, run-origin preferred, because the live run (slice 3f) makes two
+-- rows for one period a normal outcome and the JS "last N records" window
+-- would double-count them.
+-- COALESCE per column: the JS sums with `||0`, and these columns are
+-- DEFAULT 0 but still nullable.
+-- acum_vac / acum_6m sum FIVE income columns and deliberately EXCLUDE
+-- vacations_paid, exactly as the JS does (3353, 3356) -- a legitimate-looking
+-- "bug" that must be ported, not corrected (user-approved, obs #841).
+-- Always returns exactly one row (plain aggregates, no GROUP BY), even when
+-- `ranked` is empty -- an employee with no history gets all-zero sums and
+-- months=0, never a missing row (the handler's "bare object" contract).
+WITH per_period AS (
+  SELECT DISTINCT ON (period_year, period_month)
+         period_year, period_month,
+         COALESCE(gross_salary, 0)    AS gross_salary,
+         COALESCE(overtime_amount, 0) AS overtime_amount,
+         COALESCE(commissions, 0)     AS commissions,
+         COALESCE(bonuses, 0)         AS bonuses,
+         COALESCE(other_income, 0)    AS other_income,
+         COALESCE(total_earned, 0)    AS total_earned
+  FROM employee_pay_records
+  WHERE company_id = $1 AND employee_id = $2
+  ORDER BY period_year DESC, period_month DESC,
+           (origin = 'run') DESC,     -- a run row wins a same-period tie
+           created_at DESC
+), ranked AS (
+  SELECT row_number() OVER (ORDER BY period_year DESC, period_month DESC) AS rn, *
+  FROM per_period
+)
+SELECT
+  COALESCE(SUM(total_earned) FILTER (WHERE rn <= 60), 0)::numeric AS acum_prima,
+  COALESCE(SUM(gross_salary + overtime_amount + commissions + bonuses + other_income)
+           FILTER (WHERE rn <= 6), 0)::numeric                    AS acum_6m,
+  COALESCE(MAX(gross_salary) FILTER (WHERE rn = 1), 0)::numeric   AS sal30,
+  COALESCE(SUM(gross_salary + overtime_amount + commissions + bonuses + other_income)
+           FILTER (WHERE rn <= 11), 0)::numeric                   AS acum_vac,
+  COALESCE(SUM(total_earned) FILTER (WHERE rn <= 12), 0)::numeric AS acum_dec,
+  COUNT(*) FILTER (WHERE rn <= 60)                                AS months
+FROM ranked;

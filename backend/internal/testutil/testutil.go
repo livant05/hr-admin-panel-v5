@@ -237,12 +237,14 @@ type EmployeeFixture struct {
 }
 
 // employeeOptions holds Employee's optional fields. Unset fields default to
-// a generated unique name, no department, and status "active".
+// a generated unique name, no department, status "active", and salary 0
+// (matching the employees.salary column's own DEFAULT 0).
 type employeeOptions struct {
 	firstName  string
 	lastName   string
 	department string
 	status     string
+	salary     float64
 }
 
 // EmployeeOption customizes a fixture created by Employee.
@@ -268,6 +270,15 @@ func EmployeeStatus(status string) EmployeeOption {
 	return func(o *employeeOptions) { o.status = status }
 }
 
+// EmployeeSalary overrides the default 0 salary, needed by any test that
+// exercises payroll.Calculate against a real employee row (slice 3e's
+// payroll preview tests -- a salary=0 employee makes attDed = (0/30)*n = 0
+// regardless of absent days, which would make the hazard-5 assertions
+// vacuously true).
+func EmployeeSalary(salary float64) EmployeeOption {
+	return func(o *employeeOptions) { o.salary = salary }
+}
+
 // Employee inserts a minimal employee row directly via SQL (bypassing the
 // HTTP API, matching Phase 1's own seedEmployee precedent) for the given
 // tenant. No separate cleanup is registered — it cascades away with the
@@ -286,10 +297,10 @@ func Employee(t *testing.T, pool *pgxpool.Pool, tenant Tenant, opts ...EmployeeO
 
 	var id string
 	err := pool.QueryRow(context.Background(),
-		`INSERT INTO employees (company_id, first_name, last_name, department, status)
-		 VALUES ($1, $2, $3, NULLIF($4, ''), $5)
+		`INSERT INTO employees (company_id, first_name, last_name, department, status, salary)
+		 VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6)
 		 RETURNING id`,
-		tenant.CompanyID, o.firstName, o.lastName, o.department, o.status,
+		tenant.CompanyID, o.firstName, o.lastName, o.department, o.status, o.salary,
 	).Scan(&id)
 	if err != nil {
 		t.Fatalf("insert test employee: %v", err)

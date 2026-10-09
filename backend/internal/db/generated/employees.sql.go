@@ -257,6 +257,45 @@ func (q *Queries) GetEmployee(ctx context.Context, arg GetEmployeeParams) (Emplo
 	return i, err
 }
 
+const getEmployeeForLiquidation = `-- name: GetEmployeeForLiquidation :one
+SELECT id, first_name, last_name, cedula, salary, start_date
+FROM employees
+WHERE id = $2 AND company_id = $1
+`
+
+type GetEmployeeForLiquidationParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type GetEmployeeForLiquidationRow struct {
+	ID        pgtype.UUID    `json:"id"`
+	FirstName string         `json:"first_name"`
+	LastName  string         `json:"last_name"`
+	Cedula    pgtype.Text    `json:"cedula"`
+	Salary    pgtype.Numeric `json:"salary"`
+	StartDate pgtype.Date    `json:"start_date"`
+}
+
+// The one narrow read the liquidación endpoint (slice 3g) needs --
+// GetEmployee's 33-column shape would be wasteful to reuse for a 5-field
+// lookup. Authored here (task 5.7) since this slice already touches the
+// employees query surface; A1 rule 6 applies at the liquidación write's call
+// site, not here -- this is a plain tenant-scoped read.
+func (q *Queries) GetEmployeeForLiquidation(ctx context.Context, arg GetEmployeeForLiquidationParams) (GetEmployeeForLiquidationRow, error) {
+	row := q.db.QueryRow(ctx, getEmployeeForLiquidation, arg.CompanyID, arg.ID)
+	var i GetEmployeeForLiquidationRow
+	err := row.Scan(
+		&i.ID,
+		&i.FirstName,
+		&i.LastName,
+		&i.Cedula,
+		&i.Salary,
+		&i.StartDate,
+	)
+	return i, err
+}
+
 const listEmployees = `-- name: ListEmployees :many
 SELECT id, company_id, first_name, last_name, cedula, ss_number, dv, birth_date, age, sex,
   marital_status, blood_type, nationality, address, phone, email,
