@@ -1,8 +1,11 @@
 package handlers_test
 
 import (
+	"context"
 	"net/http"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
@@ -506,4 +509,100 @@ func TestEmployeePayRecords_DeleteHardDeletes(t *testing.T) {
 			t.Fatalf("expected 404 for a second delete on an already-deleted row, got %d", rec.Code)
 		}
 	})
+}
+
+// employeePayBasesRow decodes GET /api/employee_pay_records/bases' bare
+// object response (A3 single resource).
+type employeePayBasesRow struct {
+	AcumPrima float64 `json:"acum_prima"`
+	Acum6m    float64 `json:"acum_6m"`
+	Sal30     float64 `json:"sal30"`
+	AcumVac   float64 `json:"acum_vac"`
+	AcumDec   float64 `json:"acum_dec"`
+	Months    int64   `json:"months"`
+}
+
+// seedPayRecordRaw inserts an employee_pay_records row directly via SQL,
+// bypassing the HTTP API (which rejects a client-supplied `origin`, design
+// R4a) -- needed to construct the manual+run tied-period fixture
+// TestPayBases_DeduplicatesByPeriod requires.
+func seedPayRecordRaw(t *testing.T, pool *pgxpool.Pool, companyID, employeeID string, year, month int, origin string, totalEarned, grossSalary float64) {
+	t.Helper()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO employee_pay_records (company_id, employee_id, period_year, period_month, gross_salary, total_earned, origin)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		companyID, employeeID, year, month, grossSalary, totalEarned, origin,
+	)
+	if err != nil {
+		t.Fatalf("seed pay record (origin=%s): %v", origin, err)
+	}
+}
+
+// TestPayBases_DeduplicatesByPeriod pins the user-approved settled decision
+// (obs #841 / design R9): a manual row and a run row for the SAME
+// employee+period must be de-duplicated to exactly one period, with the
+// run-origin row's values winning the tie -- never summed, never
+// double-counted.
+func TestPayBases_DeduplicatesByPeriod(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	c := testutil.Company(t, pool, "PayBasesDedupCo")
+	tok := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeName("Ana", "Diaz"))
+
+	seedPayRecordRaw(t, pool, c.CompanyID, emp.ID, 2025, 6, "manual", 1000, 900)
+	seedPayRecordRaw(t, pool, c.CompanyID, emp.ID, 2025, 6, "run", 1200, 1100)
+
+	rec := testutil.Do(t, h, http.MethodGet, "/api/employee_pay_records/bases?employee_id="+emp.ID, tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	bases := testutil.DecodeRow[employeePayBasesRow](t, rec)
+
+	if bases.Months != 1 {
+		t.Fatalf("expected the tied period to be counted exactly once, got months=%d", bases.Months)
+	}
+	if bases.AcumPrima != 1200 {
+		t.Fatalf("expected acum_prima to use the run-origin row's total_earned (1200), got %v -- it must not sum both rows (2200) or prefer manual (1000)", bases.AcumPrima)
+	}
+	if bases.AcumDec != 1200 {
+		t.Fatalf("expected acum_dec to use the run-origin row's total_earned (1200), got %v", bases.AcumDec)
+	}
+	if bases.Sal30 != 1100 {
+		t.Fatalf("expected sal30 to use the run-origin row's gross_salary (1100), got %v", bases.Sal30)
+	}
+	if bases.AcumVac != 1100 {
+		t.Fatalf("expected acum_vac to equal the run row's gross_salary alone (no other income columns set), got %v", bases.AcumVac)
+	}
+	if bases.Acum6m != 1100 {
+		t.Fatalf("expected acum_6m to equal the run row's gross_salary alone, got %v", bases.Acum6m)
+	}
+}
+
+// TestPayBases_EmptyHistoryReturnsZerosWithMonthsZero pins the spec's "bare
+// object, never null, never 404" contract for an employee with no
+// employee_pay_records history at all.
+func TestPayBases_EmptyHistoryReturnsZerosWithMonthsZero(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	c := testutil.Company(t, pool, "PayBasesEmptyCo")
+	tok := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeName("No", "History"))
+
+	rec := testutil.Do(t, h, http.MethodGet, "/api/employee_pay_records/bases?employee_id="+emp.ID, tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 (a bare zeroed object, never 404), got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if body := rec.Body.String(); body == "null" || body == "null\n" {
+		t.Fatalf("expected a zeroed object, got literal null")
+	}
+	bases := testutil.DecodeRow[employeePayBasesRow](t, rec)
+	if bases.Months != 0 {
+		t.Fatalf("expected months=0 for an employee with no history, got %d", bases.Months)
+	}
+	if bases.AcumPrima != 0 || bases.AcumDec != 0 || bases.AcumVac != 0 || bases.Acum6m != 0 || bases.Sal30 != 0 {
+		t.Fatalf("expected all-zero sums for an employee with no history, got %+v", bases)
+	}
 }

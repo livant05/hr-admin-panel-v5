@@ -155,6 +155,28 @@ type Querier interface {
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
+	// The one narrow read the liquidación endpoint (slice 3g) needs --
+	// GetEmployee's 33-column shape would be wasteful to reuse for a 5-field
+	// lookup. Authored here (task 5.7) since this slice already touches the
+	// employees query surface; A1 rule 6 applies at the liquidación write's call
+	// site, not here -- this is a plain tenant-scoped read.
+	GetEmployeeForLiquidation(ctx context.Context, arg GetEmployeeForLiquidationParams) (GetEmployeeForLiquidationRow, error)
+	// Port of getEmpPayBases (hr_admin_panel.html:3343-3360), server-side: five
+	// windows over one ordered set, replacing a whole-table client-side fetch
+	// that A4's 200-row _limit would silently truncate.
+	// design R9 / settled decision (obs #841): de-duplicated to ONE row per
+	// period, run-origin preferred, because the live run (slice 3f) makes two
+	// rows for one period a normal outcome and the JS "last N records" window
+	// would double-count them.
+	// COALESCE per column: the JS sums with `||0`, and these columns are
+	// DEFAULT 0 but still nullable.
+	// acum_vac / acum_6m sum FIVE income columns and deliberately EXCLUDE
+	// vacations_paid, exactly as the JS does (3353, 3356) -- a legitimate-looking
+	// "bug" that must be ported, not corrected (user-approved, obs #841).
+	// Always returns exactly one row (plain aggregates, no GROUP BY), even when
+	// `ranked` is empty -- an employee with no history gets all-zero sums and
+	// months=0, never a missing row (the handler's "bare object" contract).
+	GetEmployeePayBases(ctx context.Context, arg GetEmployeePayBasesParams) (GetEmployeePayBasesRow, error)
 	GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRecordParams) (GetEmployeePayRecordRow, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
@@ -178,6 +200,21 @@ type Querier interface {
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
 	ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error)
+	// One row per active employee with the three aggregates prCalc needs
+	// (design R4d). loadPayroll fetches four whole tables and reduces
+	// client-side; this is one statement.
+	// has_attendance mirrors attData.hasData (ANY row in the period, not just
+	// absences -- loadPayroll:2963 `hasData: eAtt.length>0`).
+	// absent_days reproduces loadPayroll:2957 EXACTLY, including HAZARD 5:
+	// `l.work_type ? l.work_type===28 : (l.status==='absent')` treats
+	// work_type=0 as FALSY, so 0 must fall back to the legacy status check. A
+	// plain COALESCE(work_type, ...) port would handle NULL but silently drop
+	// those rows.
+	// Deductions carry NO date filter, matching
+	// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941).
+	// No LIMIT/OFFSET, deliberately departing from the P2.1 rule-7 pagination
+	// convention -- a partial payroll run is far worse than a slow one.
+	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)

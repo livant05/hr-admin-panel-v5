@@ -79,10 +79,17 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("DELETE /api/deductions/{id}", a.DeleteDeduction) // soft delete: status='cancelled' (Q3)
 
 	protected.HandleFunc("GET /api/employee_pay_records", a.ListEmployeePayRecords)
-	protected.HandleFunc("POST /api/employee_pay_records", a.CreateEmployeePayRecord) // employee_id MAY be null (CSV import)
+	protected.HandleFunc("POST /api/employee_pay_records", a.CreateEmployeePayRecord)  // employee_id MAY be null (CSV import)
+	protected.HandleFunc("GET /api/employee_pay_records/bases", a.GetEmployeePayBases) // literal > /{id} (Q5c)
 	protected.HandleFunc("GET /api/employee_pay_records/{id}", a.GetEmployeePayRecord)
 	protected.HandleFunc("PATCH /api/employee_pay_records/{id}", a.UpdateEmployeePayRecord)
 	protected.HandleFunc("DELETE /api/employee_pay_records/{id}", a.DeleteEmployeePayRecord) // hard delete
+
+	// payroll_history: only the preview endpoint exists this slice (3e).
+	// List/Get/Create(commit)/Delete land in 3f; the literal "/calculate"
+	// path is registered now so the ordering convention (literal > /{id},
+	// Q5c) is established before /{id} exists.
+	protected.HandleFunc("GET /api/payroll_history/calculate", a.CalculatePayroll) // preview, writes nothing
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/

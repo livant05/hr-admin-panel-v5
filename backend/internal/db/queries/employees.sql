@@ -80,3 +80,13 @@ RETURNING id, company_id, first_name, last_name, cedula, ss_number, dv, birth_da
 -- FK error. No handler ever issues DELETE FROM employees.
 UPDATE employees SET status = 'inactive', updated_at = NOW()
 WHERE id = $2 AND company_id = $1 AND status <> 'inactive';
+
+-- name: GetEmployeeForLiquidation :one
+-- The one narrow read the liquidación endpoint (slice 3g) needs --
+-- GetEmployee's 33-column shape would be wasteful to reuse for a 5-field
+-- lookup. Authored here (task 5.7) since this slice already touches the
+-- employees query surface; A1 rule 6 applies at the liquidación write's call
+-- site, not here -- this is a plain tenant-scoped read.
+SELECT id, first_name, last_name, cedula, salary, start_date
+FROM employees
+WHERE id = $2 AND company_id = $1;
