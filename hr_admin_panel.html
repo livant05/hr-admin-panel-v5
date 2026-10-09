@@ -3057,11 +3057,14 @@ async function seedTestAttendance() {
   ];
   for(var k=0;k<otSeed.length;k++){
     var ot=otSeed[k]; if(!ot.emp) continue;
-    var amt=Math.round(((ot.emp.salary||0)/30/8)*ot.hours*(OT_RATES[ot.type]||1.25)*100)/100;
+    // hourly_rate uses the same formula as printPayslip's hrRate (:3081) --
+    // the Go handler requires this field and server-recomputes amount from
+    // it (design Q6), so any client-side amount is ignored.
+    var hrRate=((ot.emp.salary||0)/((ot.emp.weekly_hours||44)*52/12)).toFixed(2);
     // status:'approved' dropped (design Q1/phase2-tasks 4.8): overtime_logs
     // has no status column and nothing anywhere reads ot.status -- it was
     // write-only dead data.
-    await Supa.ins('overtime_logs',{employee_id:ot.emp.id,employee_name:ot.emp.first_name+' '+ot.emp.last_name,date:ot.date,hours:ot.hours,type:ot.type,amount:amt,notes:'Dato de prueba'}).catch(function(){});
+    await Supa.ins('overtime_logs',{employee_id:ot.emp.id,employee_name:ot.emp.first_name+' '+ot.emp.last_name,date:ot.date,hours:ot.hours,type:ot.type,hourly_rate:hrRate,notes:'Dato de prueba'}).catch(function(){});
   }
   toast('Datos de prueba cargados: '+done+' registros de asistencia + 3 overtime');
   loadPayroll();
