@@ -40,6 +40,7 @@ type Querier interface {
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
 	CountEmployeesInDepartment(ctx context.Context, arg CountEmployeesInDepartmentParams) (int64, error)
 	CountEmployeesInPosition(ctx context.Context, arg CountEmployeesInPositionParams) (int64, error)
+	CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error)
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
@@ -116,6 +117,11 @@ type Querier interface {
 	// itself stays client-supplied in Phase 2 -- design Q6 explicitly defers
 	// deriving it server-side from salary/weekly_hours to Phase 3's prCalc port.
 	CreateOvertimeLog(ctx context.Context, arg CreateOvertimeLogParams) (OvertimeLog, error)
+	// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
+	// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
+	// (the P6.1 department-rename-propagation tx shape) -- a failure in any
+	// later upsert rolls this back too (TestPayrollRun_IsAtomic).
+	CreatePayrollHistory(ctx context.Context, arg CreatePayrollHistoryParams) (PayrollHistory, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
@@ -147,6 +153,10 @@ type Querier interface {
 	// retro-alter a paid slip. overtime_logs is not an FK target
 	// (rg 'REFERENCES overtime_logs' migrations/ -> zero matches).
 	DeleteOvertimeLog(ctx context.Context, arg DeleteOvertimeLogParams) (int64, error)
+	// Hard delete, no cascade to employee_pay_records (design R5 -- no FK
+	// exists between the two tables; TestPayrollHistory_DeleteLeavesPayRecords
+	// pins this as the default, not an implementation).
+	DeletePayrollHistory(ctx context.Context, arg DeletePayrollHistoryParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
@@ -181,6 +191,7 @@ type Querier interface {
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetOvertimeLog(ctx context.Context, arg GetOvertimeLogParams) (OvertimeLog, error)
+	GetPayrollHistory(ctx context.Context, arg GetPayrollHistoryParams) (PayrollHistory, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
 	GetRole(ctx context.Context, arg GetRoleParams) (Role, error)
 	// Used by requirePermission (Q4, Phase 2 design/authz.go) to look up the
@@ -200,6 +211,9 @@ type Querier interface {
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
 	ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error)
+	// Fixed ORDER BY year DESC, month DESC (design R7) -- replaces
+	// loadPayrollHistory's client-side sort (hr_admin_panel.html:3131).
+	ListPayrollHistory(ctx context.Context, arg ListPayrollHistoryParams) ([]PayrollHistory, error)
 	// One row per active employee with the three aggregates prCalc needs
 	// (design R4d). loadPayroll fetches four whole tables and reduces
 	// client-side; this is one statement.
@@ -276,6 +290,22 @@ type Querier interface {
 	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
+	// Settled decision #1 (design R4/R4a/R4c, task 6.2). The ONLY writer of
+	// origin='run'. A1 rule 6 shape is kept STRUCTURALLY even though the caller
+	// (CreatePayrollRun) enumerates the employees itself via
+	// ListPayrollRunInputs: employee_name/cedula are DERIVED from the employees
+	// row, so a mis-targeted id can never write under the wrong company.
+	// Upsert, not append: re-running a period REPLACES that period's run row
+	// (ON CONFLICT ... WHERE origin='run' DO UPDATE), while every manual/CSV row
+	// for the same period is left untouched -- the partial index
+	// uq_epr_run_period (migration 0007) is what makes that true
+	// (TestPayrollRun_RerunUpsertsNotDuplicates, TestPayrollRun_PreservesManualAndCSVRows).
+	// commissions/bonuses/vacations_paid/other_income are hard 0 -- Calculate
+	// has no corresponding input; only manual entry and CSV import populate
+	// them. numero_planilla/centro_costo/notes are hard NULL -- no equivalent in
+	// a run. total_earned is `b` and is NOT the sum of the income columns here
+	// (design R4f, pinned by TestPayrollRun_TotalEarnedInvariant).
+	UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayrollRunPayRecordParams) (UpsertPayrollRunPayRecordRow, error)
 }
 
 var _ Querier = (*Queries)(nil)
