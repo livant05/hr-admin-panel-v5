@@ -6,7 +6,7 @@ WHERE company_id = $1
   AND ($2::uuid IS NULL OR id = $2)
   AND (sqlc.narg('employee_id')::uuid IS NULL OR employee_id = sqlc.narg('employee_id'))
   AND (sqlc.narg('template_id')::uuid IS NULL OR template_id = sqlc.narg('template_id'))
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT $3 OFFSET $4;
 
 -- name: CountGeneratedDocuments :one

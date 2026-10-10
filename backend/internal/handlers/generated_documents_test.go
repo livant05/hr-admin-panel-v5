@@ -3,6 +3,7 @@ package handlers_test
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -292,4 +293,50 @@ func TestGeneratedDocuments_CompanyCleanupCascades(t *testing.T) {
 	emp := testutil.Employee(t, pool, c)
 	tpl := createTemplate(t, h, tok, map[string]any{"name": "T", "content": "t"})
 	createGenDoc(t, h, tok, map[string]any{"employee_id": emp.ID, "template_id": tpl.ID, "content": "x"})
+}
+
+func TestGeneratedDocuments_ListOrderTiebreakerIsIDDesc(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "GDocOrder")
+	tok := c.Token(t, signer)
+
+	// Six rows sharing one created_at, inserted in ascending id order: without
+	// an `id DESC` tiebreaker the order (and therefore LIMIT/OFFSET paging) is
+	// unspecified and in practice follows heap order, i.e. ascending here.
+	ids := []string{
+		"00000000-0000-0000-0000-00000000000a",
+		"00000000-0000-0000-0000-00000000000b",
+		"00000000-0000-0000-0000-00000000000c",
+		"00000000-0000-0000-0000-00000000000d",
+		"00000000-0000-0000-0000-00000000000e",
+		"00000000-0000-0000-0000-00000000000f",
+	}
+	for _, id := range ids {
+		if _, err := pool.Exec(context.Background(),
+			`INSERT INTO generated_documents (id, company_id, content, created_at)
+			 VALUES ($1, $2, 'x', '2026-01-01T00:00:00Z')`, id, c.CompanyID); err != nil {
+			t.Fatalf("seed generated_document: %v", err)
+		}
+	}
+
+	rows := testutil.DecodeRows[genDocRow](t, testutil.Do(t, h, http.MethodGet, "/api/generated_documents", tok, nil))
+	if len(rows) != len(ids) {
+		t.Fatalf("expected %d rows, got %d", len(ids), len(rows))
+	}
+	for i, r := range rows {
+		want := ids[len(ids)-1-i]
+		if r.ID != want {
+			t.Fatalf("row %d: expected id %s, got %s (ties must order by id DESC)", i, want, r.ID)
+		}
+	}
+
+	// Paging with a one-row window must walk the same total order.
+	for i := range ids {
+		q := "/api/generated_documents?_limit=1&_offset=" + strconv.Itoa(i)
+		page := testutil.DecodeRows[genDocRow](t, testutil.Do(t, h, http.MethodGet, q, tok, nil))
+		if len(page) != 1 || page[0].ID != ids[len(ids)-1-i] {
+			t.Fatalf("offset %d: unexpected page %+v", i, page)
+		}
+	}
 }

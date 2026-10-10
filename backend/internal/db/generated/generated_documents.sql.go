@@ -139,7 +139,7 @@ WHERE company_id = $1
   AND ($2::uuid IS NULL OR id = $2)
   AND ($5::uuid IS NULL OR employee_id = $5)
   AND ($6::uuid IS NULL OR template_id = $6)
-ORDER BY created_at DESC
+ORDER BY created_at DESC, id DESC
 LIMIT $3 OFFSET $4
 `
 
