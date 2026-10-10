@@ -35,6 +35,7 @@ type Querier interface {
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
+	CountDocumentTemplates(ctx context.Context, arg CountDocumentTemplatesParams) (int64, error)
 	CountEmployeePayRecords(ctx context.Context, arg CountEmployeePayRecordsParams) (int64, error)
 	CountEmployees(ctx context.Context, arg CountEmployeesParams) (int64, error)
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
@@ -63,6 +64,7 @@ type Querier interface {
 	// exception" note).
 	CreateDeductionWithoutEmployee(ctx context.Context, arg CreateDeductionWithoutEmployeeParams) (Deduction, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
+	CreateDocumentTemplate(ctx context.Context, arg CreateDocumentTemplateParams) (DocumentTemplate, error)
 	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error)
 	// A1 rule 6 (manual-entry path, design R4a/spec "Manual entry with
 	// employee_id succeeds"): the tenant check on the client-supplied
@@ -158,6 +160,7 @@ type Querier interface {
 	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
+	DeleteDocumentTemplate(ctx context.Context, arg DeleteDocumentTemplateParams) (int64, error)
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
 	// existing behavior; no soft-delete semantics apply to this table).
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
@@ -192,6 +195,7 @@ type Querier interface {
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
+	GetDocumentTemplate(ctx context.Context, arg GetDocumentTemplateParams) (DocumentTemplate, error)
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
 	// The one narrow read the liquidación endpoint (slice 3g) needs --
 	// GetEmployee's 33-column shape would be wasteful to reuse for a 5-field
@@ -233,6 +237,7 @@ type Querier interface {
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
+	ListDocumentTemplates(ctx context.Context, arg ListDocumentTemplatesParams) ([]DocumentTemplate, error)
 	// Fixed ORDER BY period_year DESC, period_month DESC, created_at DESC
 	// (design R7) -- newest period first, ties broken by insertion order.
 	ListEmployeePayRecords(ctx context.Context, arg ListEmployeePayRecordsParams) ([]ListEmployeePayRecordsRow, error)
@@ -283,6 +288,8 @@ type Querier interface {
 	// never reassigned by edit.
 	UpdateDeduction(ctx context.Context, arg UpdateDeductionParams) (Deduction, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
+	// updated_at is maintained by trigger trg_tpl_upd (0001_init.sql); do not set it here.
+	UpdateDocumentTemplate(ctx context.Context, arg UpdateDocumentTemplateParams) (DocumentTemplate, error)
 	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
 	// Full-column replace of every editable business field (deductions.go's
 	// UpdateDeduction precedent -- employee_pay_records keeps PATCH, unlike
