@@ -296,6 +296,31 @@ func (q *Queries) GetEmployeeForLiquidation(ctx context.Context, arg GetEmployee
 	return i, err
 }
 
+const getEmployeeSalary = `-- name: GetEmployeeSalary :one
+SELECT id, salary
+FROM employees
+WHERE id = $2 AND company_id = $1
+`
+
+type GetEmployeeSalaryParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type GetEmployeeSalaryRow struct {
+	ID     pgtype.UUID    `json:"id"`
+	Salary pgtype.Numeric `json:"salary"`
+}
+
+// Narrow tenant-scoped read for the medical_records incapacity cost (design
+// D2): the salary is read INSIDE the write path, never taken from the client.
+func (q *Queries) GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error) {
+	row := q.db.QueryRow(ctx, getEmployeeSalary, arg.CompanyID, arg.ID)
+	var i GetEmployeeSalaryRow
+	err := row.Scan(&i.ID, &i.Salary)
+	return i, err
+}
+
 const listEmployees = `-- name: ListEmployees :many
 SELECT id, company_id, first_name, last_name, cedula, ss_number, dv, birth_date, age, sex,
   marital_status, blood_type, nationality, address, phone, email,

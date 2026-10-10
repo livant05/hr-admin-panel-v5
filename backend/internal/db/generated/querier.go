@@ -44,6 +44,7 @@ type Querier interface {
 	CountEvaluations(ctx context.Context, arg CountEvaluationsParams) (int64, error)
 	CountGeneratedDocuments(ctx context.Context, arg CountGeneratedDocumentsParams) (int64, error)
 	CountLiquidationHistory(ctx context.Context, arg CountLiquidationHistoryParams) (int64, error)
+	CountMedicalRecords(ctx context.Context, arg CountMedicalRecordsParams) (int64, error)
 	CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error)
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
@@ -141,6 +142,12 @@ type Querier interface {
 	// LiquidationResult, inputs holds the raw acumulados inputs plus which of
 	// the five independent branches fired.
 	CreateLiquidationHistoryWithEmployee(ctx context.Context, arg CreateLiquidationHistoryWithEmployeeParams) (LiquidationHistory, error)
+	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
+	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name is DERIVED from the employees row. days/employer_days/
+	// css_days/salary_basis/cost are computed in Go by payroll.CalculateIncapacity
+	// (design D2); client values are never read.
+	CreateMedicalRecord(ctx context.Context, arg CreateMedicalRecordParams) (MedicalRecord, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql/leave_requests.sql):
 	// the tenant check on the client-supplied employee_id IS the insert -- a
 	// foreign employee_id selects zero rows from `employees`, so a cross-tenant
@@ -196,6 +203,8 @@ type Querier interface {
 	// design R5's no-cascade decision is not even a design choice here, it is
 	// structurally the only possible behavior).
 	DeleteLiquidationHistory(ctx context.Context, arg DeleteLiquidationHistoryParams) (int64, error)
+	// Hard delete (Phase 2 Q3 precedent): medical_records is not an FK target.
+	DeleteMedicalRecord(ctx context.Context, arg DeleteMedicalRecordParams) (int64, error)
 	// Hard delete (design Q3): the payroll amount is snapshotted into
 	// employee_pay_records at run time (Part A B2), so deleting the log cannot
 	// retro-alter a paid slip. overtime_logs is not an FK target
@@ -237,11 +246,21 @@ type Querier interface {
 	// months=0, never a missing row (the handler's "bare object" contract).
 	GetEmployeePayBases(ctx context.Context, arg GetEmployeePayBasesParams) (GetEmployeePayBasesRow, error)
 	GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRecordParams) (GetEmployeePayRecordRow, error)
+	// Narrow tenant-scoped read for the medical_records incapacity cost (design
+	// D2): the salary is read INSIDE the write path, never taken from the client.
+	GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error)
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetLiquidationHistory(ctx context.Context, arg GetLiquidationHistoryParams) (LiquidationHistory, error)
+	GetMedicalRecord(ctx context.Context, arg GetMedicalRecordParams) (MedicalRecord, error)
+	// Read-modify-write source for PATCH. Tenant-scoped (a foreign id ->
+	// ErrNoRows -> 404) and row-locked so two concurrent PATCHes cannot
+	// interleave their recompute. effective_salary is the stored snapshot or --
+	// only for a row that never had one -- the employee's current salary, which
+	// the UPDATE then persists as salary_basis (self-healing).
+	GetMedicalRecordForUpdate(ctx context.Context, arg GetMedicalRecordForUpdateParams) (GetMedicalRecordForUpdateRow, error)
 	GetOvertimeLog(ctx context.Context, arg GetOvertimeLogParams) (OvertimeLog, error)
 	GetPayrollHistory(ctx context.Context, arg GetPayrollHistoryParams) (PayrollHistory, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
@@ -271,6 +290,7 @@ type Querier interface {
 	// PATCH exists for this resource, so there is no "last edited" concept to
 	// order by, only newest-first).
 	ListLiquidationHistory(ctx context.Context, arg ListLiquidationHistoryParams) ([]LiquidationHistory, error)
+	ListMedicalRecords(ctx context.Context, arg ListMedicalRecordsParams) ([]MedicalRecord, error)
 	ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error)
 	// Fixed ORDER BY year DESC, month DESC (design R7) -- replaces
 	// loadPayrollHistory's client-side sort (hr_admin_panel.html:3131).
@@ -335,6 +355,9 @@ type Querier interface {
 	// which the handler maps to 409 (not 404 -- existence was already confirmed
 	// by the handler's own Get before calling this).
 	UpdateLeaveRequestStatus(ctx context.Context, arg UpdateLeaveRequestStatusParams) (LeaveRequest, error)
+	// Full write of the merged row, including the recomputed fields. employee_id,
+	// employee_name, company_id and created_at are immutable.
+	UpdateMedicalRecord(ctx context.Context, arg UpdateMedicalRecordParams) (MedicalRecord, error)
 	// PATCH keeps employee_id/date immutable, mirroring attendance_logs' and
 	// leave_requests' precedent of restricting PATCH to the
 	// operationally-editable fields rather than a full-column replace. amount

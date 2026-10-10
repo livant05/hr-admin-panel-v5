@@ -20,13 +20,19 @@ ALTER TABLE medical_records
   ADD COLUMN IF NOT EXISTS salary_basis NUMERIC(12,2),  -- employees.salary at compute time
   ADD COLUMN IF NOT EXISTS cost         NUMERIC(12,2);  -- employer + CSS-subsidised cost
 
--- ADD CONSTRAINT has no IF NOT EXISTS; guard it so the file stays idempotent.
--- NULL dates pass a CHECK, so this cannot fail on any pre-existing row shape.
+-- ADD CONSTRAINT has no IF NOT EXISTS; guard it so the file stays idempotent
+-- (matching on the constraint name AND the table). NOT VALID: legacy rows
+-- with end_date < start_date (the old client accepted them, days = 0) must
+-- not make the migration fail; only new or updated rows are checked.
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'mr_dates_chk') THEN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'mr_dates_chk'
+      AND conrelid = 'medical_records'::regclass
+  ) THEN
     ALTER TABLE medical_records
-      ADD CONSTRAINT mr_dates_chk CHECK (end_date >= start_date);
+      ADD CONSTRAINT mr_dates_chk CHECK (end_date >= start_date) NOT VALID;
   END IF;
 END $$;
 

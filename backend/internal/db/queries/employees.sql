@@ -90,3 +90,10 @@ WHERE id = $2 AND company_id = $1 AND status <> 'inactive';
 SELECT id, first_name, last_name, cedula, salary, start_date
 FROM employees
 WHERE id = $2 AND company_id = $1;
+
+-- name: GetEmployeeSalary :one
+-- Narrow tenant-scoped read for the medical_records incapacity cost (design
+-- D2): the salary is read INSIDE the write path, never taken from the client.
+SELECT id, salary
+FROM employees
+WHERE id = $2 AND company_id = $1;
