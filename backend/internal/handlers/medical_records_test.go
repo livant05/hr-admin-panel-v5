@@ -612,3 +612,29 @@ func TestMedicalRecords_Delete(t *testing.T) {
 		}
 	}
 }
+
+func TestMedicalRecords_PatchSpanCap(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "MedPatchCap")
+	tok := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeSalary(1000))
+	created := createMed(t, h, tok, medBody(emp.ID))
+
+	t.Run("widening end_date past 3650 days is 400 on end_date and row unchanged", func(t *testing.T) {
+		// 2026-03-10..2036-03-07 inclusive is a 3651-day span.
+		rec := testutil.Do(t, h, http.MethodPatch, "/api/medical_records/"+created.ID, tok, map[string]any{"end_date": "2036-03-07"})
+		assertValidationField(t, rec.Body, rec.Code, http.StatusBadRequest, "end_date")
+		got := testutil.DecodeRow[medRow](t, testutil.Do(t, h, http.MethodGet, "/api/medical_records/"+created.ID, tok, nil))
+		if !reflect.DeepEqual(got, created) {
+			t.Fatalf("rejected patch changed the row:\n%+v\n%+v", got, created)
+		}
+	})
+
+	t.Run("widening to exactly 3650 days is accepted and recomputed", func(t *testing.T) {
+		got := patchMed(t, h, tok, created.ID, map[string]any{"end_date": "2036-03-06"})
+		if got.Days != 3650 || got.EndDate != "2036-03-06" {
+			t.Fatalf("expected 3650 days ending 2036-03-06, got %+v", got)
+		}
+	})
+}
