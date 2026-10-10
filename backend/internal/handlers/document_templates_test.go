@@ -72,6 +72,9 @@ func TestDocumentTemplates_CrossTenantLeak(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d", rec.Code)
 		}
+		if code := testutil.ErrCode(t, rec); code != "not_found" {
+			t.Fatalf("expected not_found, got %q", code)
+		}
 		got := testutil.DecodeRow[templateRow](t, testutil.Do(t, h, http.MethodGet, "/api/document_templates/"+tplA.ID, ta, nil))
 		if got.Name != "Carta" || got.Content != "Hola" {
 			t.Fatalf("row mutated cross-tenant: %+v", got)
@@ -83,6 +86,9 @@ func TestDocumentTemplates_CrossTenantLeak(t *testing.T) {
 		if rec.Code != http.StatusNotFound {
 			t.Fatalf("expected 404, got %d", rec.Code)
 		}
+		if code := testutil.ErrCode(t, rec); code != "not_found" {
+			t.Fatalf("expected not_found, got %q", code)
+		}
 		if rec := testutil.Do(t, h, http.MethodGet, "/api/document_templates/"+tplA.ID, ta, nil); rec.Code != http.StatusOK {
 			t.Fatalf("expected row to survive, got %d", rec.Code)
 		}
@@ -90,10 +96,21 @@ func TestDocumentTemplates_CrossTenantLeak(t *testing.T) {
 
 	t.Run("list never includes other tenant rows", func(t *testing.T) {
 		createTemplate(t, h, tb, map[string]any{"name": "DeB", "content": "b"})
-		for _, r := range testutil.DecodeRows[templateRow](t, testutil.Do(t, h, http.MethodGet, "/api/document_templates", ta, nil)) {
+		rec := testutil.Do(t, h, http.MethodGet, "/api/document_templates", ta, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		sawOwn := false
+		for _, r := range testutil.DecodeRows[templateRow](t, rec) {
 			if r.CompanyID != a.CompanyID || r.Name == "DeB" {
 				t.Fatalf("A's list leaked a foreign row: %+v", r)
 			}
+			if r.ID == tplA.ID {
+				sawOwn = true
+			}
+		}
+		if !sawOwn {
+			t.Fatalf("A's list does not contain A's own row %s", tplA.ID)
 		}
 	})
 
@@ -275,5 +292,35 @@ func TestDocumentTemplates_DeleteBlockedByGeneratedDocument(t *testing.T) {
 		if rec := testutil.Do(t, h, http.MethodDelete, "/api/document_templates/"+id, tok, nil); rec.Code != http.StatusNotFound {
 			t.Fatalf("delete %s: expected 404, got %d", id, rec.Code)
 		}
+	}
+}
+
+// PATCH is a full replace of name/type/content, so omitting type resets it to
+// the 'contract' default rather than keeping the stored value. This pins the
+// current behavior (the web UI always sends type); changing it is a separate
+// decision.
+func TestDocumentTemplates_PatchWithoutTypeResetsToContract(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "TplPatchNoType")
+	tok := c.Token(t, signer)
+
+	created := createTemplate(t, h, tok, map[string]any{"name": "Aviso", "type": "warning", "content": "c1"})
+	if created.Type != "warning" {
+		t.Fatalf("seed type: expected warning, got %q", created.Type)
+	}
+
+	rec := testutil.Do(t, h, http.MethodPatch, "/api/document_templates/"+created.ID, tok,
+		map[string]any{"name": "Aviso 2", "content": "c2"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	rows := testutil.DecodeRows[templateRow](t, rec)
+	if len(rows) != 1 || rows[0].Type != "contract" || rows[0].Name != "Aviso 2" || rows[0].Content != "c2" {
+		t.Fatalf("expected type reset to contract, got %+v", rows)
+	}
+	got := testutil.DecodeRow[templateRow](t, testutil.Do(t, h, http.MethodGet, "/api/document_templates/"+created.ID, tok, nil))
+	if got.Type != "contract" {
+		t.Fatalf("persisted type: expected contract, got %q", got.Type)
 	}
 }

@@ -73,10 +73,31 @@ func TestGeneratedDocuments_CrossTenantLeak(t *testing.T) {
 
 	t.Run("list never includes other tenant rows", func(t *testing.T) {
 		createGenDoc(t, h, tb, map[string]any{"document_name": "Carta B", "content": "contenido B"})
-		for _, r := range testutil.DecodeRows[genDocRow](t, testutil.Do(t, h, http.MethodGet, "/api/generated_documents", ta, nil)) {
+		rec := testutil.Do(t, h, http.MethodGet, "/api/generated_documents", ta, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		sawOwn := false
+		for _, r := range testutil.DecodeRows[genDocRow](t, rec) {
 			if r.CompanyID != a.CompanyID || r.Content == "contenido B" {
 				t.Fatalf("A's list leaked a foreign row: %+v", r)
 			}
+			if r.ID == docA.ID {
+				sawOwn = true
+			}
+		}
+		if !sawOwn {
+			t.Fatalf("A's list does not contain A's own row %s", docA.ID)
+		}
+	})
+
+	t.Run("malformed id GET is 404 not_found", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodGet, "/api/generated_documents/not-a-uuid", ta, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "not_found" {
+			t.Fatalf("expected not_found, got %q", code)
 		}
 	})
 
@@ -135,6 +156,9 @@ func TestGeneratedDocuments_CrossTenantTemplateIDRejected(t *testing.T) {
 		map[string]any{"template_id": tplB.ID, "content": "x"})
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if code := testutil.ErrCode(t, rec); code != "not_found" {
+		t.Fatalf("expected not_found, got %q", code)
 	}
 	if after := countGenDocs(t, pool); after != before {
 		t.Fatalf("row created despite foreign template_id (%d -> %d)", before, after)
