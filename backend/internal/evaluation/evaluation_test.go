@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"runtime"
 	"testing"
 )
 
@@ -28,6 +29,11 @@ func TestParseScores_Rejects(t *testing.T) {
 		{"empty object", `{}`, "scores.puntualidad"},
 		{"double-encoded string", `"{\"puntualidad\":7}"`, "scores"},
 		{"empty input", ``, "scores"},
+		// Oversized literals are rejected before big.Rat parsing: a huge
+		// exponent would otherwise force a million-digit allocation.
+		{"huge exponent", `{"puntualidad":1e1000000,"calidad":7,"trabajo_equipo":7,"iniciativa":7,"comunicacion":7,"liderazgo":7,"objetivos":7,"actitud":7}`, "scores.puntualidad"},
+		{"huge negative exponent", `{"puntualidad":7,"calidad":1e-1000000,"trabajo_equipo":7,"iniciativa":7,"comunicacion":7,"liderazgo":7,"objetivos":7,"actitud":7}`, "scores.calidad"},
+		{"in-range but oversized literal", `{"puntualidad":7,"calidad":7,"trabajo_equipo":1.0000000000000000000,"iniciativa":7,"comunicacion":7,"liderazgo":7,"objetivos":7,"actitud":7}`, "scores.trabajo_equipo"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -43,6 +49,22 @@ func TestParseScores_Rejects(t *testing.T) {
 				t.Fatalf("field = %q, want %q", ve.Field, tt.field)
 			}
 		})
+	}
+}
+
+// A huge exponent must be rejected without materializing the number:
+// big.Rat would allocate hundreds of KiB for 1e1000000.
+func TestParseScores_HugeExponentIsCheap(t *testing.T) {
+	raw := json.RawMessage(`{"puntualidad":1e1000000,"calidad":7,"trabajo_equipo":7,"iniciativa":7,"comunicacion":7,"liderazgo":7,"objetivos":7,"actitud":7}`)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	if _, err := ParseScores(raw); err == nil {
+		t.Fatal("expected error")
+	}
+	runtime.ReadMemStats(&after)
+	if got := after.TotalAlloc - before.TotalAlloc; got > 64<<10 {
+		t.Fatalf("allocated %d bytes, want <= %d", got, 64<<10)
 	}
 }
 

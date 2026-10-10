@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"sort"
+	"strconv"
 )
 
 // Criteria is EVAL_CRITERIA from hr_admin_panel.html, in UI order.
@@ -31,6 +32,9 @@ const (
 const (
 	minScore = 1
 	maxScore = 10
+	// maxScoreLiteral caps a score's JSON number length; generous for
+	// forms like 10.0 or 7e0 while keeping big.Rat parsing trivially cheap.
+	maxScoreLiteral = 16
 )
 
 // ValidationError carries a field-level message (keyed "scores" or
@@ -87,6 +91,16 @@ func parseScore(v json.RawMessage) (int, error) {
 	// objects all start with a non-numeric byte.
 	if len(v) == 0 || (v[0] != '-' && (v[0] < '0' || v[0] > '9')) {
 		return 0, errors.New("must be a number")
+	}
+	// Bound the literal before big.Rat sees it: a huge exponent such as
+	// 1e1000000 is valid JSON but would materialize a million-digit number.
+	// ParseFloat is cheap for any exponent (it saturates to Inf or 0), and
+	// with the length cap an in-range literal cannot carry a large exponent.
+	if len(v) > maxScoreLiteral {
+		return 0, fmt.Errorf("must be between %d and %d", minScore, maxScore)
+	}
+	if f, err := strconv.ParseFloat(string(v), 64); err != nil || f < minScore || f > maxScore {
+		return 0, fmt.Errorf("must be between %d and %d", minScore, maxScore)
 	}
 	r, ok := new(big.Rat).SetString(string(v))
 	if !ok || !r.IsInt() {
