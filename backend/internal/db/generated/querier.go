@@ -41,6 +41,7 @@ type Querier interface {
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
 	CountEmployeesInDepartment(ctx context.Context, arg CountEmployeesInDepartmentParams) (int64, error)
 	CountEmployeesInPosition(ctx context.Context, arg CountEmployeesInPositionParams) (int64, error)
+	CountEvaluations(ctx context.Context, arg CountEvaluationsParams) (int64, error)
 	CountGeneratedDocuments(ctx context.Context, arg CountGeneratedDocumentsParams) (int64, error)
 	CountLiquidationHistory(ctx context.Context, arg CountLiquidationHistoryParams) (int64, error)
 	CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error)
@@ -97,6 +98,12 @@ type Querier interface {
 	// net_salary is still trusted as sent (design R4f: CSV import's net_salary
 	// is authoritative historical data from the PayDay "Salario Neto" column).
 	CreateEmployeePayRecordWithoutEmployee(ctx context.Context, arg CreateEmployeePayRecordWithoutEmployeeParams) (CreateEmployeePayRecordWithoutEmployeeRow, error)
+	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
+	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name is DERIVED from the employees row. scores/avg/category are
+	// computed in Go by internal/evaluation (design D1); client avg/category are
+	// never read. There is deliberately no Update query (no PATCH route).
+	CreateEvaluation(ctx context.Context, arg CreateEvaluationParams) (Evaluation, error)
 	// A1 rule 6 for TWO independent nullable FKs (design H5). The FKs check
 	// existence, not tenancy, so each SUPPLIED id must match a row in the
 	// caller's tenant or the statement selects zero rows -> pgx.ErrNoRows -> 404.
@@ -172,6 +179,8 @@ type Querier interface {
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
 	// existing behavior; no soft-delete semantics apply to this table).
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
+	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
+	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
 	// while status='pending' -- an approved/rejected leave is the record behind
@@ -228,6 +237,7 @@ type Querier interface {
 	// months=0, never a missing row (the handler's "bare object" contract).
 	GetEmployeePayBases(ctx context.Context, arg GetEmployeePayBasesParams) (GetEmployeePayBasesRow, error)
 	GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRecordParams) (GetEmployeePayRecordRow, error)
+	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
@@ -251,6 +261,7 @@ type Querier interface {
 	// (design R7) -- newest period first, ties broken by insertion order.
 	ListEmployeePayRecords(ctx context.Context, arg ListEmployeePayRecordsParams) ([]ListEmployeePayRecordsRow, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
+	ListEvaluations(ctx context.Context, arg ListEvaluationsParams) ([]Evaluation, error)
 	ListGeneratedDocuments(ctx context.Context, arg ListGeneratedDocumentsParams) ([]GeneratedDocument, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)

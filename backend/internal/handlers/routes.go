@@ -119,6 +119,13 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("POST /api/generated_documents", a.CreateGeneratedDocument)
 	protected.HandleFunc("GET /api/generated_documents/{id}", a.GetGeneratedDocument)
 
+	// evaluations: avg and category are recomputed server-side from scores
+	// (D1). No PATCH route: PATCH answers 405 (slice 4d).
+	protected.HandleFunc("GET /api/evaluations", a.ListEvaluations)
+	protected.HandleFunc("POST /api/evaluations", a.CreateEvaluation)
+	protected.HandleFunc("GET /api/evaluations/{id}", a.GetEvaluation)
+	protected.HandleFunc("DELETE /api/evaluations/{id}", a.DeleteEvaluation) // hard delete
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/
