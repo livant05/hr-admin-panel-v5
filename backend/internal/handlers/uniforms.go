@@ -3,7 +3,9 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -59,6 +61,12 @@ func decodeUniformBody(w http.ResponseWriter, r *http.Request, dst any) bool {
 	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return false
+	}
+	// Exactly one JSON value: anything after it (a second object, garbage) is
+	// a malformed body, not something to silently ignore.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
 		return false
 	}

@@ -1,9 +1,11 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -463,4 +465,58 @@ func TestUniforms_ListFiltersAndDelete(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestUniforms_TrailingJSONRejected(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "UniTrailing")
+	tok := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c)
+	created := createUni(t, h, tok, uniBody(emp.ID))
+
+	do := func(method, path, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, path, bytes.NewReader([]byte(body)))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+tok)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	valid, err := json.Marshal(uniBody(emp.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before := countUni(t, pool)
+	for name, tail := range map[string]string{
+		"second object": `{"item":"otro"}`,
+		"garbage":       `xyz`,
+		"second value":  `1`,
+	} {
+		rec := do(http.MethodPost, "/api/uniforms", string(valid)+tail)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("create + %s: expected 400, got %d (body=%s)", name, rec.Code, rec.Body.String())
+		}
+		if got := testutil.ErrCode(t, rec); got != "bad_request" {
+			t.Fatalf("create + %s: expected bad_request, got %q", name, got)
+		}
+	}
+	if after := countUni(t, pool); after != before {
+		t.Fatalf("rejected creates inserted rows: %d -> %d", before, after)
+	}
+
+	rec := do(http.MethodPatch, "/api/uniforms/"+created.ID, `{"status":"devuelto"}{"status":"activo"}`)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("patch + trailing object: expected 400, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	got := testutil.DecodeRow[uniRow](t, testutil.Do(t, h, http.MethodGet, "/api/uniforms/"+created.ID, tok, nil))
+	if got.Status != "activo" {
+		t.Fatalf("rejected patch mutated the row: %+v", got)
+	}
+
+	// Trailing whitespace is still fine.
+	if rec := do(http.MethodPatch, "/api/uniforms/"+created.ID, "{\"status\":\"devuelto\"}\n  \n"); rec.Code != http.StatusOK {
+		t.Fatalf("trailing whitespace: expected 200, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
 }
