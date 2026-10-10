@@ -48,6 +48,7 @@ type Querier interface {
 	CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error)
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
+	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
 	// A1 rule 6 (design Q2): the tenant check on the client-supplied employee_id
 	// IS the insert, same as the other four Phase 2 tables -- a foreign
@@ -169,6 +170,11 @@ type Querier interface {
 	CreatePayrollHistory(ctx context.Context, arg CreatePayrollHistoryParams) (PayrollHistory, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
+	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
+	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name is DERIVED from the employees row. date defaults to the
+	// current date when the client sends none (legacy saveUniform behavior).
+	CreateUniform(ctx context.Context, arg CreateUniformParams) (Uniform, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
 	// (attendance_logs, leave_balances, leave_requests, overtime_logs,
 	// deductions, medical_records, evaluations, uniforms, enrollments) that a
@@ -216,6 +222,8 @@ type Querier interface {
 	DeletePayrollHistory(ctx context.Context, arg DeletePayrollHistoryParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
+	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
+	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
@@ -269,6 +277,7 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
+	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
@@ -312,6 +321,7 @@ type Querier interface {
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
+	ListUniforms(ctx context.Context, arg ListUniformsParams) ([]Uniform, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
@@ -366,6 +376,10 @@ type Querier interface {
 	UpdateOvertimeLog(ctx context.Context, arg UpdateOvertimeLogParams) (OvertimeLog, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
+	// Partial PATCH (design H1): absent/null keeps the stored value, so
+	// returnUniform's {status:'devuelto'} touches only status. Every parameter
+	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
+	UpdateUniform(ctx context.Context, arg UpdateUniformParams) (Uniform, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
 	// client-supplied employee_id IS the insert — a foreign employee_id selects
 	// zero rows from `employees`, so a cross-tenant write becomes
