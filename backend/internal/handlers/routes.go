@@ -105,6 +105,14 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("GET /api/liquidation_history/{id}", a.GetLiquidationHistory)
 	protected.HandleFunc("DELETE /api/liquidation_history/{id}", a.DeleteLiquidationHistory) // hard
 
+	// document_templates: opaque CRUD, full-replace PATCH. DELETE answers 409
+	// while generated_documents still reference the template (slice 4b).
+	protected.HandleFunc("GET /api/document_templates", a.ListDocumentTemplates)
+	protected.HandleFunc("POST /api/document_templates", a.CreateDocumentTemplate)
+	protected.HandleFunc("GET /api/document_templates/{id}", a.GetDocumentTemplate)
+	protected.HandleFunc("PATCH /api/document_templates/{id}", a.UpdateDocumentTemplate)
+	protected.HandleFunc("DELETE /api/document_templates/{id}", a.DeleteDocumentTemplate) // hard; 409 when referenced
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/
