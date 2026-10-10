@@ -3,6 +3,7 @@ package handlers
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -15,6 +16,10 @@ import (
 const (
 	medicalStatusActive = "activa"
 	medicalStatusClosed = "cerrada"
+	// maxMedicalDays caps the incapacity span (about 10 years). With it the
+	// computed cost fits medical_records.cost NUMERIC(12,2) for any monthly
+	// salary up to ~82M; an unbounded span overflowed it into a 500.
+	maxMedicalDays = 3650
 )
 
 // medicalRecordFields are the keys saveMedical / closeMedical send.
@@ -102,6 +107,10 @@ func computeMedical(w http.ResponseWriter, typ string, start, end pgtype.Date, s
 		} else {
 			writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
 		}
+		return payroll.IncapacityResult{}, false
+	}
+	if res.Days > maxMedicalDays {
+		writeFieldErr(w, map[string]string{"end_date": fmt.Sprintf("span must not exceed %d days", maxMedicalDays)})
 		return payroll.IncapacityResult{}, false
 	}
 	return res, true

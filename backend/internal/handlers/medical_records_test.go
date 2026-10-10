@@ -314,6 +314,28 @@ func TestMedicalRecords_CreateValidation(t *testing.T) {
 		}
 	})
 
+	// The span is capped so the computed cost can never overflow the
+	// NUMERIC(12,2) column (which would surface as a 500, not a 400).
+	t.Run("span over 3650 days rejected on end_date", func(t *testing.T) {
+		before := countMed(t, pool)
+		body := medBody(emp.ID)
+		body["start_date"], body["end_date"] = "2026-01-01", "2035-12-30" // 3651 days
+		rec := testutil.Do(t, h, http.MethodPost, "/api/medical_records", tok, body)
+		assertValidationField(t, rec.Body, rec.Code, http.StatusBadRequest, "end_date")
+		if countMed(t, pool) != before {
+			t.Fatal("row created")
+		}
+	})
+
+	t.Run("span of exactly 3650 days accepted", func(t *testing.T) {
+		body := medBody(emp.ID)
+		body["start_date"], body["end_date"] = "2026-01-01", "2035-12-29" // 3650 days
+		rec := testutil.Do(t, h, http.MethodPost, "/api/medical_records", tok, body)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("status = %d, body = %s", rec.Code, rec.Body.String())
+		}
+	})
+
 	for _, key := range []string{"employee_id", "type", "start_date", "end_date"} {
 		t.Run("required "+key, func(t *testing.T) {
 			body := medBody(emp.ID)
