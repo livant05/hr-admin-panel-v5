@@ -132,6 +132,12 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/medical_records/{id}", a.UpdateMedicalRecord)  // partial, tx, always recomputes
 	protected.HandleFunc("DELETE /api/medical_records/{id}", a.DeleteMedicalRecord) // hard delete
 
+	protected.HandleFunc("GET /api/uniforms", a.ListUniforms)
+	protected.HandleFunc("POST /api/uniforms", a.CreateUniform)
+	protected.HandleFunc("GET /api/uniforms/{id}", a.GetUniform)
+	protected.HandleFunc("PATCH /api/uniforms/{id}", a.UpdateUniform)  // partial (returnUniform)
+	protected.HandleFunc("DELETE /api/uniforms/{id}", a.DeleteUniform) // hard delete
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/
