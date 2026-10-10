@@ -36,3 +36,13 @@ func (a *API) writeDBErr(w http.ResponseWriter, err error, op string) {
 	a.Log.Error(op, "err", err)
 	writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
 }
+
+// pgErrCode returns the SQLSTATE of err when it wraps a *pgconn.PgError, or
+// "" otherwise.
+func pgErrCode(err error) string {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		return pg.Code
+	}
+	return ""
+}
