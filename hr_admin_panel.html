@@ -1156,7 +1156,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
     </div>
     <div class="card"><div class="card-body p-0"><div class="table-responsive">
       <table class="table table-sm table-hover mb-0">
-        <thead class="thead-light"><tr><th>Empleado</th><th>Tipo</th><th>Inicio</th><th>Fin</th><th>Días</th><th>Diagnóstico</th><th>CSS Cubre</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <thead class="thead-light"><tr><th>Empleado</th><th>Tipo</th><th>Inicio</th><th>Fin</th><th>Días</th><th>Diagnóstico</th><th>CSS Cubre</th><th>Costo</th><th>Estado</th><th>Acciones</th></tr></thead>
         <tbody id="medical-tbody"></tbody>
       </table></div></div></div>
     <div class="card mt-3"><div class="card-header"><h3 class="card-title"><i class="fas fa-info-circle mr-1"></i>Reglas de Incapacidades — Panamá (CSS)</h3></div>
@@ -1547,7 +1547,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <div class="row text-center">
         <div class="col"><small class="text-muted d-block">Paga Empleador</small><strong id="med-emp-days" class="text-warning">0 días</strong></div>
         <div class="col"><small class="text-muted d-block">Paga CSS (70%)</small><strong id="med-css-days" class="text-success">0 días</strong></div>
-        <div class="col"><small class="text-muted d-block">Costo Estimado</small><strong id="med-cost" class="text-danger">B/. 0.00</strong></div>
+        <div class="col"><small class="text-muted d-block">Costo Estimado (el costo final lo calcula el servidor)</small><strong id="med-cost" class="text-danger">B/. 0.00</strong></div>
       </div>
     </div></div>
     <div class="form-group"><label>N° Certificado Médico</label><input type="text" id="med-cert" class="form-control form-control-sm" placeholder="Número del formulario CSS"></div>
@@ -1981,7 +1981,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -2070,6 +2070,24 @@ var Supa = {
     Object.keys(flt).forEach(function(k){ url += '&'+k+'=eq.'+flt[k]; });
     var r = await fetch(url, {headers:this.hdr()});
     return r.json();
+  },
+  // Whole-list read for screens that compute stats/inventory over every row.
+  // A4's default page (200 rows) would silently truncate a bare `sel`. On the
+  // Go route, page _limit=1000&_offset= until a short page; on demo/supa
+  // routes delegate to `sel` WITHOUT _limit/_offset (demo `sel` filters rows by
+  // strict equality on every flt key, so a _limit key would drop every row).
+  selAll: async function(tbl, flt) {
+    if (A.demo || this.route(tbl) !== 'go') return this.sel(tbl, flt);
+    var all = [], offset = 0, pageSize = 1000;
+    while (true) {
+      var q = Object.assign({}, flt || {}, {_limit:pageSize, _offset:offset});
+      var page = await this.sel(tbl, q);
+      if (!Array.isArray(page)) return page; // error envelope: let the caller surface it
+      all = all.concat(page);
+      if (page.length < pageSize) break;
+      offset += pageSize;
+    }
+    return all;
   },
   ins: async function(tbl, data) {
     if (A.demo) {
@@ -3926,7 +3944,8 @@ async function generateAndDownload() {
   var emps=await Supa.sel('employees',{id:empId}), tpls=await Supa.sel('document_templates',{id:tplId});
   var emp=Array.isArray(emps)?emps[0]:null, tpl=Array.isArray(tpls)?tpls[0]:null; if(!emp||!tpl) return;
   var content=applyVars(tpl.content,emp), docName=tpl.name+' - '+emp.first_name+' '+emp.last_name;
-  await Supa.ins('generated_documents',{document_name:docName,employee_id:empId,employee_name:emp.first_name+' '+emp.last_name,template_id:tplId,template_name:tpl.name,content:content});
+  var gr=await Supa.ins('generated_documents',{document_name:docName,employee_id:empId,employee_name:emp.first_name+' '+emp.last_name,template_id:tplId,template_name:tpl.name,content:content});
+  if(gr&&gr.error){ toast(gr.error.message||'No se pudo generar el documento','danger'); return; }
   printDocFull(docName,content); toast('✅ Generado: '+docName); loadDocuments();
 }
 function printDocFull(title,content) {
@@ -3938,8 +3957,8 @@ function printDocFull(title,content) {
 async function reDownload(id) { var docs=await Supa.sel('generated_documents',{id:id}); var d=Array.isArray(docs)?docs[0]:null; if(!d) return; printDocFull(d.document_name,d.content); }
 function openTplModal() { ['tpl-id','tpl-name','tpl-content'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); $('#tplModal').modal('show'); }
 async function editTpl(id) { var tpls=await Supa.sel('document_templates',{id:id}); var t=Array.isArray(tpls)?tpls[0]:null; if(!t) return; document.getElementById('tpl-id').value=t.id; document.getElementById('tpl-name').value=t.name; document.getElementById('tpl-type').value=t.type; document.getElementById('tpl-content').value=t.content; $('#tplModal').modal('show'); }
-async function saveTpl() { var id=gv('tpl-id'), name=gv('tpl-name'), type=gv('tpl-type'), content=document.getElementById('tpl-content').value.trim(); if(!name||!content){ toast('Nombre y contenido requeridos','warning'); return; } if(id) await Supa.upd('document_templates',id,{name:name,type:type,content:content}); else await Supa.ins('document_templates',{name:name,type:type,content:content}); $('#tplModal').modal('hide'); toast('✅ Plantilla guardada'); loadDocuments(); }
-async function delTpl(id) { if(!confirm('¿Eliminar plantilla?')) return; await Supa.del('document_templates',id); toast('Eliminada','info'); loadDocuments(); }
+async function saveTpl() { var id=gv('tpl-id'), name=gv('tpl-name'), type=gv('tpl-type'), content=document.getElementById('tpl-content').value.trim(); if(!name||!content){ toast('Nombre y contenido requeridos','warning'); return; } var tr=id?await Supa.upd('document_templates',id,{name:name,type:type,content:content}):await Supa.ins('document_templates',{name:name,type:type,content:content}); if(tr&&tr.error){ toast(tr.error.message||'No se pudo guardar la plantilla','danger'); return; } $('#tplModal').modal('hide'); toast('✅ Plantilla guardada'); loadDocuments(); }
+async function delTpl(id) { if(!confirm('¿Eliminar plantilla?')) return; var dr=await Supa.del('document_templates',id); if(dr&&dr.error){ toast(dr.error.message||'No se pudo eliminar la plantilla','danger'); return; } toast('Eliminada','info'); loadDocuments(); }
 function insertVar(varTxt) { var ta=document.getElementById('tpl-content'); if(!ta) return; var p=ta.selectionStart; ta.value=ta.value.slice(0,p)+varTxt+ta.value.slice(ta.selectionEnd); ta.selectionStart=ta.selectionEnd=p+varTxt.length; ta.focus(); }
 
 // ════════════════ CALENDAR ═══════════════════════════════════
@@ -4444,6 +4463,14 @@ const EVAL_CRITERIA = [
   {key:'actitud',label:'Actitud y Valores'}
 ];
 
+// Server-computed category label -> badge class (server is the source of truth;
+// evalCategory() below is only the modal's live preview and the fallback for
+// rows without a category, e.g. the demo seed).
+var EVAL_CAT_CLS = {Sobresaliente:'badge-success',Excelente:'badge-primary',Bueno:'badge-info',Regular:'badge-warning',Deficiente:'badge-danger'};
+function evalRowCat(e) {
+  if(e && e.category && EVAL_CAT_CLS[e.category]) return {label:e.category,cls:EVAL_CAT_CLS[e.category]};
+  return evalCategory(Number(e&&e.avg)||0);
+}
 function evalCategory(avg) {
   if(avg>=9) return {label:'Sobresaliente',cls:'badge-success'};
   if(avg>=7.5) return {label:'Excelente',cls:'badge-primary'};
@@ -4456,12 +4483,13 @@ function evalCategory(avg) {
 var chEval = null;
 async function loadEvaluations() {
   var emps = await Supa.sel('employees');
-  var evals = DS.evaluations.filter(function(e){ return e.company_id===A.companyId; });
+  var evals = await Supa.selAll('evaluations');
+  if(!Array.isArray(evals)) evals = [];
   // Stats
   var st = document.getElementById('eval-stats');
   var total = evals.length;
-  var avgAll = total ? (evals.reduce(function(s,e){ return s+(e.avg||0); },0)/total).toFixed(1) : 0;
-  var sobresaliente = evals.filter(function(e){ return e.avg>=9; }).length;
+  var avgAll = total ? (evals.reduce(function(s,e){ return s+(Number(e.avg)||0); },0)/total).toFixed(1) : 0;
+  var sobresaliente = evals.filter(function(e){ return evalRowCat(e).label==='Sobresaliente'; }).length;
   if(st) st.innerHTML = [
     {l:'Evaluaciones',v:total,c:'info',i:'fa-chart-line'},
     {l:'Promedio General',v:avgAll,c:'success',i:'fa-star'},
@@ -4471,9 +4499,9 @@ async function loadEvaluations() {
   // Table
   var tb = document.getElementById('eval-tbody');
   if(tb) tb.innerHTML = evals.length ? evals.map(function(e){
-    var cat = evalCategory(e.avg);
+    var cat = evalRowCat(e);
     return '<tr><td><strong>'+e.employee_name+'</strong></td><td>'+e.period+'</td><td>'+e.evaluator+'</td>'
-      +'<td><strong>'+e.avg.toFixed(1)+'</strong>/10</td>'
+      +'<td><strong>'+(Number(e.avg)||0).toFixed(1)+'</strong>/10</td>'
       +'<td><span class="badge '+cat.cls+'">'+cat.label+'</span></td>'
       +'<td><span class="badge badge-success">'+e.status+'</span></td>'
       +'<td><button class="btn btn-xs btn-outline-danger" onclick="delEval(\''+e.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
@@ -4481,10 +4509,10 @@ async function loadEvaluations() {
   // Top
   var topTb = document.getElementById('eval-top-tbody');
   if(topTb){
-    var sorted = evals.slice().sort(function(a,b){ return b.avg-a.avg; }).slice(0,5);
+    var sorted = evals.slice().sort(function(a,b){ return (Number(b.avg)||0)-(Number(a.avg)||0); }).slice(0,5);
     topTb.innerHTML = sorted.map(function(e,i){
-      var cat=evalCategory(e.avg);
-      return '<tr><td><strong>'+(i+1)+'</strong></td><td>'+e.employee_name+'</td><td><strong>'+e.avg.toFixed(1)+'</strong></td><td><span class="badge '+cat.cls+'">'+cat.label+'</span></td></tr>';
+      var cat=evalRowCat(e);
+      return '<tr><td><strong>'+(i+1)+'</strong></td><td>'+e.employee_name+'</td><td><strong>'+(Number(e.avg)||0).toFixed(1)+'</strong></td><td><span class="badge '+cat.cls+'">'+cat.label+'</span></td></tr>';
     }).join('');
   }
   // Chart
@@ -4492,7 +4520,7 @@ async function loadEvaluations() {
   if(ctx){
     if(chEval) chEval.destroy();
     var cats = {Sobresaliente:0,Excelente:0,Bueno:0,Regular:0,Deficiente:0};
-    evals.forEach(function(e){ cats[evalCategory(e.avg).label]++; });
+    evals.forEach(function(e){ cats[evalRowCat(e).label]++; });
     chEval = new Chart(ctx,{type:'doughnut',data:{labels:Object.keys(cats),datasets:[{data:Object.values(cats),backgroundColor:['#15803d','#1e3a5f','#0d7490','#2563a8','#8b1c1c']}]},options:{responsive:true,plugins:{legend:{position:'bottom'}}}});
   }
   // Populate emp selector
@@ -4531,18 +4559,22 @@ async function saveEval(){
   var scores={}, total=0;
   EVAL_CRITERIA.forEach(function(c){ var val=parseFloat(document.getElementById('ev-'+c.key).value)||5; scores[c.key]=val; total+=val; });
   var avg=total/EVAL_CRITERIA.length;
-  var d={employee_id:empId,employee_name:empOpt?empOpt.text:'—',period:gv('ev-period'),evaluator:gv('ev-evaluator'),scores:JSON.stringify(scores),avg:avg,category:evalCategory(avg).label,comments:gv('ev-comments'),status:'completada'};
-  if(!A.demo) await Supa.ins('evaluations',d);
-  else DS.evaluations.push(Object.assign({id:'ev-'+Date.now(),company_id:A.companyId,scores:scores,created_at:new Date().toISOString()},d,{scores:scores}));
+  var d={employee_id:empId,employee_name:empOpt?empOpt.text:'—',period:gv('ev-period'),evaluator:gv('ev-evaluator'),scores:scores,avg:avg,category:evalCategory(avg).label,comments:gv('ev-comments'),status:'completada'};
+  // scores goes as the raw object (no JSON.stringify): the Go API stores the
+  // object and recomputes avg/category server-side; avg/category are still
+  // sent only so demo mode (which stores the body as-is) keeps working.
+  var r=await Supa.ins('evaluations',d);
+  if(!Array.isArray(r)){ toast((r&&r.error&&r.error.message)||'No se pudo guardar la evaluación','danger'); return; }
   $('#evalModal').modal('hide'); toast('✅ Evaluación guardada'); loadEvaluations();
 }
-function delEval(id){ if(!confirm('¿Eliminar evaluación?')) return; DS.evaluations=DS.evaluations.filter(function(e){ return e.id!==id; }); toast('Eliminada','info'); loadEvaluations(); }
+async function delEval(id){ if(!confirm('¿Eliminar evaluación?')) return; var r=await Supa.del('evaluations',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar la evaluación','danger'); return; } toast('Eliminada','info'); loadEvaluations(); }
 
 // ════════════════ UNIFORMS ════════════════════════════════════
 var _allUniforms = [];
 async function loadUniforms() {
   var emps = await Supa.sel('employees');
-  _allUniforms = DS.uniforms.filter(function(u){ return u.company_id===A.companyId; });
+  _allUniforms = await Supa.selAll('uniforms');
+  if(!Array.isArray(_allUniforms)) _allUniforms = [];
   // Populate emp selectors
   var ae = document.getElementById('un-emp');
   if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
@@ -4576,18 +4608,20 @@ async function saveUniform(){
   var item=gv('un-item'); if(!item){toast('Ingresa el artículo','warning');return;}
   var ae=document.getElementById('un-emp'), empName=ae&&ae.options[ae.selectedIndex]?ae.options[ae.selectedIndex].text:'—';
   var d={employee_id:empId,employee_name:empName,item:item,category:gv('un-cat')||'uniforme',size:gv('un-size'),quantity:parseInt(gv('un-qty'))||1,date:gv('un-date')||TS,value:parseFloat(gv('un-value'))||0,notes:gv('un-notes'),status:'activo'};
-  DS.uniforms.push(Object.assign({id:'un-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+  var r=await Supa.ins('uniforms',d);
+  if(!Array.isArray(r)){ toast((r&&r.error&&r.error.message)||'No se pudo guardar la asignación','danger'); return; }
   $('#uniformModal').modal('hide'); toast('✅ Asignación guardada'); loadUniforms();
 }
-function returnUniform(id){ var u=DS.uniforms.find(function(x){ return x.id===id; }); if(u&&confirm('¿Marcar "'+u.item+'" como devuelto?')){ u.status='devuelto'; renderUniforms(_allUniforms); renderInventory(); toast('Artículo marcado como devuelto','info'); } }
-function delUniform(id){ if(!confirm('¿Eliminar asignación?')) return; DS.uniforms=DS.uniforms.filter(function(u){ return u.id!==id; }); _allUniforms=_allUniforms.filter(function(u){ return u.id!==id; }); renderUniforms(_allUniforms); renderInventory(); toast('Eliminado','info'); }
+async function returnUniform(id){ var u=_allUniforms.find(function(x){ return x.id===id; }); if(!u||!confirm('¿Marcar "'+u.item+'" como devuelto?')) return; var r=await Supa.upd('uniforms',id,{status:'devuelto'}); if(r&&r.error){ toast(r.error.message||'No se pudo marcar como devuelto','danger'); return; } toast('Artículo marcado como devuelto','info'); loadUniforms(); }
+async function delUniform(id){ if(!confirm('¿Eliminar asignación?')) return; var r=await Supa.del('uniforms',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar la asignación','danger'); return; } toast('Eliminado','info'); loadUniforms(); }
 function exportUniformCSV(){ var csv=[['Empleado','Artículo','Categoría','Talla','Cantidad','Fecha','Valor','Estado']].concat(_allUniforms.map(function(u){ return [u.employee_name,u.item,u.category,u.size,u.quantity,u.date,u.value,u.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'uniformes_equipos.csv'); toast('Exportado 📥'); }
 
 // ════════════════ MEDICAL ════════════════════════════════════
 var _allMedical=[];
 async function loadMedical(){
   var emps=await Supa.sel('employees');
-  _allMedical=DS.medical_records.filter(function(r){ return r.company_id===A.companyId; });
+  _allMedical=await Supa.selAll('medical_records');
+  if(!Array.isArray(_allMedical)) _allMedical=[];
   var ae=document.getElementById('med-emp');
   if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
   var st=document.getElementById('medical-stats');
@@ -4608,9 +4642,10 @@ function renderMedical(list){
     return '<tr><td><strong>'+r.employee_name+'</strong></td><td>'+( typeLabels[r.type]||r.type)+'</td><td>'+r.start_date+'</td><td>'+r.end_date+'</td>'
       +'<td><span class="badge badge-info">'+r.days+'</span></td><td>'+(r.diagnosis||'—')+'</td>'
       +'<td><span class="badge badge-'+(r.css_days>0?'success':'secondary')+'">'+r.css_days+' días</span></td>'
+      +'<td>'+(r.cost==null?'—':fmt(Number(r.cost)))+'</td>'
       +'<td><span class="badge badge-'+(r.status==='activa'?'danger':'secondary')+'">'+r.status+'</span></td>'
       +'<td><button class="btn btn-xs btn-outline-success mr-1" onclick="closeMedical(\''+r.id+'\')" title="Cerrar incapacidad"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delMedical(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
-  }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin incapacidades registradas.</td></tr>';
+  }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin incapacidades registradas.</td></tr>';
 }
 function openMedicalModal(){ ['med-id','med-diag','med-cert','med-notes'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); ['med-days','med-emp-days','med-css-days'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=0; }); document.getElementById('med-cost').textContent='B/. 0.00'; $('#medicalModal').modal('show'); }
 function calcMedical(){
@@ -4634,12 +4669,16 @@ async function saveMedical(){
   var days=Math.max(0,Math.round((new Date(e)-new Date(s))/86400000)+1);
   var type=gv('med-type')||'enfermedad', empDays=type==='paternidad'?3:Math.min(3,days), cssDays=Math.max(0,days-empDays);
   var d={employee_id:empId,employee_name:empName,type:type,diagnosis:gv('med-diag'),start_date:s,end_date:e,days:days,employer_days:empDays,css_days:cssDays,cert_number:gv('med-cert'),notes:gv('med-notes'),status:'activa'};
-  DS.medical_records.push(Object.assign({id:'mr-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+  // days/employer_days/css_days are sent only for demo mode; the Go API ignores
+  // them and returns its own values plus the persisted cost. No cost key: the
+  // server rejects client-supplied cost/salary_basis with 400.
+  var r=await Supa.ins('medical_records',d);
+  if(!Array.isArray(r)){ toast((r&&r.error&&r.error.message)||'No se pudo registrar la incapacidad','danger'); return; }
   $('#medicalModal').modal('hide'); toast('✅ Incapacidad registrada'); loadMedical();
 }
-function closeMedical(id){ var r=DS.medical_records.find(function(x){ return x.id===id; }); if(r){ r.status='cerrada'; _allMedical=DS.medical_records.filter(function(x){ return x.company_id===A.companyId; }); renderMedical(_allMedical); toast('Incapacidad cerrada','info'); } }
-function delMedical(id){ if(!confirm('¿Eliminar registro?')) return; DS.medical_records=DS.medical_records.filter(function(r){ return r.id!==id; }); _allMedical=_allMedical.filter(function(r){ return r.id!==id; }); renderMedical(_allMedical); toast('Eliminado','info'); }
-function exportMedicalCSV(){ var csv=[['Empleado','Tipo','Inicio','Fin','Días','Diagnóstico','Días CSS','Estado']].concat(_allMedical.map(function(r){ return [r.employee_name,r.type,r.start_date,r.end_date,r.days,r.diagnosis||'',r.css_days,r.status]; })).map(function(row){ return row.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'incapacidades.csv'); toast('Exportado 📥'); }
+async function closeMedical(id){ var r=await Supa.upd('medical_records',id,{status:'cerrada'}); if(r&&r.error){ toast(r.error.message||'No se pudo cerrar la incapacidad','danger'); return; } toast('Incapacidad cerrada','info'); loadMedical(); }
+async function delMedical(id){ if(!confirm('¿Eliminar registro?')) return; var r=await Supa.del('medical_records',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar el registro','danger'); return; } toast('Eliminado','info'); loadMedical(); }
+function exportMedicalCSV(){ var csv=[['Empleado','Tipo','Inicio','Fin','Días','Diagnóstico','Días CSS','Costo','Estado']].concat(_allMedical.map(function(r){ return [r.employee_name,r.type,r.start_date,r.end_date,r.days,r.diagnosis||'',r.css_days,r.cost==null?'':r.cost,r.status]; })).map(function(row){ return row.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'incapacidades.csv'); toast('Exportado 📥'); }
 
 // ════════════════ SURVEYS ════════════════════════════════════
 function loadSurveys(){
