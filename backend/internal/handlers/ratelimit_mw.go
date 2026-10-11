@@ -13,15 +13,19 @@ import (
 // it gets 429, a Retry-After header in whole seconds and the A2 envelope with
 // code rate_limited.
 //
+// Every denial is logged (see logRateLimited) under name, so operators can see
+// who is being throttled and by which budget.
+//
 // A nil limiter panics when the routes are built: a public endpoint must never
 // silently run unthrottled because wiring was forgotten.
-func (a *API) rateLimited(l *ratelimit.Limiter, next http.Handler) http.Handler {
+func (a *API) rateLimited(name string, l *ratelimit.Limiter, next http.Handler) http.Handler {
 	if l == nil {
 		panic("handlers: rateLimited requires a non-nil limiter")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ok, retryAfter := l.Allow(ratelimit.Key(ratelimit.ClientIP(r, a.TrustedProxies)))
-		if !ok {
+		key := ratelimit.Key(ratelimit.ClientIP(r, a.TrustedProxies))
+		if ok, retryAfter := l.Allow(key); !ok {
+			a.logRateLimited(name, key, retryAfter)
 			writeRateLimited(w, retryAfter)
 			return
 		}
@@ -51,11 +55,13 @@ func (a *API) rateLimitedLogin(strict, all *ratelimit.Limiter, next http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := ratelimit.Key(ratelimit.ClientIP(r, a.TrustedProxies))
 		if ok, retryAfter := all.Allow(key); !ok {
+			a.logRateLimited(limiterAuthAttempt, key, retryAfter)
 			writeRateLimited(w, retryAfter)
 			return
 		}
 		ok, retryAfter := strict.Allow(key)
 		if !ok {
+			a.logRateLimited(limiterAuth, key, retryAfter)
 			writeRateLimited(w, retryAfter)
 			return
 		}
@@ -67,6 +73,23 @@ func (a *API) rateLimitedLogin(strict, all *ratelimit.Limiter, next http.Handler
 		}()
 		next.ServeHTTP(sw, r)
 	})
+}
+
+// Limiter names used in rate-limit log lines.
+const (
+	limiterAuth        = "auth"         // strict budget: failed logins (and register)
+	limiterAuthAttempt = "auth_attempt" // looser budget: every login attempt
+)
+
+// logRateLimited records one 429 from a limiter. It logs only the limiter name,
+// the client key (the IP, or the /64 for IPv6, that the limiter charged) and
+// the Retry-After it answered with; never the request body, headers or any
+// credential. A shared NAT locking its users out is otherwise invisible.
+func (a *API) logRateLimited(limiter, clientKey string, retryAfter time.Duration) {
+	if a.Log == nil {
+		return
+	}
+	a.Log.Warn("rate limited", "limiter", limiter, "client", clientKey, "retry_after_s", int(retryAfter.Seconds()))
 }
 
 // writeRateLimited writes the 429 response shared by every limiter: a

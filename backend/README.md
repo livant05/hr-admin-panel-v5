@@ -95,6 +95,12 @@ every user in the proxy's bucket. `docker-compose.yml` declares the `rrhh_go_net
 you change the subnet, change `TRUSTED_PROXY_CIDRS` with it (a test keeps them in sync). Never
 trust a broad private range or one that untrusted clients can connect from directly.
 
+Every 429 is logged at WARN as `rate limited` with `limiter` (`auth` for the strict failure
+budget, `auth_attempt` for the looser attempt budget), `client` (the IP, or /64 for IPv6, that
+was charged) and `retry_after_s`. Request bodies, headers and credentials are never logged. Users
+behind one shared NAT can lock each other out of the strict budget (accepted behavior); these log
+lines are how an operator sees it happen.
+
 ## Users and roles (admin only)
 
 `/api/users` (list, get by id, create) and the write routes of `/api/roles` (create, update, delete)
