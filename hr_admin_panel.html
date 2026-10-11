@@ -1916,10 +1916,10 @@ var DS = {
   positions:[{id:'p1',company_id:'co1',name:'Gerente General'},{id:'p2',company_id:'co1',name:'Jefe de RRHH'},{id:'p3',company_id:'co1',name:'Analista TI'},{id:'p4',company_id:'co1',name:'Vendedor/a'},{id:'p5',company_id:'co1',name:'Contador/a'},{id:'p6',company_id:'co1',name:'Asistente'}],
   branches:[{id:'br1',company_id:'co1',name:'Sede Principal'},{id:'br2',company_id:'co1',name:'Sucursal Norte'},{id:'br3',company_id:'co1',name:'Sucursal Sur'}],
   roles:[
-    {id:'ro1',company_id:'co1',name:'admin',permissions:{dashboard:true,employees:true,attendance:true,vacations:true,payroll:true,overtime:true,deductions:true,liquidation:true,documents:true,reports:true,recruitment:true,settings:true}},
-    {id:'ro2',company_id:'co1',name:'rrhh',permissions:{dashboard:true,employees:true,attendance:true,vacations:true,payroll:true,overtime:true,deductions:true,liquidation:true,documents:true,reports:true,recruitment:true,settings:false}},
-    {id:'ro3',company_id:'co1',name:'supervisor',permissions:{dashboard:true,employees:true,attendance:true,vacations:true,payroll:false,overtime:false,deductions:false,liquidation:false,documents:false,reports:true,recruitment:false,settings:false}},
-    {id:'ro4',company_id:'co1',name:'empleado',permissions:{dashboard:true,employees:false,attendance:false,vacations:false,payroll:false,overtime:false,deductions:false,liquidation:false,documents:false,reports:false,recruitment:false,settings:false}}
+    {id:'ro1',company_id:'co1',name:'admin',permissions:{dashboard:true,employees:true,attendance:true,vacations:true,medical:true,payroll:true,overtime:true,deductions:true,liquidation:true,documents:true,reports:true,recruitment:true,settings:true}},
+    {id:'ro2',company_id:'co1',name:'rrhh',permissions:{dashboard:true,employees:true,attendance:true,vacations:true,medical:true,payroll:true,overtime:true,deductions:true,liquidation:true,documents:true,reports:true,recruitment:true,settings:false}},
+    {id:'ro3',company_id:'co1',name:'supervisor',permissions:{dashboard:true,employees:true,attendance:true,vacations:true,medical:false,payroll:false,overtime:false,deductions:false,liquidation:false,documents:false,reports:true,recruitment:false,settings:false}},
+    {id:'ro4',company_id:'co1',name:'empleado',permissions:{dashboard:true,employees:false,attendance:false,vacations:false,medical:false,payroll:false,overtime:false,deductions:false,liquidation:false,documents:false,reports:false,recruitment:false,settings:false}}
   ],
   document_templates:[
     {id:'t1',company_id:'co1',name:'Contrato Indefinido',type:'contract',content:'CONTRATO DE TRABAJO\n\nEntre {{EMPRESA}} y {{NOMBRE_COMPLETO}}, cédula {{CEDULA}}.\n\nCARGO: {{CARGO}} — Dpto: {{DEPARTAMENTO}}\nSALARIO: {{SALARIO}} mensual | {{HORAS_SEMANALES}} hrs/sem\nINICIO: {{FECHA_INGRESO}} | Antigüedad: {{ANTIGUEDAD}}\n\nPanamá, {{FECHA_HOY}}\n\n_________________     _________________\n   EL EMPLEADOR            EL TRABAJADOR\n  {{EMPRESA}}         {{NOMBRE_COMPLETO}}'},
@@ -2341,7 +2341,7 @@ var SIDEBAR_PERM_MAP=[
   ['m-org-chart',   'employees',   'org'],
   ['m-attendance',  'attendance',  null],
   ['m-vacations',   'vacations',   null],
-  ['m-medical',     'attendance',  null],
+  ['m-medical',     'medical',     null],
   ['m-payroll',     'payroll',     'calc'],
   ['m-overtime',    'overtime',    null],
   ['m-deductions',  'deductions',  null],
@@ -2381,7 +2381,7 @@ function applyPermissions(perms){
 var PAGE_PERM_MAP={
   'dashboard':'dashboard','emp-list':['employees','list'],'emp-new':['employees','new'],
   'directory':['employees','directory'],'org-chart':['employees','org'],
-  'attendance':'attendance','vacations':'vacations','medical':'attendance',
+  'attendance':'attendance','vacations':'vacations','medical':'medical',
   'payroll':['payroll','calc'],'overtime':'overtime','deductions':'deductions',
   'liquidation':'liquidation','pay-records':'liquidation','documents':['documents','generate'],'calendar':'documents',
   'reports':'reports','evaluations':'employees','training':'employees',
@@ -4229,6 +4229,7 @@ var PERM_MODULES=[
     {key:'balances',label:'Saldos'},{key:'requests',label:'Solicitudes'},
     {key:'new',label:'Nueva Solicitud'},{key:'calc',label:'Calculadora'}
   ]},
+  {key:'medical',label:'Incapacidades',icon:'fa-hospital',color:'text-danger'},
   {key:'payroll',label:'Planilla',icon:'fa-dollar-sign',color:'text-warning',subs:[
     {key:'calc',label:'Calcular'},{key:'history',label:'Historial'}
   ]},
@@ -4621,7 +4622,11 @@ var _allMedical=[];
 async function loadMedical(){
   var emps=await Supa.sel('employees');
   _allMedical=await Supa.selAll('medical_records');
-  if(!Array.isArray(_allMedical)) _allMedical=[];
+  if(!Array.isArray(_allMedical)){
+    // Error envelope (e.g. 403 without the medical permission): surface it and render an empty screen.
+    toast((_allMedical&&_allMedical.error&&_allMedical.error.message)||'No se pudieron cargar las incapacidades','danger');
+    _allMedical=[];
+  }
   var ae=document.getElementById('med-emp');
   if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
   var st=document.getElementById('medical-stats');

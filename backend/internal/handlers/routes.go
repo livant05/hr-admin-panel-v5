@@ -126,11 +126,11 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("GET /api/evaluations/{id}", a.GetEvaluation)
 	protected.HandleFunc("DELETE /api/evaluations/{id}", a.DeleteEvaluation) // hard delete
 
-	protected.HandleFunc("GET /api/medical_records", a.ListMedicalRecords)
-	protected.HandleFunc("POST /api/medical_records", a.CreateMedicalRecord) // days split + cost computed server-side
-	protected.HandleFunc("GET /api/medical_records/{id}", a.GetMedicalRecord)
-	protected.HandleFunc("PATCH /api/medical_records/{id}", a.UpdateMedicalRecord)  // partial, tx, always recomputes
-	protected.HandleFunc("DELETE /api/medical_records/{id}", a.DeleteMedicalRecord) // hard delete
+	protected.HandleFunc("GET /api/medical_records", a.ListMedicalRecords)          // requirePermission("medical")
+	protected.HandleFunc("POST /api/medical_records", a.CreateMedicalRecord)        // requirePermission("medical"); days split + cost computed server-side
+	protected.HandleFunc("GET /api/medical_records/{id}", a.GetMedicalRecord)       // requirePermission("medical")
+	protected.HandleFunc("PATCH /api/medical_records/{id}", a.UpdateMedicalRecord)  // requirePermission("medical"); partial, tx, always recomputes
+	protected.HandleFunc("DELETE /api/medical_records/{id}", a.DeleteMedicalRecord) // requirePermission("medical"); hard delete
 
 	protected.HandleFunc("GET /api/uniforms", a.ListUniforms)
 	protected.HandleFunc("POST /api/uniforms", a.CreateUniform)
