@@ -133,13 +133,6 @@ WHERE r.id = u.id AND r.rn > 1`
 // inside one transaction if a sentinel table ("departments") is absent. Files
 // numbered >= 0010 are idempotent and applied on every call.
 func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	var exists bool
-	err := pool.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_name = 'departments'
-	)`).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("check sentinel table: %w", err)
-	}
 	files, err := filepath.Glob(filepath.Join(migrationsDir(), "*.sql"))
 	if err != nil {
 		return fmt.Errorf("glob migrations: %w", err)
@@ -156,6 +149,19 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	// serializes them so the idempotent files below never race.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
 		return fmt.Errorf("take migration lock: %w", err)
+	}
+
+	// The sentinel check MUST follow the lock: checked before it, two callers
+	// on a fresh database could both see "absent" and the loser would re-apply
+	// the non-idempotent pre-0010 files. Scoped to current_schema() so a
+	// schema-isolated pool is judged by its own tables, not public's.
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = 'departments'
+	)`).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check sentinel table: %w", err)
 	}
 
 	// An already-initialized test database may hold legacy case-insensitive
@@ -498,24 +504,16 @@ func ErrCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return body.Error.Code
 }
 
-// IsolatedSchema creates a fresh Postgres schema in the test database, applies
-// every migration INCLUDING the seed into it, and returns a pool whose
-// search_path points at that schema (with public as fallback for the
-// uuid-ossp functions) plus a connection URL carrying the same search_path.
-// It exists for tests that bulk-load data (the Supabase import tool): they
-// must not touch the shared tables other packages' tests read, and the seed
-// company/admin must be present so "seed untouched" can be asserted. The
-// schema is dropped on cleanup.
-//
-// Caveat: 0007's constraint guard looks up pg_constraint by name only, so it
-// sees epr_origin_chk from the public schema and skips creating it here.
-func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
+// newSchemaURL creates an empty, uniquely named schema in the test database
+// (dropped on cleanup) and returns its name plus a connection URL whose
+// search_path points at it, with public as fallback for the uuid-ossp
+// functions. It applies no migrations.
+func newSchemaURL(t *testing.T) (schema, isoURL string) {
 	t.Helper()
 	admin := Pool(t)
-	ctx := context.Background()
 
-	schema := "imp_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
-	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+	schema = "imp_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+	if _, err := admin.Exec(context.Background(), `CREATE SCHEMA `+schema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 	t.Cleanup(func() {
@@ -533,7 +531,24 @@ func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
 	q := u.Query()
 	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
-	isoURL := u.String()
+	return schema, u.String()
+}
+
+// IsolatedSchema creates a fresh Postgres schema in the test database, applies
+// every migration INCLUDING the seed into it, and returns a pool whose
+// search_path points at that schema (with public as fallback for the
+// uuid-ossp functions) plus a connection URL carrying the same search_path.
+// It exists for tests that bulk-load data (the Supabase import tool): they
+// must not touch the shared tables other packages' tests read, and the seed
+// company/admin must be present so "seed untouched" can be asserted. The
+// schema is dropped on cleanup.
+//
+// Caveat: 0007's constraint guard looks up pg_constraint by name only, so it
+// sees epr_origin_chk from the public schema and skips creating it here.
+func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	ctx := context.Background()
+	schema, isoURL := newSchemaURL(t)
 
 	pool, err := pgxpool.New(ctx, isoURL)
 	if err != nil {
