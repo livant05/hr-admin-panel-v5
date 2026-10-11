@@ -323,3 +323,51 @@ func TestReport_WriteListsTablesAndInvalidRows(t *testing.T) {
 		}
 	}
 }
+
+func TestRun_RejectedRowDoesNotClaimItsUniqueKey(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	exp := baseExport()
+	const (
+		badAtt  = "44444444-4444-4444-8444-444444444442"
+		goodAtt = "44444444-4444-4444-8444-444444444443"
+		dupAtt  = "44444444-4444-4444-8444-444444444444"
+	)
+	exp["attendance_logs"] = rows{
+		// FK violation on company_id: rejected, must not claim (emp2, 2024-03-02).
+		{"id": badAtt, "company_id": "ffffffff-ffff-4fff-8fff-ffffffffffff", "employee_id": emp2, "date": "2024-03-02", "status": "present"},
+		{"id": goodAtt, "company_id": coID, "employee_id": emp2, "date": "2024-03-02", "status": "present"},
+		{"id": dupAtt, "company_id": coID, "employee_id": emp2, "date": "2024-03-02", "status": "late"},
+	}
+	rep, err := run(t, pool, importer.Options{Dir: writeExport(t, exp), SkipInvalid: true})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n := count(t, pool, `SELECT count(*) FROM attendance_logs WHERE id = $1`, goodAtt); n != 1 {
+		t.Fatalf("valid row after a rejected same-key row was not inserted (invalid=%v)", rep.Invalid)
+	}
+	var dupReasonOK bool
+	for _, iv := range rep.Invalid {
+		if iv.ID == dupAtt && strings.Contains(iv.Reason, "duplicate") {
+			dupReasonOK = true
+		}
+	}
+	if !dupReasonOK || len(rep.Invalid) != 2 {
+		t.Fatalf("want the bad row and the true duplicate rejected, got %v", rep.Invalid)
+	}
+}
+
+func TestRun_TrailingJSONInATableFileFailsTheImport(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	dir := writeExport(t, map[string]rows{"companies": {{"id": coID, "name": "Acme Test"}}})
+	two := `[{"id":"` + coID + `","name":"Acme Test"}][{"id":"` + emp1 + `","name":"Page 2"}]`
+	if err := os.WriteFile(filepath.Join(dir, "companies.json"), []byte(two), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := run(t, pool, importer.Options{Dir: dir})
+	if err == nil || !strings.Contains(err.Error(), "companies.json") {
+		t.Fatalf("err = %v, want an error naming companies.json", err)
+	}
+	if n := count(t, pool, `SELECT count(*) FROM companies WHERE id = $1`, coID); n != 0 {
+		t.Fatalf("nothing may be written, got %d", n)
+	}
+}

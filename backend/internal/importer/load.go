@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -27,6 +28,11 @@ func readTable(dir, table string) (rows []Row, exists bool, err error) {
 	dec.UseNumber()
 	if err := dec.Decode(&rows); err != nil {
 		return nil, true, fmt.Errorf("%s must be a JSON array of objects: %w", path, err)
+	}
+	// Exactly one JSON value: concatenated page arrays would otherwise import
+	// only the first page and still exit 0.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, true, fmt.Errorf("%s has data after the first JSON array (merge pages into one array)", path)
 	}
 	return rows, true, nil
 }
@@ -66,28 +72,47 @@ func newUniqueTracker(sets [][]string) *uniqueTracker {
 	return t
 }
 
-// check returns a rejection reason when row repeats an earlier row's key, or
-// "". Rows missing any key column are left to the database to judge.
-func (t *uniqueTracker) check(id string, row Row) string {
+// keys returns the complete key of each unique set for row ("" when a column
+// is missing: such rows are left to the database to judge).
+func (t *uniqueTracker) keys(row Row) []string {
+	out := make([]string, len(t.sets))
 	for i, cols := range t.sets {
 		parts := make([]string, len(cols))
-		complete := true
 		for j, c := range cols {
 			v, ok := row[c]
 			if !ok || v == nil {
-				complete = false
+				parts = nil
 				break
 			}
 			parts[j] = fmt.Sprint(v)
 		}
-		if !complete {
+		if parts != nil {
+			out[i] = strings.Join(parts, "\x00")
+		}
+	}
+	return out
+}
+
+// check returns a rejection reason when row repeats the key of an earlier
+// accepted row, or "". It claims nothing: call claim once the row was
+// actually inserted, so a rejected row never blocks a later valid one.
+func (t *uniqueTracker) check(row Row) string {
+	for i, key := range t.keys(row) {
+		if key == "" {
 			continue
 		}
-		key := strings.Join(parts, "\x00")
 		if first, dup := t.seen[i][key]; dup {
-			return fmt.Sprintf("duplicate (%s) in export: same as row %s", strings.Join(cols, ", "), first)
+			return fmt.Sprintf("duplicate (%s) in export: same as row %s", strings.Join(t.sets[i], ", "), first)
 		}
-		t.seen[i][key] = id
 	}
 	return ""
+}
+
+// claim records row's unique keys as taken by id.
+func (t *uniqueTracker) claim(id string, row Row) {
+	for i, key := range t.keys(row) {
+		if key != "" {
+			t.seen[i][key] = id
+		}
+	}
 }

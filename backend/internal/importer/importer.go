@@ -172,7 +172,7 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 			continue
 		}
 		seen[id] = true
-		if reason := uniq.check(id, row); reason != "" {
+		if reason := uniq.check(row); reason != "" {
 			reject(id, reason)
 			continue
 		}
@@ -189,6 +189,7 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 			reject(id, reason)
 			continue
 		}
+		uniq.claim(id, row)
 		if inserted {
 			tr.Inserted++
 		} else {
