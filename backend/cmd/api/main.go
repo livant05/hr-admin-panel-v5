@@ -15,6 +15,7 @@ import (
 
 	"github.com/livant05/rrhh-go/internal/auth"
 	"github.com/livant05/rrhh-go/internal/handlers"
+	"github.com/livant05/rrhh-go/internal/ratelimit"
 	"github.com/livant05/rrhh-go/internal/scheduler"
 )
 
@@ -43,6 +44,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	rates, err := loadRateConfig(os.Getenv)
+	if err != nil {
+		log.Error("invalid rate limit configuration", "err", err)
+		os.Exit(1)
+	}
+
 	connCtx, cancelConn := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancelConn()
 
@@ -60,6 +67,9 @@ func main() {
 
 	signer := auth.NewSigner(jwtSecret, 24*time.Hour)
 	api := handlers.New(pool, signer, log)
+	api.AuthLimiter = ratelimit.New(rates.AuthPerMin, rates.AuthPerMin)
+	api.ADMSLimiter = ratelimit.New(rates.ADMSPerMin, rates.ADMSPerMin)
+	api.TrustedProxies = rates.TrustedProxies
 
 	// The accrual scheduler (design Q5c) runs independently of HTTP routing:
 	// api.Scheduler wires the manual POST /api/leave_balances/accrue handler

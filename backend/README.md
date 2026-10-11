@@ -55,6 +55,32 @@ exists in Supabase's managed Postgres, so it was removed from `migrations/0001_i
 it validates the JWT and injects `company_id` into the request context — every handler that
 touches tenant data must read it from there, never from a client-supplied field.
 
+## API conventions
+
+**Errors** use one envelope with `Content-Type: application/json`:
+`{"error":{"code":"<code>","message":"..."}}` (validation errors add `"fields"`). The `code` set is
+`bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `validation_failed`,
+`internal` and `rate_limited`.
+
+`rate_limited` extends the original A2 set: it is returned with HTTP 429 and a `Retry-After`
+header (whole seconds) when a client IP exceeds its budget on a public endpoint. Today that is
+`POST /api/auth/login`; register and the device ingestion endpoints join it in later slices.
+
+**Rate limiting** is an in-process token bucket per client IP (burst equals the per-minute rate),
+so each backend instance keeps its own counters. Settings:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `AUTH_RATE_PER_MIN` | `10` | Login (and register) requests per client IP per minute. |
+| `ADMS_RATE_PER_MIN` | `600` | Device ingestion per client IP per minute. **Provisional** until a real-device check. |
+| `TRUSTED_PROXY_CIDRS` | empty | Comma-separated CIDRs of reverse proxies whose `X-Real-IP` is believed. |
+
+The client IP is the TCP peer address, except when the peer is inside `TRUSTED_PROXY_CIDRS` and
+sends a valid `X-Real-IP` (nginx overwrites it with `$remote_addr`). `X-Forwarded-For` is never
+read because clients can forge it. Leaving `TRUSTED_PROXY_CIDRS` empty behind a proxy would put
+every user in the proxy's bucket; `docker-compose.yml` sets the private ranges because only nginx
+reaches the backend. Never trust a range that untrusted clients can connect from directly.
+
 ## Migrations
 
 Plain numbered SQL files in `migrations/`, applied automatically by Postgres's own
