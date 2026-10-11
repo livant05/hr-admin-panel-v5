@@ -35,15 +35,20 @@ type Querier interface {
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
+	CountDocumentTemplates(ctx context.Context, arg CountDocumentTemplatesParams) (int64, error)
 	CountEmployeePayRecords(ctx context.Context, arg CountEmployeePayRecordsParams) (int64, error)
 	CountEmployees(ctx context.Context, arg CountEmployeesParams) (int64, error)
 	CountEmployeesInBranch(ctx context.Context, arg CountEmployeesInBranchParams) (int64, error)
 	CountEmployeesInDepartment(ctx context.Context, arg CountEmployeesInDepartmentParams) (int64, error)
 	CountEmployeesInPosition(ctx context.Context, arg CountEmployeesInPositionParams) (int64, error)
+	CountEvaluations(ctx context.Context, arg CountEvaluationsParams) (int64, error)
+	CountGeneratedDocuments(ctx context.Context, arg CountGeneratedDocumentsParams) (int64, error)
 	CountLiquidationHistory(ctx context.Context, arg CountLiquidationHistoryParams) (int64, error)
+	CountMedicalRecords(ctx context.Context, arg CountMedicalRecordsParams) (int64, error)
 	CountPayrollHistory(ctx context.Context, arg CountPayrollHistoryParams) (int64, error)
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
+	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
 	// A1 rule 6 (design Q2): the tenant check on the client-supplied employee_id
 	// IS the insert, same as the other four Phase 2 tables -- a foreign
@@ -63,6 +68,7 @@ type Querier interface {
 	// exception" note).
 	CreateDeductionWithoutEmployee(ctx context.Context, arg CreateDeductionWithoutEmployeeParams) (Deduction, error)
 	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
+	CreateDocumentTemplate(ctx context.Context, arg CreateDocumentTemplateParams) (DocumentTemplate, error)
 	CreateEmployee(ctx context.Context, arg CreateEmployeeParams) (Employee, error)
 	// A1 rule 6 (manual-entry path, design R4a/spec "Manual entry with
 	// employee_id succeeds"): the tenant check on the client-supplied
@@ -94,6 +100,19 @@ type Querier interface {
 	// net_salary is still trusted as sent (design R4f: CSV import's net_salary
 	// is authoritative historical data from the PayDay "Salario Neto" column).
 	CreateEmployeePayRecordWithoutEmployee(ctx context.Context, arg CreateEmployeePayRecordWithoutEmployeeParams) (CreateEmployeePayRecordWithoutEmployeeRow, error)
+	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
+	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name is DERIVED from the employees row. scores/avg/category are
+	// computed in Go by internal/evaluation (design D1); client avg/category are
+	// never read. There is deliberately no Update query (no PATCH route).
+	CreateEvaluation(ctx context.Context, arg CreateEvaluationParams) (Evaluation, error)
+	// A1 rule 6 for TWO independent nullable FKs (design H5). The FKs check
+	// existence, not tenancy, so each SUPPLIED id must match a row in the
+	// caller's tenant or the statement selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name/template_name are DERIVED when the id matched and stored AS
+	// SENT only when that id is null. content is opaque: the client already ran
+	// applyVars; the server performs no {{VAR}} substitution.
+	CreateGeneratedDocument(ctx context.Context, arg CreateGeneratedDocumentParams) (GeneratedDocument, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql): the tenant
 	// check on the client-supplied employee_id IS the insert -- a foreign
 	// employee_id selects zero rows from `employees`, so a cross-tenant create
@@ -124,6 +143,12 @@ type Querier interface {
 	// LiquidationResult, inputs holds the raw acumulados inputs plus which of
 	// the five independent branches fired.
 	CreateLiquidationHistoryWithEmployee(ctx context.Context, arg CreateLiquidationHistoryWithEmployeeParams) (LiquidationHistory, error)
+	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
+	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name is DERIVED from the employees row. days/employer_days/
+	// css_days/salary_basis/cost are computed in Go by payroll.CalculateIncapacity
+	// (design D2); client values are never read.
+	CreateMedicalRecord(ctx context.Context, arg CreateMedicalRecordParams) (MedicalRecord, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql/leave_requests.sql):
 	// the tenant check on the client-supplied employee_id IS the insert -- a
 	// foreign employee_id selects zero rows from `employees`, so a cross-tenant
@@ -145,6 +170,11 @@ type Querier interface {
 	CreatePayrollHistory(ctx context.Context, arg CreatePayrollHistoryParams) (PayrollHistory, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
+	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
+	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
+	// employee_name is DERIVED from the employees row. date defaults to the
+	// current date when the client sends none (legacy saveUniform behavior).
+	CreateUniform(ctx context.Context, arg CreateUniformParams) (Uniform, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
 	// (attendance_logs, leave_balances, leave_requests, overtime_logs,
 	// deductions, medical_records, evaluations, uniforms, enrollments) that a
@@ -158,9 +188,12 @@ type Querier interface {
 	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
+	DeleteDocumentTemplate(ctx context.Context, arg DeleteDocumentTemplateParams) (int64, error)
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
 	// existing behavior; no soft-delete semantics apply to this table).
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
+	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
+	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
 	// while status='pending' -- an approved/rejected leave is the record behind
@@ -176,6 +209,8 @@ type Querier interface {
 	// design R5's no-cascade decision is not even a design choice here, it is
 	// structurally the only possible behavior).
 	DeleteLiquidationHistory(ctx context.Context, arg DeleteLiquidationHistoryParams) (int64, error)
+	// Hard delete (Phase 2 Q3 precedent): medical_records is not an FK target.
+	DeleteMedicalRecord(ctx context.Context, arg DeleteMedicalRecordParams) (int64, error)
 	// Hard delete (design Q3): the payroll amount is snapshotted into
 	// employee_pay_records at run time (Part A B2), so deleting the log cannot
 	// retro-alter a paid slip. overtime_logs is not an FK target
@@ -187,11 +222,14 @@ type Querier interface {
 	DeletePayrollHistory(ctx context.Context, arg DeletePayrollHistoryParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
+	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
+	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
+	GetDocumentTemplate(ctx context.Context, arg GetDocumentTemplateParams) (DocumentTemplate, error)
 	GetEmployee(ctx context.Context, arg GetEmployeeParams) (Employee, error)
 	// The one narrow read the liquidación endpoint (slice 3g) needs --
 	// GetEmployee's 33-column shape would be wasteful to reuse for a 5-field
@@ -216,9 +254,21 @@ type Querier interface {
 	// months=0, never a missing row (the handler's "bare object" contract).
 	GetEmployeePayBases(ctx context.Context, arg GetEmployeePayBasesParams) (GetEmployeePayBasesRow, error)
 	GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRecordParams) (GetEmployeePayRecordRow, error)
+	// Narrow tenant-scoped read for the medical_records incapacity cost (design
+	// D2): the salary is read INSIDE the write path, never taken from the client.
+	GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error)
+	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
+	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetLiquidationHistory(ctx context.Context, arg GetLiquidationHistoryParams) (LiquidationHistory, error)
+	GetMedicalRecord(ctx context.Context, arg GetMedicalRecordParams) (MedicalRecord, error)
+	// Read-modify-write source for PATCH. Tenant-scoped (a foreign id ->
+	// ErrNoRows -> 404) and row-locked so two concurrent PATCHes cannot
+	// interleave their recompute. effective_salary is the stored snapshot or --
+	// only for a row that never had one -- the employee's current salary, which
+	// the UPDATE then persists as salary_basis (self-healing).
+	GetMedicalRecordForUpdate(ctx context.Context, arg GetMedicalRecordForUpdateParams) (GetMedicalRecordForUpdateRow, error)
 	GetOvertimeLog(ctx context.Context, arg GetOvertimeLogParams) (OvertimeLog, error)
 	GetPayrollHistory(ctx context.Context, arg GetPayrollHistoryParams) (PayrollHistory, error)
 	GetPosition(ctx context.Context, arg GetPositionParams) (Position, error)
@@ -227,16 +277,20 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
+	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
 	GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
+	ListDocumentTemplates(ctx context.Context, arg ListDocumentTemplatesParams) ([]DocumentTemplate, error)
 	// Fixed ORDER BY period_year DESC, period_month DESC, created_at DESC
 	// (design R7) -- newest period first, ties broken by insertion order.
 	ListEmployeePayRecords(ctx context.Context, arg ListEmployeePayRecordsParams) ([]ListEmployeePayRecordsRow, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
+	ListEvaluations(ctx context.Context, arg ListEvaluationsParams) ([]Evaluation, error)
+	ListGeneratedDocuments(ctx context.Context, arg ListGeneratedDocumentsParams) ([]GeneratedDocument, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
 	// Filterable by employee_id (spec "List filtered by employee returns only
@@ -245,6 +299,7 @@ type Querier interface {
 	// PATCH exists for this resource, so there is no "last edited" concept to
 	// order by, only newest-first).
 	ListLiquidationHistory(ctx context.Context, arg ListLiquidationHistoryParams) ([]LiquidationHistory, error)
+	ListMedicalRecords(ctx context.Context, arg ListMedicalRecordsParams) ([]MedicalRecord, error)
 	ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error)
 	// Fixed ORDER BY year DESC, month DESC (design R7) -- replaces
 	// loadPayrollHistory's client-side sort (hr_admin_panel.html:3131).
@@ -266,6 +321,7 @@ type Querier interface {
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
+	ListUniforms(ctx context.Context, arg ListUniformsParams) ([]Uniform, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
@@ -283,6 +339,8 @@ type Querier interface {
 	// never reassigned by edit.
 	UpdateDeduction(ctx context.Context, arg UpdateDeductionParams) (Deduction, error)
 	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
+	// updated_at is maintained by trigger trg_tpl_upd (0001_init.sql); do not set it here.
+	UpdateDocumentTemplate(ctx context.Context, arg UpdateDocumentTemplateParams) (DocumentTemplate, error)
 	UpdateEmployee(ctx context.Context, arg UpdateEmployeeParams) (Employee, error)
 	// Full-column replace of every editable business field (deductions.go's
 	// UpdateDeduction precedent -- employee_pay_records keeps PATCH, unlike
@@ -307,6 +365,9 @@ type Querier interface {
 	// which the handler maps to 409 (not 404 -- existence was already confirmed
 	// by the handler's own Get before calling this).
 	UpdateLeaveRequestStatus(ctx context.Context, arg UpdateLeaveRequestStatusParams) (LeaveRequest, error)
+	// Full write of the merged row, including the recomputed fields. employee_id,
+	// employee_name, company_id and created_at are immutable.
+	UpdateMedicalRecord(ctx context.Context, arg UpdateMedicalRecordParams) (MedicalRecord, error)
 	// PATCH keeps employee_id/date immutable, mirroring attendance_logs' and
 	// leave_requests' precedent of restricting PATCH to the
 	// operationally-editable fields rather than a full-column replace. amount
@@ -315,6 +376,10 @@ type Querier interface {
 	UpdateOvertimeLog(ctx context.Context, arg UpdateOvertimeLogParams) (OvertimeLog, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
+	// Partial PATCH (design H1): absent/null keeps the stored value, so
+	// returnUniform's {status:'devuelto'} touches only status. Every parameter
+	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
+	UpdateUniform(ctx context.Context, arg UpdateUniformParams) (Uniform, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
 	// client-supplied employee_id IS the insert — a foreign employee_id selects
 	// zero rows from `employees`, so a cross-tenant write becomes

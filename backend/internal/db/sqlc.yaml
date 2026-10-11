@@ -13,3 +13,9 @@ sql:
         overrides:
           - db_type: "jsonb"
             go_type: "encoding/json.RawMessage"
+          # The override above matches NOT NULL columns only; nullable JSONB
+          # (evaluations.scores, surveys.questions, ...) needs its own entry
+          # or sqlc emits []byte, which encoding/json marshals as base64.
+          - db_type: "jsonb"
+            go_type: "encoding/json.RawMessage"
+            nullable: true

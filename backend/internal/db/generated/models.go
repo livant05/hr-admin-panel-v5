@@ -209,7 +209,7 @@ type Evaluation struct {
 	EmployeeName pgtype.Text        `json:"employee_name"`
 	Period       pgtype.Text        `json:"period"`
 	Evaluator    pgtype.Text        `json:"evaluator"`
-	Scores       []byte             `json:"scores"`
+	Scores       json.RawMessage    `json:"scores"`
 	Avg          pgtype.Numeric     `json:"avg"`
 	Category     pgtype.Text        `json:"category"`
 	Comments     pgtype.Text        `json:"comments"`
@@ -356,7 +356,7 @@ type Survey struct {
 	Audience    pgtype.Text        `json:"audience"`
 	CloseDate   pgtype.Date        `json:"close_date"`
 	Status      pgtype.Text        `json:"status"`
-	Questions   []byte             `json:"questions"`
+	Questions   json.RawMessage    `json:"questions"`
 	CreatedAt   pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -364,7 +364,7 @@ type SurveyResponse struct {
 	ID        pgtype.UUID        `json:"id"`
 	CompanyID pgtype.UUID        `json:"company_id"`
 	SurveyID  pgtype.UUID        `json:"survey_id"`
-	Answers   []byte             `json:"answers"`
+	Answers   json.RawMessage    `json:"answers"`
 	CreatedAt pgtype.Timestamptz `json:"created_at"`
 }
 
