@@ -127,6 +127,21 @@ is touched. Role reads stay open to every authenticated role.
   guard runs in one transaction that locks the company's active admins in id order, then the
   target row, so two admins demoting each other concurrently cannot both succeed.
 
+### Residual risk: sessions outlive deactivation (AUTH-10)
+
+A user who is deactivated (`DELETE /api/users/{id}`, `status: inactive`) or demoted keeps a working
+JWT until it expires, up to 24 hours: the token carries `role` and `company_id` as signed claims
+and the middleware does not re-check the user's row on each request (design D17). Login does check
+`status`, so a deactivated user cannot obtain a new token. If an account is compromised, deactivation
+alone does not end the current session within the day. A cache-backed per-request status check in
+the auth middleware is the follow-up if this window becomes unacceptable.
+
+## Companies (own company, read only)
+
+`GET /api/companies` returns a one-element array with the caller's own company and
+`GET /api/companies/{id}` returns it by id; any authenticated role may read. Another company's id
+is `404` on the by-id route and `[]` as a list filter. There are no write routes.
+
 ## Migrations
 
 Plain numbered SQL files in `migrations/`, applied automatically by Postgres's own
