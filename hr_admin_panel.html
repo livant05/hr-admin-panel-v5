@@ -2126,11 +2126,15 @@ var Supa = {
   // that replace the deleted prCalc/calcLiq JS formulas (design R4e/R8).
   // `path` already includes its own query string.
   goFetch: async function(path, opts) {
+    // Money calculations run only server-side (slice 3h); demo mode has no
+    // server, so answer with an explicit error instead of hitting the network.
+    if (A.demo) return { error: { code:'demo_unavailable', message:DEMO_CALC_MSG } };
     return this.gres(await fetch(this.goUrl+path, Object.assign({headers:this.ghdr()}, opts||{})));
   }
 };
 
 // ════════════════ UTILS ══════════════════════════════════════
+var DEMO_CALC_MSG = 'Cálculo no disponible en modo demo';
 function toast(msg, t, raw) {
   t = t || 'success';
   var c={success:'#28a745',danger:'#dc3545',warning:'#856404',info:'#17a2b8'};
@@ -2440,11 +2444,9 @@ async function loadDash() {
   // intentional improvement: the formula being server-only means there is
   // no cheap client-side "ignore attendance" shortcut left to keep).
   var dashCalc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:TD.getMonth()+1,year:TD.getFullYear(),period:'mensual'})).catch(function(){ return []; });
+  var dashNA=!Array.isArray(dashCalc);
   var prSums=(Array.isArray(dashCalc)?dashCalc:[]).reduce(function(s,r){ return {b:s.b+(r.b||0),ded:s.ded+(r.ded||0),net:s.net+(r.net||0),tot:s.tot+(r.tot||0)}; },{b:0,ded:0,net:0,tot:0});
-  document.getElementById('pr-dash-bruto').textContent=fmt(prSums.b);
-  document.getElementById('pr-dash-ded').textContent=fmt(prSums.ded);
-  document.getElementById('pr-dash-neto').textContent=fmt(prSums.net);
-  document.getElementById('pr-dash-total').textContent=fmt(prSums.tot);
+  ['bruto','ded','neto','total'].forEach(function(k,i){ var el=document.getElementById('pr-dash-'+k); el.textContent=dashNA?'—':fmt([prSums.b,prSums.ded,prSums.net,prSums.tot][i]); el.title=dashNA?((dashCalc&&dashCalc.error&&dashCalc.error.message)||''):''; });
   var alerts=await calcAlerts();
   document.getElementById('st-alerts').textContent=alerts.filter(function(a){ return a.type==='danger'||a.type==='warning'; }).length;
   // Birthdays
@@ -2962,6 +2964,13 @@ async function loadPayroll() {
   // medical_records is for medDays/medEmpDays; the preview response carries
   // neither.
   var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:month,year:year,period:period}));
+  if(calc&&calc.error){
+    _prRows=[];
+    var naMsg='<i class="fas fa-info-circle mr-1"></i>'+escHtml(calc.error.message||'No se pudo calcular la planilla');
+    var smNA=document.getElementById('pr-summary'); if(smNA) smNA.innerHTML='<div class="col-12"><div class="alert alert-info py-2 mb-3">'+naMsg+'</div></div>';
+    var tbNA=document.getElementById('pr-tbody'); if(tbNA) tbNA.innerHTML='<tr><td colspan="13" class="text-center p-3 text-muted">'+naMsg+'</td></tr>';
+    return;
+  }
   var calcByEmp={};
   if(Array.isArray(calc)) calc.forEach(function(row){ calcByEmp[row.employee_id]=row; });
 
@@ -3116,7 +3125,7 @@ async function printPayslip(empId) {
     var slipYr=parseInt(yr)||TD.getFullYear();
     var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
     var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
-    if(!row){ toast('No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
+    if(!row){ toast(calc&&calc.error?calc.error.message:'No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
     pr={b:row.b||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   }
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
