@@ -27,7 +27,7 @@ Gate `medical_records` (health data incl. `diagnosis`) behind a dedicated role p
 - [x] T1 — migration `0009_medical_permission.sql` + DB test (route: delegated writer; trigger: 2+ non-trivial files across T1-T3)
 - [x] T2 — backend gating of 5 medical routes + tests (403 non-admin without key, 403 with `medical:false`, allowed with `medical:true`, admin bypass) (route: delegated writer)
 - [x] T3 — frontend permission wiring + 403 handling (route: delegated writer)
-- [ ] T4 — apply 0009 to live dev DB, rebuild backend, live smoke (route: inline)
+- [x] T4 — apply 0009 to live dev DB, rebuild backend, live smoke (route: inline)
 
 ## Acceptance criteria
 - Non-admin role without truthy `medical` gets 403 on all 5 medical routes; with `medical:true` gets normal behavior; admin always passes.
@@ -41,5 +41,9 @@ Gate `medical_records` (health data incl. `diagnosis`) behind a dedicated role p
 - T3 (7aa871e, +12/-7): RED node harness (isPageAllowed('medical') followed attendance; 3 FAIL); GREEN after map/PERM_MODULES/seeds/loadMedical toast; `node --check` of inline script OK. Payroll preview already guards non-array (no change).
 - Verification: `go vet ./...` clean, `gofmt -l .` clean, `go test -count=1 ./...` green.
 
+- T4 (inline): 0009 applied to live `rrhh_go` (0 roles existed, UPDATE 0); re-run over 5 temporary roles gave medical true/false/true(object with history:true)/false(all-false object)/false(absent), then deleted; backend rebuilt, admin GET /api/medical_records 200. Not verified live: non-admin 403 (covered by DB tests), browser UI.
+- Review: RDD 4-lens (risk, resilience, readability, reliability) approved and acknowledged, lineage review-cb4787b487862d9d. Advisory: migration test mutates every test-DB role; test/doc attendance semantics wording drift; deploy order (0009 before backend); repeated "medical" literal; frontend 403 path untested; non-object normalization irreversible.
+- Delivery: pushed, PR #26 to master.
+
 ## Next step
-T4: apply 0009 to live dev DB, rebuild backend, live smoke.
+User merges PR #26 (run 0009 before deploying the backend).
