@@ -95,6 +95,23 @@ every user in the proxy's bucket. `docker-compose.yml` declares the `rrhh_go_net
 you change the subnet, change `TRUSTED_PROXY_CIDRS` with it (a test keeps them in sync). Never
 trust a broad private range or one that untrusted clients can connect from directly.
 
+## Users and roles (admin only)
+
+`/api/users` (list, get by id, create) and the write routes of `/api/roles` (create, update, delete)
+require the JWT role `admin`; any other role gets `403 forbidden` before the body or the database
+is touched. Role reads stay open to every authenticated role.
+
+- `POST /api/users` takes `{email, first_name, last_name, role, status?}` and nothing else (a
+  `password`, `password_hash`, `company_id` or `id` key is a 400). The email is trimmed and
+  lowercased; a duplicate in any case or company is a 409. `role` is `admin`, `empleado` (the
+  default) or the exact name of one of the company's roles, otherwise `validation_failed`.
+- The server generates a 24-character temporary password, stores only its bcrypt hash and returns
+  it once, as `temporary_password` in the 201 response (`Cache-Control: no-store`). It is never
+  logged and no later call can retrieve it. Password policy elsewhere is 8-72 bytes
+  (`auth.ValidatePassword`); `auth.GenerateTempPassword` is shared with `cmd/import`.
+- Responses use a fixed DTO (`id, company_id, email, role, first_name, last_name, status,
+  created_at`) built from queries that never select `password_hash`.
+
 ## Migrations
 
 Plain numbered SQL files in `migrations/`, applied automatically by Postgres's own

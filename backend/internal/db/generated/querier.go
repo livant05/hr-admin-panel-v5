@@ -175,6 +175,7 @@ type Querier interface {
 	// employee_name is DERIVED from the employees row. date defaults to the
 	// current date when the client sends none (legacy saveUniform behavior).
 	CreateUniform(ctx context.Context, arg CreateUniformParams) (Uniform, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
 	// (attendance_logs, leave_balances, leave_requests, overtime_logs,
 	// deductions, medical_records, evaluations, uniforms, enrollments) that a
@@ -278,6 +279,7 @@ type Querier interface {
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
 	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
+	GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
@@ -322,6 +324,9 @@ type Querier interface {
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
 	ListUniforms(ctx context.Context, arg ListUniformsParams) ([]Uniform, error)
+	// The users API selects explicit columns and never password_hash, so the
+	// generated row types cannot carry the hash (XC-2 holds structurally).
+	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)

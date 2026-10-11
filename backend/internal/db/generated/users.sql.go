@@ -11,6 +11,57 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const createUser = `-- name: CreateUser :one
+INSERT INTO users (company_id, email, role, first_name, last_name, status, password_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, company_id, email, role, first_name, last_name, status, created_at
+`
+
+type CreateUserParams struct {
+	CompanyID    pgtype.UUID `json:"company_id"`
+	Email        pgtype.Text `json:"email"`
+	Role         string      `json:"role"`
+	FirstName    pgtype.Text `json:"first_name"`
+	LastName     pgtype.Text `json:"last_name"`
+	Status       string      `json:"status"`
+	PasswordHash string      `json:"password_hash"`
+}
+
+type CreateUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
+	row := q.db.QueryRow(ctx, createUser,
+		arg.CompanyID,
+		arg.Email,
+		arg.Role,
+		arg.FirstName,
+		arg.LastName,
+		arg.Status,
+		arg.PasswordHash,
+	)
+	var i CreateUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getCompanyByID = `-- name: GetCompanyByID :one
 SELECT id, name, ruc, address, phone, created_at
 FROM companies
@@ -27,6 +78,44 @@ func (q *Queries) GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, 
 		&i.Ruc,
 		&i.Address,
 		&i.Phone,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUser = `-- name: GetUser :one
+SELECT id, company_id, email, role, first_name, last_name, status, created_at
+FROM users
+WHERE id = $2 AND company_id = $1
+`
+
+type GetUserParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type GetUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error) {
+	row := q.db.QueryRow(ctx, getUser, arg.CompanyID, arg.ID)
+	var i GetUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -104,4 +193,74 @@ func (q *Queries) GetUserForLogin(ctx context.Context, email string) (GetUserFor
 		&i.CompanyName,
 	)
 	return i, err
+}
+
+const listUsers = `-- name: ListUsers :many
+
+SELECT id, company_id, email, role, first_name, last_name, status, created_at
+FROM users
+WHERE company_id = $1
+  AND ($2::uuid IS NULL OR id = $2)
+  AND ($5::text IS NULL OR role = $5)
+  AND ($6::text IS NULL OR status = $6)
+ORDER BY created_at, id
+LIMIT $3 OFFSET $4
+`
+
+type ListUsersParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	Column2   pgtype.UUID `json:"column_2"`
+	Limit     int32       `json:"limit"`
+	Offset    int32       `json:"offset"`
+	Role      pgtype.Text `json:"role"`
+	Status    pgtype.Text `json:"status"`
+}
+
+type ListUsersRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// The users API selects explicit columns and never password_hash, so the
+// generated row types cannot carry the hash (XC-2 holds structurally).
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers,
+		arg.CompanyID,
+		arg.Column2,
+		arg.Limit,
+		arg.Offset,
+		arg.Role,
+		arg.Status,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersRow
+	for rows.Next() {
+		var i ListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.Email,
+			&i.Role,
+			&i.FirstName,
+			&i.LastName,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
