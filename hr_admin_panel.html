@@ -2762,11 +2762,11 @@ async function loadAttendance() {
   if(sr) sr.innerHTML=[{l:'Presentes',v:cnt.present,c:'success',i:'fa-user-check'},{l:'Tardanzas',v:cnt.late,c:'warning',i:'fa-user-clock'},{l:'Ausentes',v:cnt.absent,c:'danger',i:'fa-user-times'},{l:'Permisos',v:cnt.permission,c:'info',i:'fa-door-open'}].map(function(s){ return '<div class="col-md-3 col-6"><div class="small-box bg-'+s.c+' stat-card"><div class="inner"><h4>'+s.v+'</h4><p>'+s.l+'</p></div><div class="icon"><i class="fas '+s.i+'"></i></div></div></div>'; }).join('');
   var stM={present:'<span class="badge badge-success">Presente</span>',late:'<span class="badge badge-warning">Tardanza</span>',absent:'<span class="badge badge-danger">Ausente</span>',permission:'<span class="badge badge-info">Permiso</span>'};
   var tb=document.getElementById('att-today-tbody');
-  if(tb) tb.innerHTML=empList.map(function(e){ var l=logList.find(function(x){ return x.employee_id===e.id; })||{}; var hw=hwCalc(l.time_in,l.time_out); var wl=l.work_type?'<small class="text-muted">'+wtLabel(l.work_type)+'</small>':'—'; return '<tr class="'+(l.status==='present'?'att-present':l.status==='absent'?'att-absent':'')+'">'+'<td><strong>'+e.first_name+' '+e.last_name+'</strong></td><td><small>'+(e.department||'—')+'</small></td><td class="att-log-in">'+(l.time_in||'—')+'</td><td class="att-log-out">'+(l.time_out||'—')+'</td><td>'+(hw>0?hw+' hrs':'—')+'</td><td>'+(stM[l.status]||'<span class="badge badge-secondary">Sin registro</span>')+'</td><td>'+wl+'</td><td>'+(l.id?'<button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button>':'<button class="btn btn-xs btn-outline-success" onclick="quickAtt(\''+e.id+'\')"><i class="fas fa-plus"></i></button>')+'</td></tr>'; }).join('');
+  if(tb) tb.innerHTML=empList.map(function(e){ var l=logList.find(function(x){ return x.employee_id===e.id; })||{}; var hw=hwCalc(l.time_in,l.time_out); var wl=l.work_type?'<small class="text-muted">'+escHtml(wtLabel(l.work_type))+'</small>':'—'; return '<tr class="'+(l.status==='present'?'att-present':l.status==='absent'?'att-absent':'')+'">'+'<td><strong>'+escHtml(e.first_name+' '+e.last_name)+'</strong></td><td><small>'+escHtml(e.department||'—')+'</small></td><td class="att-log-in">'+escHtml(l.time_in||'—')+'</td><td class="att-log-out">'+escHtml(l.time_out||'—')+'</td><td>'+(hw>0?hw+' hrs':'—')+'</td><td>'+(stM[l.status]||'<span class="badge badge-secondary">Sin registro</span>')+'</td><td>'+wl+'</td><td>'+(l.id?'<button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button>':'<button class="btn btn-xs btn-outline-success" onclick="quickAtt(\''+e.id+'\')"><i class="fas fa-plus"></i></button>')+'</td></tr>'; }).join('');
   var ae=document.getElementById('att-emp'), ahe=document.getElementById('att-h-emp');
-  var opts='<option value="">— Seleccionar —</option>'+empList.map(function(e){ return '<option value="'+e.id+'" data-name="'+e.first_name+' '+e.last_name+'" data-dept="'+(e.department||'')+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  var opts='<option value="">— Seleccionar —</option>'+empList.map(function(e){ return '<option value="'+e.id+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'" data-dept="'+escHtml(e.department||'')+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   if(ae) ae.innerHTML=opts;
-  if(ahe) ahe.innerHTML='<option value="">Todos</option>'+empList.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ahe) ahe.innerHTML='<option value="">Todos</option>'+empList.map(function(e){ return '<option value="'+e.id+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   var ad=document.getElementById('att-date'); if(ad&&!ad.value) ad.value=TS;
   initAttRepSelectors();
 }
@@ -2799,7 +2799,7 @@ async function loadAttHistory() {
   logs.sort(function(a,b){ return b.date.localeCompare(a.date); });
   var stM={present:'<span class="badge badge-success">Presente</span>',late:'<span class="badge badge-warning">Tardanza</span>',absent:'<span class="badge badge-danger">Ausente</span>',permission:'<span class="badge badge-info">Permiso</span>'};
   var tb=document.getElementById('att-hist-tbody');
-  if(tb) tb.innerHTML=logs.length?logs.map(function(l){ var wl=l.work_type?'<small class="text-muted">'+wtLabel(l.work_type)+'</small>':'—'; return '<tr><td><strong>'+l.employee_name+'</strong></td><td>'+l.date+'</td><td class="att-log-in">'+(l.time_in||'—')+'</td><td class="att-log-out">'+(l.time_out||'—')+'</td><td>'+(hwCalc(l.time_in,l.time_out)>0?hwCalc(l.time_in,l.time_out)+' hrs':'—')+'</td><td>'+(stM[l.status]||l.status)+'</td><td>'+wl+'</td><td><small>'+(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin registros</td></tr>';
+  if(tb) tb.innerHTML=logs.length?logs.map(function(l){ var wl=l.work_type?'<small class="text-muted">'+escHtml(wtLabel(l.work_type))+'</small>':'—'; return '<tr><td><strong>'+escHtml(l.employee_name)+'</strong></td><td>'+escHtml(l.date)+'</td><td class="att-log-in">'+escHtml(l.time_in||'—')+'</td><td class="att-log-out">'+escHtml(l.time_out||'—')+'</td><td>'+(hwCalc(l.time_in,l.time_out)>0?hwCalc(l.time_in,l.time_out)+' hrs':'—')+'</td><td>'+(stM[l.status]||escHtml(l.status))+'</td><td>'+wl+'</td><td><small>'+escHtml(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delAtt(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin registros</td></tr>';
 }
 function initAttRepSelectors() {
   var ms=document.getElementById('att-r-month'), ys=document.getElementById('att-r-year');
@@ -2816,7 +2816,7 @@ function loadAttReport() {
     byEmp[e.id]={name:e.first_name+' '+e.last_name,dept:e.department||'—',present:el.filter(function(l){ return l.status==='present'; }).length,late:el.filter(function(l){ return l.status==='late'; }).length,absent:el.filter(function(l){ return l.status==='absent'; }).length,permission:el.filter(function(l){ return l.status==='permission'; }).length};
   });
   var rc=document.getElementById('att-rep-content');
-  if(rc) rc.innerHTML='<div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title">Asistencia — '+MONTHS[mo-1]+' '+yr+'</h3></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Empleado</th><th>Departamento</th><th class="text-success">Presentes</th><th class="text-warning">Tardanzas</th><th class="text-danger">Ausentes</th><th class="text-info">Permisos</th></tr></thead><tbody>'+Object.values(byEmp).map(function(r){ return '<tr><td><strong>'+r.name+'</strong></td><td>'+r.dept+'</td><td class="text-center text-success">'+r.present+'</td><td class="text-center text-warning">'+r.late+'</td><td class="text-center text-danger">'+r.absent+'</td><td class="text-center text-info">'+r.permission+'</td></tr>'; }).join('')+'</tbody></table></div></div></div></div>';
+  if(rc) rc.innerHTML='<div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title">Asistencia — '+MONTHS[mo-1]+' '+yr+'</h3></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Empleado</th><th>Departamento</th><th class="text-success">Presentes</th><th class="text-warning">Tardanzas</th><th class="text-danger">Ausentes</th><th class="text-info">Permisos</th></tr></thead><tbody>'+Object.values(byEmp).map(function(r){ return '<tr><td><strong>'+escHtml(r.name)+'</strong></td><td>'+escHtml(r.dept)+'</td><td class="text-center text-success">'+r.present+'</td><td class="text-center text-warning">'+r.late+'</td><td class="text-center text-danger">'+r.absent+'</td><td class="text-center text-info">'+r.permission+'</td></tr>'; }).join('')+'</tbody></table></div></div></div></div>';
 }
 function exportAttCSV() { var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&l.date===TS; }); var csv=[['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia.csv'); toast('Exportado 📥'); }
 function exportAttReport() { var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear(); var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; }); var csv=[['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥'); }
@@ -2909,11 +2909,11 @@ async function loadVacations() {
   var bals=await Supa.sel('leave_balances'), reqs=await Supa.sel('leave_requests'), emps=await Supa.sel('employees');
   var yr=new Date().getFullYear(); document.getElementById('vbal-year').textContent=yr;
   var vne=document.getElementById('vn-emp');
-  if(vne&&Array.isArray(emps)) vne.innerHTML='<option value="">—</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(vne&&Array.isArray(emps)) vne.innerHTML='<option value="">—</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   var vbt=document.getElementById('vbal-tbody');
-  if(vbt&&Array.isArray(bals)) vbt.innerHTML=bals.length?bals.map(function(b){ var pct=b.earned_days?Math.round(b.used_days/b.earned_days*100):0, col=b.remaining_days>10?'success':b.remaining_days>5?'warning':'danger'; return '<tr><td><strong>'+b.employee_name+'</strong></td><td><span class="badge badge-success">'+b.earned_days+'</span></td><td><span class="badge badge-warning">'+b.used_days+'</span></td><td><span class="badge badge-'+col+'">'+b.remaining_days+'</span></td><td style="width:180px"><div class="progress" style="height:7px"><div class="progress-bar bg-'+col+'" style="width:'+pct+'%"></div></div><small class="text-muted">'+pct+'% usado</small></td></tr>'; }).join(''):'<tr><td colspan="5" class="text-center p-3 text-muted">Sin registros</td></tr>';
+  if(vbt&&Array.isArray(bals)) vbt.innerHTML=bals.length?bals.map(function(b){ var pct=b.earned_days?Math.round(b.used_days/b.earned_days*100):0, col=b.remaining_days>10?'success':b.remaining_days>5?'warning':'danger'; return '<tr><td><strong>'+escHtml(b.employee_name)+'</strong></td><td><span class="badge badge-success">'+b.earned_days+'</span></td><td><span class="badge badge-warning">'+b.used_days+'</span></td><td><span class="badge badge-'+col+'">'+b.remaining_days+'</span></td><td style="width:180px"><div class="progress" style="height:7px"><div class="progress-bar bg-'+col+'" style="width:'+pct+'%"></div></div><small class="text-muted">'+pct+'% usado</small></td></tr>'; }).join(''):'<tr><td colspan="5" class="text-center p-3 text-muted">Sin registros</td></tr>';
   var vrt=document.getElementById('vreq-tbody');
-  if(vrt&&Array.isArray(reqs)){ var stC={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'}, stL={pending:'Pendiente',approved:'Aprobada',rejected:'Rechazada'}; vrt.innerHTML=reqs.length?reqs.map(function(r){ var bt=r.status==='pending'?'<button class="btn btn-xs btn-success mr-1" onclick="approveLeave(\''+r.id+'\',true)"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-danger" onclick="approveLeave(\''+r.id+'\',false)"><i class="fas fa-times"></i></button>':'—'; return '<tr><td>'+r.employee_name+'</td><td>'+r.type+'</td><td>'+r.start_date+'</td><td>'+r.end_date+'</td><td>'+r.days+'</td><td><span class="'+(stC[r.status]||'')+'">'+( stL[r.status]||r.status)+'</span></td><td>'+bt+'</td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin solicitudes</td></tr>'; }
+  if(vrt&&Array.isArray(reqs)){ var stC={pending:'status-pending',approved:'status-approved',rejected:'status-rejected'}, stL={pending:'Pendiente',approved:'Aprobada',rejected:'Rechazada'}; vrt.innerHTML=reqs.length?reqs.map(function(r){ var bt=r.status==='pending'?'<button class="btn btn-xs btn-success mr-1" onclick="approveLeave(\''+r.id+'\',true)"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-danger" onclick="approveLeave(\''+r.id+'\',false)"><i class="fas fa-times"></i></button>':'—'; return '<tr><td>'+escHtml(r.employee_name)+'</td><td>'+escHtml(r.type)+'</td><td>'+escHtml(r.start_date)+'</td><td>'+escHtml(r.end_date)+'</td><td>'+escHtml(r.days)+'</td><td><span class="'+(stC[r.status]||'')+'">'+( stL[r.status]||escHtml(r.status))+'</span></td><td>'+bt+'</td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin solicitudes</td></tr>'; }
 }
 function calcVacDays() { var s=document.getElementById('vn-start').value, e=document.getElementById('vn-end').value; if(!s||!e) return; var el=document.getElementById('vn-days'); if(el) el.value=Math.max(0,Math.round((new Date(e)-new Date(s))/86400000)+1); }
 async function saveLeaveReq() {
@@ -3438,7 +3438,7 @@ function printPayroll() { var mo=MONTHS[(parseInt(document.getElementById('pr-mo
 // ════════════════ OVERTIME ═══════════════════════════════════
 async function loadOT() {
   var emps=await Supa.sel('employees',{status:'active'}); var ae=document.getElementById('ot-emp');
-  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'" data-wh="'+(e.weekly_hours||48)+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'" data-sal="'+escHtml(e.salary||0)+'" data-wh="'+escHtml(e.weekly_hours||48)+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   renderOTTable();
 }
 function calcOT() {
@@ -3463,7 +3463,7 @@ async function saveOT() {
 function renderOTTable() {
   var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; }).sort(function(a,b){ return b.date.localeCompare(a.date); });
   var tb=document.getElementById('ot-tbody'), tl={regular:'Diurna +25%',mixed:'Mixta +50%',night:'Nocturna +75%',sunday:'Descanso +50%',holiday:'Festivo +150%'};
-  if(tb) tb.innerHTML=logs.length?logs.map(function(l){ return '<tr><td><strong>'+l.employee_name+'</strong></td><td>'+l.date+'</td><td><strong>'+l.hours+'</strong> hrs</td><td><span class="ot-type ot-'+l.type+'">'+(tl[l.type]||l.type)+'</span></td><td class="text-success"><strong>'+fmt(l.amount)+'</strong></td><td><small>'+(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delOT(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin registros de horas extras.</td></tr>';
+  if(tb) tb.innerHTML=logs.length?logs.map(function(l){ return '<tr><td><strong>'+escHtml(l.employee_name)+'</strong></td><td>'+escHtml(l.date)+'</td><td><strong>'+escHtml(l.hours)+'</strong> hrs</td><td><span class="ot-type ot-'+escHtml(l.type)+'">'+(tl[l.type]||escHtml(l.type))+'</span></td><td class="text-success"><strong>'+fmt(l.amount)+'</strong></td><td><small>'+escHtml(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delOT(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin registros de horas extras.</td></tr>';
   var tot=logs.reduce(function(s,l){ return s+(l.amount||0); },0);
   var tf=document.getElementById('ot-tfoot');
   if(tf) tf.innerHTML=logs.length?'<td colspan="4" class="text-right pr-total-row"><strong>Total Horas Extras</strong></td><td class="text-success pr-total-row"><strong>'+fmt(tot)+'</strong></td><td colspan="2"></td>':'';
@@ -3474,7 +3474,7 @@ function exportOTCSV() { var logs=DS.overtime_logs.filter(function(l){ return l.
 // ════════════════ DEDUCTIONS ═════════════════════════════════
 async function loadDed() {
   var emps=await Supa.sel('employees',{status:'active'}); var ae=document.getElementById('ded-emp');
-  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   renderDedTable();
 }
 function calcDed() {
@@ -3525,14 +3525,14 @@ function renderDedTable() {
   var tb=document.getElementById('ded-tbody');
   if(tb) tb.innerHTML=deds.length?deds.map(function(d){
     return '<tr>'
-      +'<td><strong>'+d.employee_name+'</strong></td>'
-      +'<td><small>'+(d.cedula||'—')+'</small></td>'
-      +'<td>'+(d.acreedor_nombre||d.description||d.type||'—')+'</td>'
-      +'<td><small>'+(d.tipo_pago||'—')+'</small></td>'
+      +'<td><strong>'+escHtml(d.employee_name)+'</strong></td>'
+      +'<td><small>'+escHtml(d.cedula||'—')+'</small></td>'
+      +'<td>'+escHtml(d.acreedor_nombre||d.description||d.type||'—')+'</td>'
+      +'<td><small>'+escHtml(d.tipo_pago||'—')+'</small></td>'
       +'<td class="text-danger">'+fmt(d.quota)+'</td>'
       +'<td>'+(d.remaining>0?fmt(d.remaining):'<span class="badge badge-success">Saldado</span>')+'</td>'
-      +'<td><small>'+(d.start_date||'—')+'</small></td>'
-      +'<td><small>'+(d.end_date||'—')+'</small></td>'
+      +'<td><small>'+escHtml(d.start_date||'—')+'</small></td>'
+      +'<td><small>'+escHtml(d.end_date||'—')+'</small></td>'
       +'<td><span class="badge badge-'+(d.status==='active'?'warning':'success')+'">'+(d.status==='active'?'Activa':'Saldada')+'</span></td>'
       +'<td><button class="btn btn-xs btn-outline-success mr-1" onclick="saldaDed(\''+d.id+'\')" title="Saldada"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delDed(\''+d.id+'\')"><i class="fas fa-trash"></i></button></td>'
       +'</tr>';
@@ -3975,9 +3975,9 @@ async function renderCalendar() {
   var yr=A.calYear, mo=A.calMonth;
   var title=document.getElementById('cal-title'); if(title) title.textContent=MONTHS[mo]+' '+yr;
   var events={};
-  empList.forEach(function(e){ if(!e.birth_date) return; var bd=new Date(e.birth_date); if(bd.getMonth()===mo){ var key=yr+'-'+String(mo+1).padStart(2,'0')+'-'+String(bd.getDate()).padStart(2,'0'); if(!events[key]) events[key]=[]; events[key].push({type:'birthday',label:'🎂 '+e.first_name}); } });
-  vreqs.forEach(function(r){ var s=new Date(r.start_date), end=new Date(r.end_date); for(var d=new Date(s);d<=end;d.setDate(d.getDate()+1)){ if(d.getFullYear()===yr&&d.getMonth()===mo){ var key=d.toISOString().split('T')[0]; if(!events[key]) events[key]=[]; events[key].push({type:'vacation',label:'🏖️ '+r.employee_name.split(' ')[0]}); } } });
-  empList.forEach(function(e){ if(!e.contract_expiry) return; var ce=new Date(e.contract_expiry); if(ce.getFullYear()===yr&&ce.getMonth()===mo){ var key=e.contract_expiry; if(!events[key]) events[key]=[]; events[key].push({type:'contract',label:'📄 '+e.first_name}); } });
+  empList.forEach(function(e){ if(!e.birth_date) return; var bd=new Date(e.birth_date); if(bd.getMonth()===mo){ var key=yr+'-'+String(mo+1).padStart(2,'0')+'-'+String(bd.getDate()).padStart(2,'0'); if(!events[key]) events[key]=[]; events[key].push({type:'birthday',label:'🎂 '+escHtml(e.first_name)}); } });
+  vreqs.forEach(function(r){ var s=new Date(r.start_date), end=new Date(r.end_date); for(var d=new Date(s);d<=end;d.setDate(d.getDate()+1)){ if(d.getFullYear()===yr&&d.getMonth()===mo){ var key=d.toISOString().split('T')[0]; if(!events[key]) events[key]=[]; events[key].push({type:'vacation',label:'🏖️ '+escHtml(r.employee_name.split(' ')[0])}); } } });
+  empList.forEach(function(e){ if(!e.contract_expiry) return; var ce=new Date(e.contract_expiry); if(ce.getFullYear()===yr&&ce.getMonth()===mo){ var key=e.contract_expiry; if(!events[key]) events[key]=[]; events[key].push({type:'contract',label:'📄 '+escHtml(e.first_name)}); } });
   var firstDay=new Date(yr,mo,1).getDay(), daysInMonth=new Date(yr,mo+1,0).getDate();
   var todayKey=TS, grid=document.getElementById('cal-grid'); if(!grid) return;
   var html=''; for(var i=0;i<firstDay;i++) html+='<div class="cal-day" style="opacity:.3"></div>';
@@ -4101,12 +4101,12 @@ async function loadZKTeco() {
         var badge='<span class="badge badge-'+(online?'success':'secondary')+'">'+(online?'En línea':'Offline')+'</span>';
         var ago=last?(diffMin<1?'Ahora':diffMin+'m atrás'):'—';
         return '<tr id="zkrow-'+d.id+'">'
-          +'<td><code>'+d.serial_number+'</code></td>'
-          +'<td id="zk-name-'+d.id+'">'+(d.name||'<small class="text-muted">Sin nombre</small>')+'</td>'
-          +'<td id="zk-loc-'+d.id+'">'+(d.location||'—')+'</td>'
+          +'<td><code>'+escHtml(d.serial_number)+'</code></td>'
+          +'<td id="zk-name-'+d.id+'">'+(d.name?escHtml(d.name):'<small class="text-muted">Sin nombre</small>')+'</td>'
+          +'<td id="zk-loc-'+d.id+'">'+escHtml(d.location||'—')+'</td>'
           +'<td><small>'+ago+'</small></td>'
           +'<td>'+badge+'</td>'
-          +'<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\''+d.id+'\',\''+encodeURIComponent(d.name||'')+'\',\''+encodeURIComponent(d.location||'')+'\')"><i class="fas fa-pencil-alt"></i></button></td>'
+          +'<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\''+d.id+'\',\''+encodeURIComponent(d.name||'').replace(/'/g,'%27')+'\',\''+encodeURIComponent(d.location||'').replace(/'/g,'%27')+'\')"><i class="fas fa-pencil-alt"></i></button></td>'
           +'</tr>';
       }).join('');
     } else {
@@ -4121,9 +4121,9 @@ async function loadZKTeco() {
   if(ptb){
     if(Array.isArray(pins)&&pins.length){
       ptb.innerHTML=pins.map(function(p){
-        return '<tr><td><strong>'+p.pin+'</strong></td><td><small>'+(p.serial_number||'—')+'</small></td>'
+        return '<tr><td><strong>'+escHtml(p.pin)+'</strong></td><td><small>'+escHtml(p.serial_number||'—')+'</small></td>'
           +'<td><small>'+(p.last_seen?new Date(p.last_seen).toLocaleString('es-PA'):'—')+'</small></td>'
-          +'<td><span class="badge badge-warning">'+p.attempts+'</span></td></tr>';
+          +'<td><span class="badge badge-warning">'+escHtml(p.attempts)+'</span></td></tr>';
       }).join('');
     } else {
       ptb.innerHTML='<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
@@ -4134,8 +4134,8 @@ async function loadZKTeco() {
 function editZKDevice(id, encName, encLoc) {
   var name = decodeURIComponent(encName);
   var loc = decodeURIComponent(encLoc);
-  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+name.replace(/"/g,'&quot;')+'" style="min-width:100px">';
-  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+loc.replace(/"/g,'&quot;')+'" style="min-width:100px">';
+  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+escHtml(name)+'" style="min-width:100px">';
+  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+escHtml(loc)+'" style="min-width:100px">';
   var row = document.getElementById('zkrow-'+id);
   var lastTd = row.querySelector('td:last-child');
   lastTd.innerHTML = '<button class="btn btn-xs btn-success mr-1" onclick="saveZKDevice(\''+id+'\')"><i class="fas fa-check"></i></button>'
