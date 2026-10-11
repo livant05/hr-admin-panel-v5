@@ -62,6 +62,11 @@ Plain numbered SQL files in `migrations/`, applied automatically by Postgres's o
 To re-apply after changing a migration file: `docker compose down -v && docker compose up -d --build`
 (this wipes local data — fine for dev, not for anything with real data in it).
 
+**Idempotency rule:** every migration numbered `0010` or higher must be idempotent
+(`IF NOT EXISTS`, guarded `DO` blocks, ...). The test harness (`internal/testutil`) re-applies
+them on every run against an already-initialized test database; files below `0010` only run
+on a fresh one.
+
 ## Regenerating sqlc code
 
 Queries live in `internal/db/queries/*.sql`, config in `internal/db/sqlc.yaml`, generated

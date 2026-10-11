@@ -1,5 +1,9 @@
 -- Case-insensitive unique user emails (AUTH-3).
 --
+-- RULE: every migration numbered 0010 or higher MUST be idempotent. The test
+-- harness (internal/testutil) re-applies them on every run against an
+-- already-initialized database.
+--
 -- Idempotent. Fails loudly, naming the offending addresses, if existing rows
 -- collide once lowercased, so the unique index is never silently skipped.
 -- Stored emails are not rewritten: lookups use lower(email).
