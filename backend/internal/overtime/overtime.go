@@ -3,7 +3,11 @@
 // the per-record hour cap and the amount formula. Pure: stdlib and payroll.Num.
 package overtime
 
-import "github.com/livant05/rrhh-go/internal/payroll"
+import (
+	"strings"
+
+	"github.com/livant05/rrhh-go/internal/payroll"
+)
 
 // rates mirrors OT_RATES (hr_admin_panel.html:1857) -- statutory Panama
 // Código de Trabajo overtime recargos. A package-level table, not tenant
@@ -41,3 +45,12 @@ func Amount(hourlyRate, hours payroll.Num, otType string) (payroll.Num, bool) {
 	}
 	return hourlyRate.Mul(payroll.MustParseDecimal(raw)).Mul(hours), true
 }
+
+// typeOrder is the statutory presentation order of the known types.
+var typeOrder = []string{"regular", "mixed", "night", "sunday", "holiday"}
+
+// Types lists the known overtime types in statutory order (a fresh slice).
+func Types() []string { return append([]string(nil), typeOrder...) }
+
+// TypesList is Types joined for error messages: "regular, mixed, ...".
+func TypesList() string { return strings.Join(typeOrder, ", ") }

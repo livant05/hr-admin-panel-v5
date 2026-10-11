@@ -111,7 +111,7 @@ func transformOvertimeLog(_ context.Context, _ querier, row Row, _ *runState) er
 		typ = overtime.DefaultType
 	}
 	if _, ok := overtime.Rate(typ); !ok {
-		return invalidf("type: must be one of regular, mixed, night, sunday, holiday")
+		return invalidf("type: must be one of %s", overtime.TypesList())
 	}
 	hours, err := numField(row, "hours")
 	if err != nil {

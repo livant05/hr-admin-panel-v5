@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/livant05/rrhh-go/internal/importer"
+	"github.com/livant05/rrhh-go/internal/overtime"
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
 
@@ -334,4 +335,20 @@ func TestParityWithAPI(t *testing.T) {
 	same(`SELECT amount::text FROM overtime_logs WHERE id = $1::uuid`, apiOT["id"], "cccccccc-cccc-4ccc-8ccc-ccccccccccc2")
 	same(`SELECT days||'/'||employer_days||'/'||css_days||'/'||salary_basis||'/'||cost FROM medical_records WHERE id = $1::uuid`,
 		apiMed["id"], "cccccccc-cccc-4ccc-8ccc-ccccccccccc3")
+}
+
+func TestOvertime_UnknownTypeMessageListsTheOvertimePackageTypes(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	exp := withEmployees(map[string]rows{"overtime_logs": {{
+		"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1", "company_id": coID, "employee_id": emp1,
+		"date": "2024-03-01", "hours": 2, "type": "weekend", "hourly_rate": 5,
+	}}})
+	rep, err := run(t, pool, importer.Options{Dir: writeExport(t, exp), SkipInvalid: true})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	want := "type: must be one of " + strings.Join(overtime.Types(), ", ")
+	if len(rep.Invalid) != 1 || rep.Invalid[0].Reason != want {
+		t.Fatalf("invalid = %+v, want reason %q", rep.Invalid, want)
+	}
 }

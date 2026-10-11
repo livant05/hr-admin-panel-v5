@@ -1,6 +1,7 @@
 package overtime_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/livant05/rrhh-go/internal/overtime"
@@ -38,5 +39,22 @@ func TestAmount_IsHourlyRateTimesRateTimesHours(t *testing.T) {
 	}
 	if _, ok := overtime.Amount(hourly, hours, "nope"); ok {
 		t.Error("unknown type must report ok=false")
+	}
+}
+
+func TestTypes_ListsEveryRateInStatutoryOrder(t *testing.T) {
+	want := []string{"regular", "mixed", "night", "sunday", "holiday"}
+	got := overtime.Types()
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Types() = %v, want %v", got, want)
+	}
+	for _, typ := range got {
+		if _, ok := overtime.Rate(typ); !ok {
+			t.Errorf("Types() lists %q but Rate does not know it", typ)
+		}
+	}
+	got[0] = "mutated"
+	if overtime.Types()[0] != "regular" {
+		t.Error("Types() must return a copy")
 	}
 }
