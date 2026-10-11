@@ -61,5 +61,11 @@ Route: delegated writer (single), TDD strict (runner: go test, source: task brie
 
 - T4 live dry-run (parent): `go run ./cmd/import --dry-run` against live `rrhh_go` with testdata/export_users (2 users would be created, no CSV written), testdata/export (seed company reported already present; `supabase_only_column` and `remaining_days` dropped) and testdata/export_invalid (1 invalid row reported, exit 1). Row counts employees/evaluations/users/roles identical before and after (2/0/1/0).
 
+## Review follow-ups (user-approved WARNINGs, strict TDD)
+- R4-ambiguous-commit-deletes-passwords c87121a: on Commit error the CSV is deleted only after a fresh-context (10s) probe confirms no created user exists; present => kept + `Report.CommitWarning`; undeterminable => kept + `ErrCommitOutcomeUnknown`. Seams `Options.Commit`/`Options.Probe`. RED: `TestUsers_AmbiguousCommitThatLandedKeepsPasswordsAndWarns` (no CommitWarning), `...FailedCommitThatDidNotLand...` (err nil), `...UnverifiableCommitOutcome...` (err nil). GREEN after fix.
+- R3-unique-key-claimed-by-rejected-row + R3-trailing-json-silently-ignored 8f13675: `uniqueTracker` split into `check` (no claim) and `claim` (after processRow succeeds); `readTable` requires EOF after the array. RED: `TestRun_RejectedRowDoesNotClaimItsUniqueKey` (valid row rejected as duplicate of rejected row), `TestRun_TrailingJSONInATableFileFailsTheImport` (err nil). GREEN after fix.
+- R2-ot-type-list-dup c04d787: `overtime.Types()`/`TypesList()`; importer and `handlers/overtime_logs.go` messages derive from it (text unchanged). RED: `TestOvertime_UnknownTypeMessageListsTheOvertimePackageTypes` (stub Types returned nil), `TestTypes_...` (undefined symbol). GREEN after fix.
+- Re-verification: `go test ./...` green, `go vet`, `gofmt -l`, `go build ./cmd/import` clean.
+
 ## Next step
 Delivery: ~2400 authored lines > 400 budget; user picks the delivery strategy.
