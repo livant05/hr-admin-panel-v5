@@ -46,12 +46,22 @@ func (c *stepClock) Advance(d time.Duration) {
 // password comparisons performed.
 func limitedAPI(t *testing.T, pool *pgxpool.Pool, perMinute, burst int, trusted ...string) (http.Handler, *stepClock, *int) {
 	t.Helper()
+	return limitedAPIWithSuccessBudget(t, pool, perMinute, burst, handlers.DefaultAuthSuccessRatePerMin, trusted...)
+}
+
+// limitedAPIWithSuccessBudget is limitedAPI with an explicit per-minute (and
+// burst) size for the looser budget that counts every login attempt,
+// successful or not (CO-S1b-2).
+func limitedAPIWithSuccessBudget(t *testing.T, pool *pgxpool.Pool, perMinute, burst, successPerMinute int, trusted ...string) (http.Handler, *stepClock, *int) {
+	t.Helper()
 	signer := auth.NewSigner(testutil.TestSecret, loginTTL)
 	api := handlers.New(pool, signer, slog.New(slog.NewTextHandler(io.Discard, nil)))
 
 	clk := &stepClock{t: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
 	api.AuthLimiter = ratelimit.New(perMinute, burst)
 	api.AuthLimiter.Now = clk.Now
+	api.AuthSuccessLimiter = ratelimit.New(successPerMinute, successPerMinute)
+	api.AuthSuccessLimiter.Now = clk.Now
 	for _, c := range trusted {
 		api.TrustedProxies = append(api.TrustedProxies, netip.MustParsePrefix(c))
 	}
@@ -222,6 +232,19 @@ func TestNew_DefaultsMatchProductionLimits(t *testing.T) {
 	if allowed != 10 {
 		t.Fatalf("default auth burst = %d, want 10", allowed)
 	}
+
+	if api.AuthSuccessLimiter == nil {
+		t.Fatal("New must install the looser login limiter")
+	}
+	allowed = 0
+	for i := 0; i < 100; i++ {
+		if ok, _ := api.AuthSuccessLimiter.Allow("k"); ok {
+			allowed++
+		}
+	}
+	if allowed != 60 {
+		t.Fatalf("default looser login burst = %d, want 60", allowed)
+	}
 }
 
 func TestLoginRateLimit_IPv6ClientsShareTheirSlash64Budget(t *testing.T) {
@@ -362,5 +385,117 @@ func TestLoginRateLimit_SuccessAfterFailuresKeepsRemainingBudget(t *testing.T) {
 	}
 	if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("budget spent by 3 failures, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_SuccessfulLoginsAreCappedByTheLooserBudget(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, clk, compares := limitedAPIWithSuccessBudget(t, pool, 10, 10, 5)
+	tn := testutil.Company(t, pool, "RateCapCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("cap")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 5; i++ {
+		if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+			t.Fatalf("success %d inside the looser budget: got %d, want 200", i, rec.Code)
+		}
+	}
+	before := *compares
+	rec := loginFrom(h, peer, "", email, "correct-horse")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("6th login in the minute must be throttled by the looser budget, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "12" {
+		t.Fatalf("Retry-After = %q, want 12 (5/min refills one token per 12s)", got)
+	}
+	if code := testutil.ErrCode(t, rec); code != "rate_limited" {
+		t.Fatalf("error.code = %q, want rate_limited", code)
+	}
+	if *compares != before {
+		t.Fatal("a login throttled by the looser budget must not reach bcrypt")
+	}
+
+	clk.Advance(12 * time.Second)
+	if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+		t.Fatalf("after Retry-After the success budget has refilled one token, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_DefaultLooserBudgetAllows60SuccessesAndThrottlesTheNext(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, pool, 10, 10)
+	tn := testutil.Company(t, pool, "RateSixtyCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("sixty")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 60; i++ {
+		if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+			t.Fatalf("success %d of 60 must pass, got %d (%s)", i, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("the 61st successful login within a minute must be 429, got %d", rec.Code)
+	}
+	if rec := loginFrom(h, "203.0.113.20:40000", "", email, "correct-horse"); rec.Code != http.StatusOK {
+		t.Fatalf("another client keeps its own looser budget, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_FailuresCountAgainstTheLooserBudgetToo(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPIWithSuccessBudget(t, pool, 10, 10, 3)
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 3; i++ {
+		if rec := loginFrom(h, peer, "", "nobody@corp.test", "x"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d: got %d, want 401", i, rec.Code)
+		}
+	}
+	if rec := loginFrom(h, peer, "", "nobody@corp.test", "x"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("the looser budget counts ALL attempts, so a 4th is throttled, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_LooserBudgetRejectionLeavesTheStrictBudgetIntact(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, clk, _ := limitedAPIWithSuccessBudget(t, pool, 10, 3, 3)
+	tn := testutil.Company(t, pool, "RateOrderCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("order")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 3; i++ {
+		if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+			t.Fatalf("success %d: got %d, want 200", i, rec.Code)
+		}
+	}
+	for i := 0; i < 4; i++ {
+		if rec := loginFrom(h, peer, "", email, "wrong"); rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("throttled attempt %d: got %d, want 429", i, rec.Code)
+		}
+	}
+	// 20s refills one looser token (3/min). The rejected attempts above must
+	// not have drained the strict budget of 3 failures.
+	clk.Advance(20 * time.Second)
+	if rec := loginFrom(h, peer, "", email, "wrong"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("strict budget must be untouched by looser-budget rejections, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_StrictBudgetStillRejectsWhenTheLooserOneHasRoom(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPIWithSuccessBudget(t, pool, 10, 2, 60)
+	const peer = "198.51.100.7:40000"
+
+	loginFrom(h, peer, "", "nobody@corp.test", "x")
+	loginFrom(h, peer, "", "nobody@corp.test", "x")
+	rec := loginFrom(h, peer, "", "nobody@corp.test", "x")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("two failures drain the strict burst of 2, got %d", rec.Code)
+	}
+	if got := rec.Header().Get("Retry-After"); got != "6" {
+		t.Fatalf("Retry-After = %q, want the strict budget's 6", got)
 	}
 }

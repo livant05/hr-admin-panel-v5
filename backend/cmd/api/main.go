@@ -68,6 +68,7 @@ func main() {
 	signer := auth.NewSigner(jwtSecret, 24*time.Hour)
 	api := handlers.New(pool, signer, log)
 	api.AuthLimiter = ratelimit.New(rates.AuthPerMin, rates.AuthPerMin)
+	api.AuthSuccessLimiter = ratelimit.New(rates.AuthSuccessPerMin, rates.AuthSuccessPerMin)
 	api.ADMSLimiter = ratelimit.New(rates.ADMSPerMin, rates.ADMSPerMin)
 	api.TrustedProxies = rates.TrustedProxies
 

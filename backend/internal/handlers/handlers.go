@@ -48,6 +48,12 @@ type API struct {
 	// environment and tests replace them with fake-clock instances.
 	AuthLimiter, ADMSLimiter *ratelimit.Limiter
 
+	// AuthSuccessLimiter is the looser per-client budget that counts EVERY
+	// login attempt, successful or not. AuthLimiter only charges failures
+	// (decision #911), so without this cap a client could force unbounded
+	// bcrypt work with valid credentials.
+	AuthSuccessLimiter *ratelimit.Limiter
+
 	// TrustedProxies lists the reverse-proxy prefixes whose X-Real-IP header
 	// is believed when keying the limiters. Empty trusts nobody.
 	TrustedProxies []netip.Prefix
@@ -55,10 +61,12 @@ type API struct {
 
 // Production defaults for the public-endpoint limiters (requests per minute,
 // also used as the burst). The ADMS figure is provisional until a real-device
-// check (design D1, OPS-1).
+// check (design D1, OPS-1). DefaultAuthSuccessRatePerMin sizes the looser
+// login budget that counts successes as well (CO-S1b-2).
 const (
-	DefaultAuthRatePerMin = 10
-	DefaultADMSRatePerMin = 600
+	DefaultAuthRatePerMin        = 10
+	DefaultAuthSuccessRatePerMin = 60
+	DefaultADMSRatePerMin        = 600
 )
 
 func New(pool *pgxpool.Pool, signer *auth.Signer, log *slog.Logger) *API {
@@ -69,6 +77,8 @@ func New(pool *pgxpool.Pool, signer *auth.Signer, log *slog.Logger) *API {
 		Log:         log,
 		AuthLimiter: ratelimit.New(DefaultAuthRatePerMin, DefaultAuthRatePerMin),
 		ADMSLimiter: ratelimit.New(DefaultADMSRatePerMin, DefaultADMSRatePerMin),
+
+		AuthSuccessLimiter: ratelimit.New(DefaultAuthSuccessRatePerMin, DefaultAuthSuccessRatePerMin),
 	}
 }
 
