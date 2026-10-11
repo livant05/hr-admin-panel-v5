@@ -81,7 +81,7 @@ keying for IPv6 and the cap size keep that expensive. Settings:
 | Variable | Default | Meaning |
 |---|---|---|
 | `AUTH_RATE_PER_MIN` | `10` | Failed login attempts (and, once it exists, register requests) per client IP per minute. |
-| `AUTH_SUCCESS_RATE_PER_MIN` | `60` | Looser per-client budget that counts **every** login attempt, successful ones included, so valid credentials cannot force unbounded bcrypt work. Checked before the strict budget; never refunded. |
+| `AUTH_ATTEMPT_RATE_PER_MIN` | `60` | Looser per-client budget that counts **every** login attempt, successful ones included, so valid credentials cannot force unbounded bcrypt work. Checked before the strict budget; never refunded. |
 | `ADMS_RATE_PER_MIN` | `600` | Device ingestion per client IP per minute. **Provisional** until a real-device check. |
 | `TRUSTED_PROXY_CIDRS` | empty | Comma-separated CIDRs of reverse proxies whose `X-Real-IP` is believed. |
 

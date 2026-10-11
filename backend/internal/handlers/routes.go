@@ -147,7 +147,7 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health) // public — more specific than /api/
 	// Login is public but throttled per client IP; more specific than /api/.
-	mux.Handle("POST /api/auth/login", a.rateLimitedFailuresOnly(a.AuthLimiter, a.AuthSuccessLimiter, http.HandlerFunc(a.Login)))
+	mux.Handle("POST /api/auth/login", a.rateLimitedLogin(a.AuthLimiter, a.AuthAttemptLimiter, http.HandlerFunc(a.Login)))
 	mux.Handle("/api/", signer.Middleware(protected))
 	return mux
 }

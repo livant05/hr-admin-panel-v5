@@ -29,7 +29,7 @@ func (a *API) rateLimited(l *ratelimit.Limiter, next http.Handler) http.Handler 
 	})
 }
 
-// rateLimitedFailuresOnly is rateLimited for login with two budgets per client.
+// rateLimitedLogin is rateLimited for login with two budgets per client.
 //
 // The strict budget (failures) reserves a token up front (an empty bucket is
 // rejected before any bcrypt work, even if the password would have been right)
@@ -44,9 +44,9 @@ func (a *API) rateLimited(l *ratelimit.Limiter, next http.Handler) http.Handler 
 // never refunded: it bounds the bcrypt CPU a single client can force with
 // valid credentials, which the strict budget deliberately does not. It is
 // checked first, so a request it rejects never touches the strict budget.
-func (a *API) rateLimitedFailuresOnly(strict, all *ratelimit.Limiter, next http.Handler) http.Handler {
+func (a *API) rateLimitedLogin(strict, all *ratelimit.Limiter, next http.Handler) http.Handler {
 	if strict == nil || all == nil {
-		panic("handlers: rateLimitedFailuresOnly requires non-nil limiters")
+		panic("handlers: rateLimitedLogin requires non-nil limiters")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := ratelimit.Key(ratelimit.ClientIP(r, a.TrustedProxies))

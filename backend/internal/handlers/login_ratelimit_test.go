@@ -47,13 +47,13 @@ func (c *stepClock) Advance(d time.Duration) {
 // password comparisons performed.
 func limitedAPI(t *testing.T, pool *pgxpool.Pool, perMinute, burst int, trusted ...string) (http.Handler, *stepClock, *int) {
 	t.Helper()
-	return limitedAPIWithSuccessBudget(t, pool, perMinute, burst, handlers.DefaultAuthSuccessRatePerMin, trusted...)
+	return limitedAPIWithAttemptBudget(t, pool, perMinute, burst, handlers.DefaultAuthAttemptRatePerMin, trusted...)
 }
 
-// limitedAPIWithSuccessBudget is limitedAPI with an explicit per-minute (and
+// limitedAPIWithAttemptBudget is limitedAPI with an explicit per-minute (and
 // burst) size for the looser budget that counts every login attempt,
 // successful or not (CO-S1b-2).
-func limitedAPIWithSuccessBudget(t *testing.T, pool *pgxpool.Pool, perMinute, burst, successPerMinute int, trusted ...string) (http.Handler, *stepClock, *int) {
+func limitedAPIWithAttemptBudget(t *testing.T, pool *pgxpool.Pool, perMinute, burst, attemptPerMinute int, trusted ...string) (http.Handler, *stepClock, *int) {
 	t.Helper()
 	signer := auth.NewSigner(testutil.TestSecret, loginTTL)
 	api := handlers.New(pool, signer, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -61,8 +61,8 @@ func limitedAPIWithSuccessBudget(t *testing.T, pool *pgxpool.Pool, perMinute, bu
 	clk := &stepClock{t: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}
 	api.AuthLimiter = ratelimit.New(perMinute, burst)
 	api.AuthLimiter.Now = clk.Now
-	api.AuthSuccessLimiter = ratelimit.New(successPerMinute, successPerMinute)
-	api.AuthSuccessLimiter.Now = clk.Now
+	api.AuthAttemptLimiter = ratelimit.New(attemptPerMinute, attemptPerMinute)
+	api.AuthAttemptLimiter.Now = clk.Now
 	for _, c := range trusted {
 		api.TrustedProxies = append(api.TrustedProxies, netip.MustParsePrefix(c))
 	}
@@ -234,12 +234,12 @@ func TestNew_DefaultsMatchProductionLimits(t *testing.T) {
 		t.Fatalf("default auth burst = %d, want 10", allowed)
 	}
 
-	if api.AuthSuccessLimiter == nil {
+	if api.AuthAttemptLimiter == nil {
 		t.Fatal("New must install the looser login limiter")
 	}
 	allowed = 0
 	for i := 0; i < 100; i++ {
-		if ok, _ := api.AuthSuccessLimiter.Allow("k"); ok {
+		if ok, _ := api.AuthAttemptLimiter.Allow("k"); ok {
 			allowed++
 		}
 	}
@@ -391,7 +391,7 @@ func TestLoginRateLimit_SuccessAfterFailuresKeepsRemainingBudget(t *testing.T) {
 
 func TestLoginRateLimit_SuccessfulLoginsAreCappedByTheLooserBudget(t *testing.T) {
 	pool := testutil.Pool(t)
-	h, clk, compares := limitedAPIWithSuccessBudget(t, pool, 10, 10, 5)
+	h, clk, compares := limitedAPIWithAttemptBudget(t, pool, 10, 10, 5)
 	tn := testutil.Company(t, pool, "RateCapCo-"+uuid.NewString()[:6])
 	email := uniqueEmail("cap")
 	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
@@ -446,7 +446,7 @@ func TestLoginRateLimit_DefaultLooserBudgetAllows60SuccessesAndThrottlesTheNext(
 
 func TestLoginRateLimit_FailuresCountAgainstTheLooserBudgetToo(t *testing.T) {
 	pool := testutil.Pool(t)
-	h, _, _ := limitedAPIWithSuccessBudget(t, pool, 10, 10, 3)
+	h, _, _ := limitedAPIWithAttemptBudget(t, pool, 10, 10, 3)
 	const peer = "198.51.100.7:40000"
 
 	for i := 1; i <= 3; i++ {
@@ -461,7 +461,7 @@ func TestLoginRateLimit_FailuresCountAgainstTheLooserBudgetToo(t *testing.T) {
 
 func TestLoginRateLimit_LooserBudgetRejectionLeavesTheStrictBudgetIntact(t *testing.T) {
 	pool := testutil.Pool(t)
-	h, clk, _ := limitedAPIWithSuccessBudget(t, pool, 10, 3, 3)
+	h, clk, _ := limitedAPIWithAttemptBudget(t, pool, 10, 3, 3)
 	tn := testutil.Company(t, pool, "RateOrderCo-"+uuid.NewString()[:6])
 	email := uniqueEmail("order")
 	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
@@ -487,7 +487,7 @@ func TestLoginRateLimit_LooserBudgetRejectionLeavesTheStrictBudgetIntact(t *test
 
 func TestLoginRateLimit_StrictBudgetStillRejectsWhenTheLooserOneHasRoom(t *testing.T) {
 	pool := testutil.Pool(t)
-	h, _, _ := limitedAPIWithSuccessBudget(t, pool, 10, 2, 60)
+	h, _, _ := limitedAPIWithAttemptBudget(t, pool, 10, 2, 60)
 	const peer = "198.51.100.7:40000"
 
 	loginFrom(h, peer, "", "nobody@corp.test", "x")

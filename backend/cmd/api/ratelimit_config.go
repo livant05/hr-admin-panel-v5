@@ -13,7 +13,7 @@ import (
 // environment.
 type rateConfig struct {
 	AuthPerMin        int            // AUTH_RATE_PER_MIN: failed logins (and register) per client IP
-	AuthSuccessPerMin int            // AUTH_SUCCESS_RATE_PER_MIN: all login attempts, successes included, per client IP
+	AuthAttemptPerMin int            // AUTH_ATTEMPT_RATE_PER_MIN: all login attempts, successes included, per client IP
 	ADMSPerMin        int            // ADMS_RATE_PER_MIN: device ingestion per client IP (provisional)
 	TrustedProxies    []netip.Prefix // TRUSTED_PROXY_CIDRS: proxies whose X-Real-IP is believed
 }
@@ -28,7 +28,7 @@ func loadRateConfig(getenv func(string) string) (rateConfig, error) {
 	if cfg.AuthPerMin, err = positiveIntEnv(getenv, "AUTH_RATE_PER_MIN", handlers.DefaultAuthRatePerMin); err != nil {
 		return rateConfig{}, err
 	}
-	if cfg.AuthSuccessPerMin, err = positiveIntEnv(getenv, "AUTH_SUCCESS_RATE_PER_MIN", handlers.DefaultAuthSuccessRatePerMin); err != nil {
+	if cfg.AuthAttemptPerMin, err = positiveIntEnv(getenv, "AUTH_ATTEMPT_RATE_PER_MIN", handlers.DefaultAuthAttemptRatePerMin); err != nil {
 		return rateConfig{}, err
 	}
 	if cfg.ADMSPerMin, err = positiveIntEnv(getenv, "ADMS_RATE_PER_MIN", handlers.DefaultADMSRatePerMin); err != nil {
