@@ -43,6 +43,11 @@
 //
 // Every statutory constant lives in constants.go as an exact decimal string
 // literal (never a float64), each commented with its hr_admin_panel.html
-// source line. CalcVersion tags every persisted liquidación breakdown
+// source line. medical.go (Phase 4a) ports the medical-incapacity day split
+// and cost (calcMedical/saveMedical); it does not touch CalcVersion or any
+// golden fixture. Two faithfully-ported quirks are kept deliberately:
+// paternidad charges 3 employer days even when the incapacity is shorter,
+// and maternidad uses the same illness split (3 employer days, then CSS at
+// 70%). CalcVersion tags every persisted liquidación breakdown
 // (slice 3g) with the formula version that produced it.
 package payroll

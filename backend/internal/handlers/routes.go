@@ -105,6 +105,39 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("GET /api/liquidation_history/{id}", a.GetLiquidationHistory)
 	protected.HandleFunc("DELETE /api/liquidation_history/{id}", a.DeleteLiquidationHistory) // hard
 
+	// document_templates: opaque CRUD, full-replace PATCH. DELETE answers 409
+	// while generated_documents still reference the template (slice 4b).
+	protected.HandleFunc("GET /api/document_templates", a.ListDocumentTemplates)
+	protected.HandleFunc("POST /api/document_templates", a.CreateDocumentTemplate)
+	protected.HandleFunc("GET /api/document_templates/{id}", a.GetDocumentTemplate)
+	protected.HandleFunc("PATCH /api/document_templates/{id}", a.UpdateDocumentTemplate)
+	protected.HandleFunc("DELETE /api/document_templates/{id}", a.DeleteDocumentTemplate) // hard; 409 when referenced
+
+	// generated_documents: issued records. Create/list/get only; no PATCH or
+	// DELETE (design H1). Both nullable FKs are tenant-checked inside the INSERT.
+	protected.HandleFunc("GET /api/generated_documents", a.ListGeneratedDocuments)
+	protected.HandleFunc("POST /api/generated_documents", a.CreateGeneratedDocument)
+	protected.HandleFunc("GET /api/generated_documents/{id}", a.GetGeneratedDocument)
+
+	// evaluations: avg and category are recomputed server-side from scores
+	// (D1). No PATCH route: PATCH answers 405 (slice 4d).
+	protected.HandleFunc("GET /api/evaluations", a.ListEvaluations)
+	protected.HandleFunc("POST /api/evaluations", a.CreateEvaluation)
+	protected.HandleFunc("GET /api/evaluations/{id}", a.GetEvaluation)
+	protected.HandleFunc("DELETE /api/evaluations/{id}", a.DeleteEvaluation) // hard delete
+
+	protected.HandleFunc("GET /api/medical_records", a.ListMedicalRecords)
+	protected.HandleFunc("POST /api/medical_records", a.CreateMedicalRecord) // days split + cost computed server-side
+	protected.HandleFunc("GET /api/medical_records/{id}", a.GetMedicalRecord)
+	protected.HandleFunc("PATCH /api/medical_records/{id}", a.UpdateMedicalRecord)  // partial, tx, always recomputes
+	protected.HandleFunc("DELETE /api/medical_records/{id}", a.DeleteMedicalRecord) // hard delete
+
+	protected.HandleFunc("GET /api/uniforms", a.ListUniforms)
+	protected.HandleFunc("POST /api/uniforms", a.CreateUniform)
+	protected.HandleFunc("GET /api/uniforms/{id}", a.GetUniform)
+	protected.HandleFunc("PATCH /api/uniforms/{id}", a.UpdateUniform)  // partial (returnUniform)
+	protected.HandleFunc("DELETE /api/uniforms/{id}", a.DeleteUniform) // hard delete
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health)     // public — more specific than /api/
 	mux.HandleFunc("POST /api/auth/login", a.Login) // public — more specific than /api/
