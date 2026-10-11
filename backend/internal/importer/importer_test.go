@@ -203,9 +203,9 @@ func TestRun_ValueTypesRoundTrip(t *testing.T) {
 		"id": att1, "company_id": coID, "employee_id": emp1, "date": "2024-03-01",
 		"time_in": "08:15:00", "time_out": "17:00:00", "work_type": 2,
 	}}
-	exp["roles"] = rows{
-		{"id": "66666666-6666-4666-8666-666666666661", "company_id": coID, "name": "obj", "permissions": map[string]any{"attendance": true}},
-		{"id": "66666666-6666-4666-8666-666666666662", "company_id": coID, "name": "str", "permissions": "{\"attendance\":true}"},
+	exp["surveys"] = rows{
+		{"id": "66666666-6666-4666-8666-666666666661", "company_id": coID, "title": "obj", "questions": []any{map[string]any{"q": "How?"}}},
+		{"id": "66666666-6666-4666-8666-666666666662", "company_id": coID, "title": "str", "questions": "[{\"q\":\"How?\"}]"},
 	}
 	exp["zkteco_unknown_pins"] = rows{{
 		"id": "77777777-7777-4777-8777-777777777771", "pin": "1234", "attempts": 3, "resolved": true,
@@ -239,11 +239,11 @@ func TestRun_ValueTypesRoundTrip(t *testing.T) {
 	if timeIn != "08:15:00" || wt != 2 {
 		t.Fatalf("attendance round trip: %s %d", timeIn, wt)
 	}
-	// jsonb: an object stays an object, a JSON string stays a JSON string.
-	if got := count(t, pool, `SELECT count(*) FROM roles WHERE name = 'obj' AND jsonb_typeof(permissions) = 'object'`); got != 1 {
+	// jsonb: an array stays an array, a JSON string stays a JSON string.
+	if got := count(t, pool, `SELECT count(*) FROM surveys WHERE title = 'obj' AND jsonb_typeof(questions) = 'array'`); got != 1 {
 		t.Fatalf("object jsonb not preserved")
 	}
-	if got := count(t, pool, `SELECT count(*) FROM roles WHERE name = 'str' AND jsonb_typeof(permissions) = 'string'`); got != 1 {
+	if got := count(t, pool, `SELECT count(*) FROM surveys WHERE title = 'str' AND jsonb_typeof(questions) = 'string'`); got != 1 {
 		t.Fatalf("string jsonb not preserved")
 	}
 	if got := count(t, pool, `SELECT count(*) FROM zkteco_unknown_pins WHERE pin = '1234' AND resolved AND attempts = 3`); got != 1 {

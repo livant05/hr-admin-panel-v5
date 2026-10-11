@@ -14,12 +14,9 @@ import (
 )
 
 const (
-	medicalStatusActive = "activa"
-	medicalStatusClosed = "cerrada"
-	// maxMedicalDays caps the incapacity span (about 10 years). With it the
-	// computed cost fits medical_records.cost NUMERIC(12,2) for any monthly
-	// salary up to ~82M; an unbounded span overflowed it into a 500.
-	maxMedicalDays = 3650
+	medicalStatusActive = payroll.MedicalStatusActive
+	medicalStatusClosed = payroll.MedicalStatusClosed
+	maxMedicalDays      = payroll.MaxIncapacityDays
 )
 
 // medicalRecordFields are the keys saveMedical / closeMedical send.

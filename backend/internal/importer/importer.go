@@ -79,6 +79,7 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 	}
 
 	seen := map[string]bool{}
+	uniq := newUniqueTracker(spec.Unique)
 	dropped := map[string]bool{}
 	reject := func(id, reason string) {
 		tr.Invalid++
@@ -97,8 +98,12 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 			continue
 		}
 		seen[id] = true
+		if reason := uniq.check(id, row); reason != "" {
+			reject(id, reason)
+			continue
+		}
 
-		inserted, drop, err := processRow(ctx, tx, spec.Name, meta, row)
+		inserted, drop, err := processRow(ctx, tx, spec, meta, row)
 		for _, k := range drop {
 			dropped[k] = true
 		}
@@ -120,17 +125,28 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 		tr.Dropped = append(tr.Dropped, k)
 	}
 	sort.Strings(tr.Dropped)
+	if spec.After != nil {
+		if err := spec.After(ctx, tx, tr); err != nil {
+			return tr, err
+		}
+	}
 	return tr, nil
 }
 
 // processRow runs one row inside a savepoint: on error the savepoint is
 // rolled back so the surrounding transaction stays usable.
-func processRow(ctx context.Context, tx pgx.Tx, table string, meta *tableMeta, row Row) (inserted bool, dropped []string, err error) {
+func processRow(ctx context.Context, tx pgx.Tx, spec tableSpec, meta *tableMeta, row Row) (inserted bool, dropped []string, err error) {
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return false, nil, err
 	}
-	inserted, dropped, err = insertRow(ctx, sp, table, meta, row)
+	if spec.Transform != nil {
+		if err = spec.Transform(ctx, sp, row); err != nil {
+			_ = sp.Rollback(ctx)
+			return false, nil, err
+		}
+	}
+	inserted, dropped, err = insertRow(ctx, sp, spec.Name, meta, row)
 	if err != nil {
 		_ = sp.Rollback(ctx)
 		return false, dropped, err

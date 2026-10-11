@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
+	"github.com/livant05/rrhh-go/internal/overtime"
 )
 
 // overtimeLogRequest is the exact contract saveOT sends
@@ -54,7 +55,7 @@ func normalizeOvertimeType(raw pgtype.Text) (string, bool) {
 	if raw.Valid && strings.TrimSpace(raw.String) != "" {
 		t = raw.String
 	}
-	if _, known := otRates[t]; !known {
+	if _, known := overtime.Rate(t); !known {
 		return "", false
 	}
 	return t, true

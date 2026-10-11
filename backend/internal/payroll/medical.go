@@ -30,6 +30,17 @@ func ParseIncapacityType(s string) (IncapacityType, bool) {
 	return "", false
 }
 
+// MaxIncapacityDays caps the incapacity span (about 10 years). With it the
+// computed cost fits medical_records.cost NUMERIC(12,2) for any monthly
+// salary up to ~82M; an unbounded span overflowed it into a 500.
+const MaxIncapacityDays = 3650
+
+// Medical record statuses (medical_records.status).
+const (
+	MedicalStatusActive = "activa"
+	MedicalStatusClosed = "cerrada"
+)
+
 // ErrEndBeforeStart is returned when the end date precedes the start date.
 // The JS silently produced days=0 here; the Go port rejects it.
 var ErrEndBeforeStart = errors.New("payroll: end_date before start_date")
