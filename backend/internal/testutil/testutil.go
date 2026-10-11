@@ -98,15 +98,34 @@ func failOrSkip(t *testing.T, msg string) {
 // application across concurrently running test packages.
 const migrationLockKey = 7261008810
 
-// isIdempotentMigration reports whether a migration file is numbered >= 0010
-// (the first migration written to be safely re-applied).
+// firstIdempotentMigration is the number of the first migration written to be
+// safely re-applied. Every migration numbered at or above it MUST be
+// idempotent: this harness re-applies it on every Pool() call.
+const firstIdempotentMigration = 10
+
+// isIdempotentMigration reports whether a migration file is numbered
+// >= firstIdempotentMigration.
 func isIdempotentMigration(base string) bool {
 	if len(base) < 4 {
 		return false
 	}
 	n, err := strconv.Atoi(base[:4])
-	return err == nil && n >= 10
+	return err == nil && n >= firstIdempotentMigration
 }
+
+// dedupeLegacyEmailsSQL rewrites, in TEST databases only, every user whose
+// lower(email) collides with an older row (oldest created_at, then id, wins).
+// Old fixtures stored fixed emails, so a long-lived test database may hold
+// case-insensitive duplicates that would abort migration 0010. Never part of
+// the production migration path.
+const dedupeLegacyEmailsSQL = `
+UPDATE users u
+SET email = 'dedup-' || u.id::text || '-' || u.email
+FROM (
+  SELECT id, row_number() OVER (PARTITION BY lower(email) ORDER BY created_at, id) AS rn
+  FROM users WHERE email IS NOT NULL
+) r
+WHERE r.id = u.id AND r.rn > 1`
 
 // applyMigrations globs migrations/*.sql, sorts by filename, skips any file
 // whose name contains "seed" (the seeded Ventatec company/user is fixture
@@ -137,6 +156,15 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	// serializes them so the idempotent files below never race.
 	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
 		return fmt.Errorf("take migration lock: %w", err)
+	}
+
+	// An already-initialized test database may hold legacy case-insensitive
+	// duplicate emails; heal them before any idempotent migration (0010+)
+	// re-applies the unique index.
+	if exists {
+		if _, err := tx.Exec(ctx, dedupeLegacyEmailsSQL); err != nil {
+			return fmt.Errorf("dedupe legacy test emails: %w", err)
+		}
 	}
 
 	for _, f := range files {
