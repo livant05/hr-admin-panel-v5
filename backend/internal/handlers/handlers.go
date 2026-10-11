@@ -155,7 +155,7 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := a.Queries.GetUserForLogin(r.Context(), pgtype.Text{String: email, Valid: true})
+	user, err := a.Queries.GetUserForLogin(r.Context(), email)
 	found := err == nil
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		a.Log.Error("login lookup", "err", err)

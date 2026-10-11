@@ -279,7 +279,7 @@ type Querier interface {
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
 	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
-	GetUserForLogin(ctx context.Context, email pgtype.Text) (GetUserForLoginRow, error)
+	GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)

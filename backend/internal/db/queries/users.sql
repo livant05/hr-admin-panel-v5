@@ -3,7 +3,7 @@ SELECT u.id, u.company_id, u.email, u.role, u.first_name, u.last_name, u.status,
        u.password_hash, c.name AS company_name
 FROM users u
 JOIN companies c ON c.id = u.company_id
-WHERE lower(u.email) = $1
+WHERE lower(u.email) = lower(sqlc.arg(email)::text)
 LIMIT 1;
 
 -- name: GetUserByID :one

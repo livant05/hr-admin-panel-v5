@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/auth"
+	db "github.com/livant05/rrhh-go/internal/db/generated"
 	"github.com/livant05/rrhh-go/internal/handlers"
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
@@ -334,4 +335,23 @@ func TestLogin_ExactlyOneComparePerRequest(t *testing.T) {
 			t.Fatalf("expected exactly one compare, got %d", n)
 		}
 	})
+}
+
+// TestGetUserForLogin_LowercasesParameter pins that the query itself is
+// case-insensitive on the parameter, so it does not rely on every caller
+// pre-lowercasing the email.
+func TestGetUserForLogin_LowercasesParameter(t *testing.T) {
+	pool := testutil.Pool(t)
+	tn := testutil.Company(t, pool, "LoginQueryCo")
+	email := uniqueEmail("MixedCase")
+	id := seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+
+	row, err := db.New(pool).GetUserForLogin(context.Background(),
+		strings.ToUpper(email))
+	if err != nil {
+		t.Fatalf("GetUserForLogin with mixed-case parameter: %v", err)
+	}
+	if row.ID.String() != id {
+		t.Fatalf("expected user %s, got %s", id, row.ID.String())
+	}
 }
