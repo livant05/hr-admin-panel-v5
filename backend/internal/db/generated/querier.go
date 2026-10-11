@@ -183,6 +183,7 @@ type Querier interface {
 	// (liquidation_history, generated_documents) that would block it with a raw
 	// FK error. No handler ever issues DELETE FROM employees.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (int64, error)
+	DeactivateUser(ctx context.Context, arg DeactivateUserParams) (DeactivateUserRow, error)
 	// Hard delete (design Q3): a mistyped punch is an operational correction,
 	// not history worth preserving — attendance_logs is not an FK target
 	// (rg 'REFERENCES attendance_logs' migrations/ -> zero matches).
@@ -282,6 +283,7 @@ type Querier interface {
 	GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error)
+	GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
@@ -327,6 +329,12 @@ type Querier interface {
 	// The users API selects explicit columns and never password_hash, so the
 	// generated row types cannot carry the hash (XC-2 holds structurally).
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
+	// The write path below locks rows so the last-active-admin guard holds under
+	// concurrency (design D6). Callers MUST run LockActiveAdmins first and
+	// GetUserForUpdate second, inside one transaction: every transaction then takes
+	// the admin rows in id order before any other user row, so two requests can
+	// never wait on each other.
+	LockActiveAdmins(ctx context.Context, companyID pgtype.UUID) ([]pgtype.UUID, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
@@ -385,6 +393,7 @@ type Querier interface {
 	// returnUniform's {status:'devuelto'} touches only status. Every parameter
 	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
 	UpdateUniform(ctx context.Context, arg UpdateUniformParams) (Uniform, error)
+	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
 	// client-supplied employee_id IS the insert — a foreign employee_id selects
 	// zero rows from `employees`, so a cross-tenant write becomes

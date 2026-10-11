@@ -38,11 +38,12 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/roles/{id}", a.UpdateRole)
 	protected.HandleFunc("DELETE /api/roles/{id}", a.DeleteRole)
 
-	// users: admin-only (requireAdmin). S3a ships list, get and create;
-	// PATCH and DELETE with the last-admin guard arrive in S3b.
+	// users: admin-only (requireAdmin).
 	protected.HandleFunc("GET /api/users", a.ListUsers)
 	protected.HandleFunc("POST /api/users", a.CreateUser) // 201 array with one-time temporary_password
 	protected.HandleFunc("GET /api/users/{id}", a.GetUser)
+	protected.HandleFunc("PATCH /api/users/{id}", a.UpdateUser)  // last-active-admin guard (409)
+	protected.HandleFunc("DELETE /api/users/{id}", a.DeleteUser) // soft delete, idempotent 204
 
 	protected.HandleFunc("GET /api/employees", a.ListEmployees)
 	protected.HandleFunc("POST /api/employees", a.CreateEmployee)

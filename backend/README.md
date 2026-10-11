@@ -103,7 +103,7 @@ lines are how an operator sees it happen.
 
 ## Users and roles (admin only)
 
-`/api/users` (list, get by id, create) and the write routes of `/api/roles` (create, update, delete)
+`/api/users` (list, get by id, create, patch, delete) and the write routes of `/api/roles` (create, update, delete)
 require the JWT role `admin`; any other role gets `403 forbidden` before the body or the database
 is touched. Role reads stay open to every authenticated role.
 
@@ -117,6 +117,15 @@ is touched. Role reads stay open to every authenticated role.
   (`auth.ValidatePassword`); `auth.GenerateTempPassword` is shared with `cmd/import`.
 - Responses use a fixed DTO (`id, company_id, email, role, first_name, last_name, status,
   created_at`) built from queries that never select `password_hash`.
+- `PATCH /api/users/{id}` takes any of `{email, first_name, last_name, role, status}` (same
+  validation as create; unknown keys, including `password`, are a 400) and returns the updated row
+  as a one-element array. `DELETE /api/users/{id}` is a soft delete: the row stays with
+  `status: inactive`, the user can no longer log in, and repeating it is a `204` no-op. Another
+  company's id is always `404`.
+- **Last-active-admin guard:** a PATCH or DELETE that would leave the company with no active admin
+  (demoting, deactivating or deleting the only one) is a `409 conflict` and changes nothing. The
+  guard runs in one transaction that locks the company's active admins in id order, then the
+  target row, so two admins demoting each other concurrently cannot both succeed.
 
 ## Migrations
 
