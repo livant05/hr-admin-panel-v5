@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -93,10 +94,25 @@ func failOrSkip(t *testing.T, msg string) {
 	t.Fatal(msg)
 }
 
+// migrationLockKey is the pg_advisory_xact_lock key serializing migration
+// application across concurrently running test packages.
+const migrationLockKey = 7261008810
+
+// isIdempotentMigration reports whether a migration file is numbered >= 0010
+// (the first migration written to be safely re-applied).
+func isIdempotentMigration(base string) bool {
+	if len(base) < 4 {
+		return false
+	}
+	n, err := strconv.Atoi(base[:4])
+	return err == nil && n >= 10
+}
+
 // applyMigrations globs migrations/*.sql, sorts by filename, skips any file
 // whose name contains "seed" (the seeded Ventatec company/user is fixture
 // noise that would make list assertions fragile), and applies the rest
-// inside one transaction if a sentinel table ("departments") is absent.
+// inside one transaction if a sentinel table ("departments") is absent. Files
+// numbered >= 0010 are idempotent and applied on every call.
 func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	var exists bool
 	err := pool.QueryRow(ctx, `SELECT EXISTS (
@@ -105,10 +121,6 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	if err != nil {
 		return fmt.Errorf("check sentinel table: %w", err)
 	}
-	if exists {
-		return nil
-	}
-
 	files, err := filepath.Glob(filepath.Join(migrationsDir(), "*.sql"))
 	if err != nil {
 		return fmt.Errorf("glob migrations: %w", err)
@@ -121,8 +133,22 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Concurrent `go test ./...` packages each call this; the advisory lock
+	// serializes them so the idempotent files below never race.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("take migration lock: %w", err)
+	}
+
 	for _, f := range files {
-		if strings.Contains(filepath.Base(f), "seed") {
+		base := filepath.Base(f)
+		if strings.Contains(base, "seed") {
+			continue
+		}
+		// Files below 0010 predate idempotency and only run on a fresh
+		// database (sentinel table absent). From 0010 on every migration is
+		// idempotent and is always re-applied, so an already-initialized
+		// test database picks up new migrations automatically.
+		if exists && !isIdempotentMigration(base) {
 			continue
 		}
 		sqlBytes, err := os.ReadFile(f)
@@ -190,7 +216,7 @@ func Company(t *testing.T, pool *pgxpool.Pool, name string) Tenant {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO users (id, company_id, email, role, first_name, last_name, status)
 		 VALUES ($1, $2, $3, 'admin', 'Test', 'Admin', 'active')`,
-		userID, companyID, name+"-admin@example.test",
+		userID, companyID, name+"-admin-"+uuid.NewString()[:8]+"@example.test",
 	)
 	if err != nil {
 		t.Fatalf("insert test user: %v", err)
