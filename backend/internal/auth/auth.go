@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -48,6 +49,9 @@ type Signer struct {
 func NewSigner(secret string, ttl time.Duration) *Signer {
 	return &Signer{secret: []byte(secret), ttl: ttl}
 }
+
+// TTL is the lifetime of tokens issued by Sign.
+func (s *Signer) TTL() time.Duration { return s.ttl }
 
 func (s *Signer) Sign(userID, companyID, role string) (string, error) {
 	now := time.Now()
@@ -122,6 +126,29 @@ func HashPassword(plain string) (string, error) {
 	return string(b), err
 }
 
+var (
+	dummyOnce sync.Once
+	dummyHash []byte
+)
+
+// dummyBcryptHash returns a package-level bcrypt hash (DefaultCost) generated
+// once. It is compared against when there is no real hash, so an unknown
+// email costs the same bcrypt work as a wrong password (AUTH-4).
+func dummyBcryptHash() []byte {
+	dummyOnce.Do(func() {
+		// Errors only on an invalid cost or an over-72-byte input; neither applies.
+		dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy-password-for-timing-parity"), bcrypt.DefaultCost)
+	})
+	return dummyHash
+}
+
+// CheckPassword reports whether plain matches hash. An empty hash (unknown
+// user, or a user whose password_hash is the 0002 default ”) is compared
+// against a dummy hash for equivalent work and always returns false.
 func CheckPassword(hash, plain string) bool {
+	if hash == "" {
+		_ = bcrypt.CompareHashAndPassword(dummyBcryptHash(), []byte(plain))
+		return false
+	}
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(plain)) == nil
 }

@@ -32,42 +32,6 @@ func (q *Queries) GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, 
 	return i, err
 }
 
-const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, company_id, email, role, first_name, last_name, status, password_hash, created_at
-FROM users
-WHERE email = $1
-LIMIT 1
-`
-
-type GetUserByEmailRow struct {
-	ID           pgtype.UUID        `json:"id"`
-	CompanyID    pgtype.UUID        `json:"company_id"`
-	Email        pgtype.Text        `json:"email"`
-	Role         string             `json:"role"`
-	FirstName    pgtype.Text        `json:"first_name"`
-	LastName     pgtype.Text        `json:"last_name"`
-	Status       string             `json:"status"`
-	PasswordHash string             `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-}
-
-func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error) {
-	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i GetUserByEmailRow
-	err := row.Scan(
-		&i.ID,
-		&i.CompanyID,
-		&i.Email,
-		&i.Role,
-		&i.FirstName,
-		&i.LastName,
-		&i.Status,
-		&i.PasswordHash,
-		&i.CreatedAt,
-	)
-	return i, err
-}
-
 const getUserByID = `-- name: GetUserByID :one
 SELECT id, company_id, email, role, first_name, last_name, status, password_hash, created_at
 FROM users
@@ -100,6 +64,44 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 		&i.Status,
 		&i.PasswordHash,
 		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserForLogin = `-- name: GetUserForLogin :one
+SELECT u.id, u.company_id, u.email, u.role, u.first_name, u.last_name, u.status,
+       u.password_hash, c.name AS company_name
+FROM users u
+JOIN companies c ON c.id = u.company_id
+WHERE lower(u.email) = $1
+LIMIT 1
+`
+
+type GetUserForLoginRow struct {
+	ID           pgtype.UUID `json:"id"`
+	CompanyID    pgtype.UUID `json:"company_id"`
+	Email        pgtype.Text `json:"email"`
+	Role         string      `json:"role"`
+	FirstName    pgtype.Text `json:"first_name"`
+	LastName     pgtype.Text `json:"last_name"`
+	Status       string      `json:"status"`
+	PasswordHash string      `json:"password_hash"`
+	CompanyName  string      `json:"company_name"`
+}
+
+func (q *Queries) GetUserForLogin(ctx context.Context, email pgtype.Text) (GetUserForLoginRow, error) {
+	row := q.db.QueryRow(ctx, getUserForLogin, email)
+	var i GetUserForLoginRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
+		&i.PasswordHash,
+		&i.CompanyName,
 	)
 	return i, err
 }
