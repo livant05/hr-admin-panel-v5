@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -497,5 +498,71 @@ func TestLoginRateLimit_StrictBudgetStillRejectsWhenTheLooserOneHasRoom(t *testi
 	}
 	if got := rec.Header().Get("Retry-After"); got != "6" {
 		t.Fatalf("Retry-After = %q, want the strict budget's 6", got)
+	}
+}
+
+// loginRawFrom posts an arbitrary body to the login route from the given peer.
+func loginRawFrom(h http.Handler, remoteAddr, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/login", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = remoteAddr
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+// Only 401 outcomes (credential failures) may charge the strict budget; a 400
+// for a bad body must refund its token (CO-S1b-3). With a burst of 2, five bad
+// bodies would exhaust an unrefunded bucket, yet two real failures must still
+// be admitted afterwards and a third rejected.
+func TestLoginRateLimit_BadRequestOutcomesRefundTheStrictToken(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"malformed json", `{"email": "a@b.test", "password": `},
+		{"not json at all", `not json`},
+		{"oversized body", `{"email":"a@b.test","password":"` + strings.Repeat("x", 5<<10) + `"}`},
+		{"unknown field", `{"email":"a@b.test","password":"x","company_id":"c"}`},
+		{"missing credentials", `{"email":"","password":""}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pool := testutil.Pool(t)
+			h, _, compares := limitedAPI(t, pool, 10, 2)
+			const peer = "198.51.100.7:40000"
+
+			for i := 1; i <= 5; i++ {
+				if rec := loginRawFrom(h, peer, tc.body); rec.Code != http.StatusBadRequest {
+					t.Fatalf("bad body attempt %d: got %d, want 400 (%s)", i, rec.Code, rec.Body.String())
+				}
+			}
+			if *compares != 0 {
+				t.Fatalf("a rejected body must not reach bcrypt, got %d comparisons", *compares)
+			}
+			for i := 1; i <= 2; i++ {
+				if rec := loginFrom(h, peer, "", "nobody@corp.test", "x"); rec.Code != http.StatusUnauthorized {
+					t.Fatalf("credential failure %d must still be admitted after five 400s, got %d", i, rec.Code)
+				}
+			}
+			if rec := loginFrom(h, peer, "", "nobody@corp.test", "x"); rec.Code != http.StatusTooManyRequests {
+				t.Fatalf("two real failures drain the burst of 2, got %d", rec.Code)
+			}
+		})
+	}
+}
+
+// A server fault is not a credential failure either: the 500 refunds its token.
+func TestLoginRateLimit_InternalErrorOutcomeRefundsTheStrictToken(t *testing.T) {
+	brokenPool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, brokenPool, 10, 2)
+	brokenPool.Close() // every query now fails: Login answers 500
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 5; i++ {
+		rec := loginFrom(h, peer, "", "nobody@corp.test", "x")
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("attempt %d against a closed pool: got %d, want 500 (a 429 means the 500 consumed its token)", i, rec.Code)
+		}
 	}
 }
