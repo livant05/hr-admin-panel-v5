@@ -25,11 +25,11 @@ LIMIT 1;
 SELECT id, company_id, email, role, first_name, last_name, status, created_at
 FROM users
 WHERE company_id = $1
-  AND ($2::uuid IS NULL OR id = $2)
+  AND (sqlc.narg('id')::uuid IS NULL OR id = sqlc.narg('id'))
   AND (sqlc.narg('role')::text IS NULL OR role = sqlc.narg('role'))
   AND (sqlc.narg('status')::text IS NULL OR status = sqlc.narg('status'))
 ORDER BY created_at, id
-LIMIT $3 OFFSET $4;
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: GetUser :one
 SELECT id, company_id, email, role, first_name, last_name, status, created_at

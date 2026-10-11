@@ -201,19 +201,19 @@ SELECT id, company_id, email, role, first_name, last_name, status, created_at
 FROM users
 WHERE company_id = $1
   AND ($2::uuid IS NULL OR id = $2)
-  AND ($5::text IS NULL OR role = $5)
-  AND ($6::text IS NULL OR status = $6)
+  AND ($3::text IS NULL OR role = $3)
+  AND ($4::text IS NULL OR status = $4)
 ORDER BY created_at, id
-LIMIT $3 OFFSET $4
+LIMIT $6 OFFSET $5
 `
 
 type ListUsersParams struct {
 	CompanyID pgtype.UUID `json:"company_id"`
-	Column2   pgtype.UUID `json:"column_2"`
-	Limit     int32       `json:"limit"`
-	Offset    int32       `json:"offset"`
+	ID        pgtype.UUID `json:"id"`
 	Role      pgtype.Text `json:"role"`
 	Status    pgtype.Text `json:"status"`
+	Offset    int32       `json:"offset"`
+	Limit     int32       `json:"limit"`
 }
 
 type ListUsersRow struct {
@@ -232,11 +232,11 @@ type ListUsersRow struct {
 func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
 	rows, err := q.db.Query(ctx, listUsers,
 		arg.CompanyID,
-		arg.Column2,
-		arg.Limit,
-		arg.Offset,
+		arg.ID,
 		arg.Role,
 		arg.Status,
+		arg.Offset,
+		arg.Limit,
 	)
 	if err != nil {
 		return nil, err

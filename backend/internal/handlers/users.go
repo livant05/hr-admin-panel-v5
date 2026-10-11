@@ -68,7 +68,7 @@ func (a *API) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := a.Queries.ListUsers(r.Context(), db.ListUsersParams{
 		CompanyID: companyID, // $1 — from ctx, never from a query param
-		Column2:   id,
+		ID:        id,
 		Role:      optionalTextFilter(p.Filters["role"]),
 		Status:    optionalTextFilter(p.Filters["status"]),
 		Limit:     p.Limit,
