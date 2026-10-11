@@ -40,7 +40,7 @@ No data was ever migrated: the Go DB only has the seed company/admin. Evaluation
 - [x] T1 — CLI skeleton: flags, loader, table registry/tier order, generic id-preserving insert with column intersection, single tx, dry-run, report (route: delegated writer; trigger: 2+ non-trivial files)
 - [x] T2 — transforms + validation: evaluations, medical_records, overtime_logs, roles medical seeding, unique-key duplicates, `--skip-invalid` (route: delegated writer)
 - [x] T3 — users: temporary passwords, bcrypt, 0600 CSV, no overwrite, email collision (route: delegated writer)
-- [ ] T4 — docs + .gitignore DONE (88f20b2); live dry-run on the dev DB with a synthetic export PENDING (parent, inline)
+- [x] T4 — docs + .gitignore (88f20b2); live dry-run on the dev DB with synthetic exports (parent, inline)
 
 ## Acceptance criteria
 - Importing a synthetic export into an empty schema reproduces ids and relations; re-running inserts nothing new.
@@ -59,5 +59,7 @@ Route: delegated writer (single), TDD strict (runner: go test, source: task brie
 - Verification: full `go test ./... -count=1` green (scheduler flake FK 23503 seen once, green on re-run); `go vet ./...` and `gofmt -l .` clean; `go build ./cmd/import` ok.
 - Test isolation: each DB test uses a fresh schema (testutil.IsolatedSchema, search_path) with all migrations + seed; dropped on cleanup. 0007's pg_constraint-by-name guard skips epr_origin_chk in these schemas.
 
+- T4 live dry-run (parent): `go run ./cmd/import --dry-run` against live `rrhh_go` with testdata/export_users (2 users would be created, no CSV written), testdata/export (seed company reported already present; `supabase_only_column` and `remaining_days` dropped) and testdata/export_invalid (1 invalid row reported, exit 1). Row counts employees/evaluations/users/roles identical before and after (2/0/1/0).
+
 ## Next step
-Parent: live dry-run of cmd/import against the dev DB with a synthetic export (T4 remainder), then delivery decisions (forecast > 400 lines; chain strategy).
+Delivery: ~2400 authored lines > 400 budget; user picks the delivery strategy.
