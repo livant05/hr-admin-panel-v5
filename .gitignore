@@ -1,2 +1,5 @@
 # Local CodeGraph index
 .codegraph/
+
+# Temporary passwords written by cmd/import --passwords-out
+*passwords*.csv
