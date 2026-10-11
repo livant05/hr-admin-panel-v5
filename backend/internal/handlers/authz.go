@@ -11,6 +11,23 @@ import (
 	"github.com/livant05/rrhh-go/internal/auth"
 )
 
+// requireAdmin gates authority-managing routes (users, roles writes, device
+// claims) on the JWT role "admin" (design D5). It writes the A2 403 envelope
+// and returns false for every other role, including custom roles that hold
+// permission keys: those keys are frontend-defined, so letting a permission
+// open these routes would let a role editor grant itself anything.
+//
+// Order inside an admin handler: a.tenant, then requireAdmin, then any body
+// parsing or data access, so a non-admin learns nothing from validation
+// errors.
+func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if auth.RoleFromContext(r.Context()) == "admin" {
+		return true
+	}
+	writeErrCode(w, http.StatusForbidden, codeForbidden, "admin only")
+	return false
+}
+
 // requirePermission enforces server-side the permission the frontend only
 // hides from the UI (applyPermissions, hr_admin_panel.html:2415). FAIL-CLOSED:
 // unlike the frontend's hasPerm (hr_admin_panel.html:2410), which returns

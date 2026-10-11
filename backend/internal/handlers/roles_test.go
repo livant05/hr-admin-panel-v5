@@ -283,3 +283,82 @@ func assertPermissionsObject(t *testing.T, raw json.RawMessage, key string) map[
 	}
 	return obj
 }
+
+// TestRoles_WritesAreAdminOnly pins UM-5 (privilege-escalation fix): the
+// permission keys live in roles rows, so a non-admin who could edit them
+// could grant themselves anything. Reads stay open to every authenticated
+// role; the 403 comes before the body is parsed.
+func TestRoles_WritesAreAdminOnly(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	c := testutil.Company(t, pool, "RoleAdminGateCo")
+	admin := c.Token(t, signer)
+	for _, role := range []string{"empleado", "manager"} {
+		t.Run(role, func(t *testing.T) {
+			tok := c.TokenAs(t, signer, role)
+
+			seed := testutil.Do(t, h, http.MethodPost, "/api/roles", admin, map[string]any{
+				"name": "Gate-" + role, "permissions": map[string]any{"dashboard": true},
+			})
+			if seed.Code != http.StatusCreated {
+				t.Fatalf("admin seed create: got %d (%s)", seed.Code, seed.Body.String())
+			}
+			seeded := testutil.DecodeRows[roleRow](t, seed)[0]
+
+			writes := []struct {
+				name, method, path string
+				body               any
+			}{
+				{"create", http.MethodPost, "/api/roles", map[string]any{"name": "Escalated"}},
+				{"create with malformed body still 403", http.MethodPost, "/api/roles", "{not json"},
+				{"patch permissions", http.MethodPatch, "/api/roles/" + seeded.ID, map[string]any{"permissions": map[string]any{"settings": true}}},
+				{"delete", http.MethodDelete, "/api/roles/" + seeded.ID, nil},
+			}
+			for _, w := range writes {
+				rec := testutil.Do(t, h, w.method, w.path, tok, w.body)
+				if rec.Code != http.StatusForbidden {
+					t.Fatalf("%s as %s: got %d, want 403 (%s)", w.name, role, rec.Code, rec.Body.String())
+				}
+				if code := testutil.ErrCode(t, rec); code != "forbidden" {
+					t.Fatalf("%s as %s: error.code = %q, want forbidden", w.name, role, code)
+				}
+			}
+
+			// Nothing changed: the seeded role survives with its permissions,
+			// and the rejected create left no row behind.
+			got := testutil.DecodeRow[roleRow](t, testutil.Do(t, h, http.MethodGet, "/api/roles/"+seeded.ID, admin, nil))
+			obj := assertPermissionsObject(t, got.Permissions, "dashboard")
+			if _, escalated := obj["settings"]; escalated || obj["dashboard"] != true {
+				t.Fatalf("permissions changed by a rejected write: %v", obj)
+			}
+			for _, r := range testutil.DecodeRows[roleRow](t, testutil.Do(t, h, http.MethodGet, "/api/roles", admin, nil)) {
+				if r.Name == "Escalated" {
+					t.Fatal("a rejected create must not insert a row")
+				}
+			}
+
+			// Reads are unchanged for non-admins.
+			if rec := testutil.Do(t, h, http.MethodGet, "/api/roles", tok, nil); rec.Code != http.StatusOK {
+				t.Fatalf("list as %s: got %d, want 200", role, rec.Code)
+			}
+			if rec := testutil.Do(t, h, http.MethodGet, "/api/roles/"+seeded.ID, tok, nil); rec.Code != http.StatusOK {
+				t.Fatalf("get as %s: got %d, want 200", role, rec.Code)
+			}
+		})
+	}
+
+	t.Run("admin still creates, patches and deletes", func(t *testing.T) {
+		create := testutil.Do(t, h, http.MethodPost, "/api/roles", admin, map[string]any{"name": "AdminOk", "permissions": map[string]any{}})
+		if create.Code != http.StatusCreated {
+			t.Fatalf("admin create: got %d", create.Code)
+		}
+		id := testutil.DecodeRows[roleRow](t, create)[0].ID
+		if rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+id, admin, map[string]any{"name": "AdminOk2"}); rec.Code != http.StatusOK {
+			t.Fatalf("admin patch: got %d", rec.Code)
+		}
+		if rec := testutil.Do(t, h, http.MethodDelete, "/api/roles/"+id, admin, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("admin delete: got %d", rec.Code)
+		}
+	})
+}
