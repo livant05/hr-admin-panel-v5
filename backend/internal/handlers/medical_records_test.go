@@ -638,3 +638,90 @@ func TestMedicalRecords_PatchSpanCap(t *testing.T) {
 		}
 	})
 }
+
+// seedMedRole inserts a roles row for the tenant so requirePermission can
+// resolve the (non-admin) JWT role to its permissions.
+func seedMedRole(t *testing.T, pool *pgxpool.Pool, c testutil.Tenant, name, permissions string) {
+	t.Helper()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO roles (company_id, name, permissions) VALUES ($1, $2, $3::jsonb)`,
+		c.CompanyID, name, permissions); err != nil {
+		t.Fatalf("seed role %s: %v", name, err)
+	}
+}
+
+// TestMedicalRecords_RequiresMedicalPermission pins the dedicated `medical`
+// gate on all five routes: a non-admin role without the key (or with it
+// false) gets 403 forbidden with no side effect, a role with medical:true
+// gets the normal behavior, and an admin token is unaffected.
+func TestMedicalRecords_RequiresMedicalPermission(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "MedPermission")
+	admin := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeSalary(1000))
+	seeded := createMed(t, h, admin, medBody(emp.ID))
+
+	seedMedRole(t, pool, c, "nokey", `{"attendance": true}`)
+	seedMedRole(t, pool, c, "medfalse", `{"medical": false}`)
+	seedMedRole(t, pool, c, "medtrue", `{"medical": true}`)
+
+	denied := func(t *testing.T, role string) {
+		tok := c.TokenAs(t, signer, role)
+		before := countMed(t, pool)
+
+		calls := []struct {
+			label, method, path string
+			body                any
+		}{
+			{"list", http.MethodGet, "/api/medical_records", nil},
+			{"get", http.MethodGet, "/api/medical_records/" + seeded.ID, nil},
+			{"create", http.MethodPost, "/api/medical_records", medBody(emp.ID)},
+			{"patch", http.MethodPatch, "/api/medical_records/" + seeded.ID, map[string]any{"status": "cerrada"}},
+			{"delete", http.MethodDelete, "/api/medical_records/" + seeded.ID, nil},
+		}
+		for _, call := range calls {
+			rec := testutil.Do(t, h, call.method, call.path, tok, call.body)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("%s as %s: expected 403, got %d (body=%s)", call.label, role, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "forbidden" {
+				t.Fatalf("%s as %s: expected error.code=forbidden, got %q", call.label, role, code)
+			}
+		}
+
+		if after := countMed(t, pool); after != before {
+			t.Fatalf("%s: denied calls changed the row count %d -> %d", role, before, after)
+		}
+		rows := listMed(t, h, admin, "?id="+seeded.ID)
+		if len(rows) != 1 || rows[0].Status != seeded.Status {
+			t.Fatalf("%s: denied calls changed or deleted the seeded record: %+v", role, rows)
+		}
+	}
+	t.Run("role without the key is denied", func(t *testing.T) { denied(t, "nokey") })
+	t.Run("role with medical:false is denied", func(t *testing.T) { denied(t, "medfalse") })
+	t.Run("role with no roles row is denied", func(t *testing.T) { denied(t, "ghost") })
+
+	t.Run("role with medical:true behaves normally", func(t *testing.T) {
+		tok := c.TokenAs(t, signer, "medtrue")
+		if rows := listMed(t, h, tok, ""); len(rows) != 1 {
+			t.Fatalf("list: expected 1 row, got %d", len(rows))
+		}
+		if rec := testutil.Do(t, h, http.MethodGet, "/api/medical_records/"+seeded.ID, tok, nil); rec.Code != http.StatusOK {
+			t.Fatalf("get: expected 200, got %d", rec.Code)
+		}
+		created := createMed(t, h, tok, medBody(emp.ID))
+		if p := patchMed(t, h, tok, created.ID, map[string]any{"status": "cerrada"}); p.Status != "cerrada" {
+			t.Fatalf("patch: expected status cerrada, got %q", p.Status)
+		}
+		if rec := testutil.Do(t, h, http.MethodDelete, "/api/medical_records/"+created.ID, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete: expected 204, got %d", rec.Code)
+		}
+	})
+
+	t.Run("admin is unaffected", func(t *testing.T) {
+		if rows := listMed(t, h, admin, ""); len(rows) != 1 {
+			t.Fatalf("list: expected 1 row, got %d", len(rows))
+		}
+	})
+}

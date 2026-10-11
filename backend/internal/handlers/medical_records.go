@@ -124,6 +124,9 @@ func (a *API) ListMedicalRecords(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.requirePermission(w, r, companyID, "medical") {
+		return
+	}
 
 	p, ok := parseList(w, r, "id", "employee_id", "status")
 	if !ok {
@@ -167,6 +170,9 @@ func (a *API) GetMedicalRecord(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !a.requirePermission(w, r, companyID, "medical") {
+		return
+	}
 
 	id, err := stringToUUID(r.PathValue("id"))
 	if err != nil {
@@ -189,6 +195,9 @@ func (a *API) GetMedicalRecord(w http.ResponseWriter, r *http.Request) {
 func (a *API) CreateMedicalRecord(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
+		return
+	}
+	if !a.requirePermission(w, r, companyID, "medical") {
 		return
 	}
 
@@ -271,6 +280,9 @@ func (a *API) CreateMedicalRecord(w http.ResponseWriter, r *http.Request) {
 func (a *API) UpdateMedicalRecord(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
+		return
+	}
+	if !a.requirePermission(w, r, companyID, "medical") {
 		return
 	}
 
@@ -392,6 +404,9 @@ func (a *API) UpdateMedicalRecord(w http.ResponseWriter, r *http.Request) {
 func (a *API) DeleteMedicalRecord(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
+		return
+	}
+	if !a.requirePermission(w, r, companyID, "medical") {
 		return
 	}
 
