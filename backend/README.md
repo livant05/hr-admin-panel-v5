@@ -67,7 +67,10 @@ header (whole seconds) when a client IP exceeds its budget on a public endpoint.
 `POST /api/auth/login`; register and the device ingestion endpoints join it in later slices.
 
 **Rate limiting** is an in-process token bucket per client IP (burst equals the per-minute rate),
-so each backend instance keeps its own counters. Settings:
+so each backend instance keeps its own counters. At most 10,000 client keys are tracked: beyond
+that the least recently used one is evicted in constant time (no sweep), which forgets its debt. An
+attacker flooding more distinct keys than the cap could therefore reset a victim's budget; /64
+keying for IPv6 and the cap size keep that expensive. Settings:
 
 | Variable | Default | Meaning |
 |---|---|---|
