@@ -66,6 +66,12 @@ touches tenant data must read it from there, never from a client-supplied field.
 header (whole seconds) when a client IP exceeds its budget on a public endpoint. Today that is
 `POST /api/auth/login`; register and the device ingestion endpoints join it in later slices.
 
+**Login counts only failures.** A successful login does not consume budget, so users behind a
+shared NAT are not locked out by each other's valid sessions. Any 401 outcome (wrong password,
+unknown email, inactive user, empty stored hash) consumes one token. A request whose client key has
+no token left is rejected with 429 before any bcrypt work, even if its password is correct. Other
+endpoints on the same limiter (register, device ingestion) consume a token on every request.
+
 **Rate limiting** is an in-process token bucket per client IP (burst equals the per-minute rate),
 so each backend instance keeps its own counters. At most 10,000 client keys are tracked: beyond
 that the least recently used one is evicted in constant time (no sweep), which forgets its debt. An
@@ -74,7 +80,7 @@ keying for IPv6 and the cap size keep that expensive. Settings:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AUTH_RATE_PER_MIN` | `10` | Login (and register) requests per client IP per minute. |
+| `AUTH_RATE_PER_MIN` | `10` | Failed login attempts (and, once it exists, register requests) per client IP per minute. |
 | `ADMS_RATE_PER_MIN` | `600` | Device ingestion per client IP per minute. **Provisional** until a real-device check. |
 | `TRUSTED_PROXY_CIDRS` | empty | Comma-separated CIDRs of reverse proxies whose `X-Real-IP` is believed. |
 

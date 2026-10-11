@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/auth"
@@ -243,5 +244,123 @@ func TestLoginRateLimit_IPv4MappedPeerSharesTheIPv4Budget(t *testing.T) {
 	loginFrom(h, "203.0.113.9:40000", "", "nobody@corp.test", "x")
 	if rec := loginFrom(h, "[::ffff:203.0.113.9]:40000", "", "nobody@corp.test", "x"); rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("an IPv4-mapped peer is the same client as its IPv4 form, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_SuccessfulLoginsDoNotConsumeBudget(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, compares := limitedAPI(t, pool, 10, 3)
+	tn := testutil.Company(t, pool, "RateOkCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("ok")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 12; i++ {
+		if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+			t.Fatalf("successful login %d must never be throttled, got %d (%s)", i, rec.Code, rec.Body.String())
+		}
+	}
+	if *compares != 12 {
+		t.Fatalf("comparisons = %d, want 12", *compares)
+	}
+}
+
+func TestLoginRateLimit_OnlyFailuresConsumeAndEmptyBucketRejectsEvenCorrectPasswordWithoutBcrypt(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, compares := limitedAPI(t, pool, 10, 10)
+	tn := testutil.Company(t, pool, "RateFailCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("fail")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 10; i++ {
+		if rec := loginFrom(h, peer, "", email, "wrong"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d: got %d, want 401", i, rec.Code)
+		}
+	}
+	before := *compares
+	rec := loginFrom(h, peer, "", email, "correct-horse")
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("11th request must be 429 even with the right password, got %d", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") != "6" {
+		t.Fatalf("Retry-After = %q, want 6", rec.Header().Get("Retry-After"))
+	}
+	if code := testutil.ErrCode(t, rec); code != "rate_limited" {
+		t.Fatalf("error.code = %q, want rate_limited", code)
+	}
+	if *compares != before {
+		t.Fatal("a throttled request must not reach bcrypt")
+	}
+}
+
+func TestLoginRateLimit_SuccessesInterleavedWithFailuresOnlyCountFailures(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, pool, 10, 3)
+	tn := testutil.Company(t, pool, "RateMixCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("mix")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	for i := 1; i <= 3; i++ {
+		if rec := loginFrom(h, peer, "", email, "wrong"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("failure %d: got %d, want 401", i, rec.Code)
+		}
+		if i < 3 {
+			if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+				t.Fatalf("success after failure %d: got %d, want 200", i, rec.Code)
+			}
+		}
+	}
+	if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("three failures drain the burst; got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_EveryUnauthorizedOutcomeConsumes(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, pool, 10, 3)
+	tn := testutil.Company(t, pool, "RateKindsCo-"+uuid.NewString()[:6])
+	inactive := uniqueEmail("off")
+	noHash := uniqueEmail("nohash")
+	seedLoginUser(t, pool, tn, inactive, "correct-horse", "inactive")
+	seedLoginUser(t, pool, tn, noHash, "", "active")
+	const peer = "198.51.100.7:40000"
+
+	cases := []struct{ name, email string }{
+		{"unknown email", uniqueEmail("ghost")},
+		{"inactive user", inactive},
+		{"empty stored hash", noHash},
+	}
+	for _, c := range cases {
+		if rec := loginFrom(h, peer, "", c.email, "correct-horse"); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("%s: got %d, want 401", c.name, rec.Code)
+		}
+	}
+	if rec := loginFrom(h, peer, "", inactive, "correct-horse"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("three 401 outcomes must drain a burst of 3, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_SuccessAfterFailuresKeepsRemainingBudget(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, pool, 10, 3)
+	tn := testutil.Company(t, pool, "RateKeepCo-"+uuid.NewString()[:6])
+	email := uniqueEmail("keep")
+	seedLoginUser(t, pool, tn, email, "correct-horse", "active")
+	const peer = "198.51.100.7:40000"
+
+	loginFrom(h, peer, "", email, "wrong")
+	loginFrom(h, peer, "", email, "wrong")
+	for i := 0; i < 5; i++ {
+		if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusOK {
+			t.Fatalf("success %d with one token left: got %d", i, rec.Code)
+		}
+	}
+	if rec := loginFrom(h, peer, "", email, "wrong"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("the last token must still be available, got %d", rec.Code)
+	}
+	if rec := loginFrom(h, peer, "", email, "correct-horse"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("budget spent by 3 failures, got %d", rec.Code)
 	}
 }

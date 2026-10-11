@@ -30,6 +30,15 @@ type bucket struct {
 // most burst tokens and refills at perMinute tokens per minute. The zero value
 // is not usable; build one with New.
 //
+// Allow always consumes (reserves) a token. A caller that only wants to charge
+// failures, such as login, calls Allow before the work and Refund when the
+// outcome turns out not to count. Reserving up front means concurrent
+// requests can never collectively spend more than the bucket holds: the
+// number of in-flight reservations is bounded by the burst, so concurrent
+// failures cannot overdraw it. The price is that requests in flight at the
+// same moment see each other's reservations, so a burst of simultaneous
+// successes above the remaining tokens can be throttled until they refund.
+//
 // Tracked keys are capped (defaultMaxKeys). At the cap, admitting a new key
 // evicts the least recently used one in O(1): there is no sweep on the hot
 // path. Eviction forgets that key's debt, so it starts full if it returns.
@@ -97,6 +106,23 @@ func (l *Limiter) Allow(key string) (ok bool, retryAfter time.Duration) {
 	}
 	wait := (1 - b.tokens) / l.ratePerS
 	return false, time.Duration(math.Ceil(wait-epsilon)) * time.Second
+}
+
+// Refund gives back one token previously taken by Allow for key, up to the
+// burst. It is a no-op for a key that is not tracked (never seen or evicted):
+// an evicted key already starts full.
+func (l *Limiter) Refund(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	el, found := l.buckets[key]
+	if !found {
+		return
+	}
+	b := el.Value.(*bucket)
+	now := l.Now()
+	b.tokens = math.Min(l.burst, l.refilled(b, now)+1)
+	b.last = now
 }
 
 // refilled returns b's token count as of now, capped at the burst.

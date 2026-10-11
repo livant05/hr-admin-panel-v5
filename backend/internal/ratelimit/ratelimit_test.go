@@ -264,3 +264,87 @@ func TestAllow_ConcurrentUseIsSafe(t *testing.T) {
 		t.Fatalf("expected ~100 allowed of 400 concurrent attempts, got %d", n)
 	}
 }
+
+func TestRefund_GivesBackOneToken(t *testing.T) {
+	l, _ := newTestLimiter(10, 2)
+
+	l.Allow("k")
+	l.Allow("k")
+	if ok, _ := l.Allow("k"); ok {
+		t.Fatal("bucket must be empty after the burst")
+	}
+	l.Refund("k")
+	if ok, _ := l.Allow("k"); !ok {
+		t.Fatal("a refunded token must be spendable again")
+	}
+	if ok, _ := l.Allow("k"); ok {
+		t.Fatal("exactly one token was refunded")
+	}
+}
+
+func TestRefund_NeverExceedsTheBurst(t *testing.T) {
+	l, _ := newTestLimiter(10, 2)
+
+	l.Allow("k")
+	l.Refund("k")
+	l.Refund("k")
+	l.Refund("k")
+	allowed := 0
+	for i := 0; i < 10; i++ {
+		if ok, _ := l.Allow("k"); ok {
+			allowed++
+		}
+	}
+	if allowed != 2 {
+		t.Fatalf("allowed = %d after surplus refunds, want the burst (2)", allowed)
+	}
+}
+
+func TestRefund_UnknownOrEvictedKeyIsANoOp(t *testing.T) {
+	l, _ := newTestLimiter(10, 1)
+
+	l.Refund("never-seen")
+	if len(l.buckets) != 0 {
+		t.Fatalf("refunding an unknown key must not track it, got %d keys", len(l.buckets))
+	}
+}
+
+func TestRefund_ConcurrentFailuresNeverOverdrawTheBurst(t *testing.T) {
+	const burst = 10
+	l, _ := newTestLimiter(10, burst)
+
+	// 200 concurrent "failing" requests: each reserves, none refunds.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	admitted := 0
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, _ := l.Allow("k"); ok {
+				mu.Lock()
+				admitted++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if admitted != burst {
+		t.Fatalf("admitted = %d concurrent failures, want exactly the burst (%d)", admitted, burst)
+	}
+}
+
+func TestRefund_ConcurrentMixIsRaceFree(t *testing.T) {
+	l, _ := newTestLimiter(600, 50)
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if ok, _ := l.Allow("k"); ok && i%2 == 0 {
+				l.Refund("k")
+			}
+		}(i)
+	}
+	wg.Wait()
+}
