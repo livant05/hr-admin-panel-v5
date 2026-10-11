@@ -89,8 +89,10 @@ sends a valid `X-Real-IP` (nginx overwrites it with `$remote_addr`). `X-Forwarde
 read because clients can forge it. IPv6 clients are bucketed by their /64 prefix (IPv4 and
 IPv4-mapped addresses per address), so rotating addresses inside a delegated /64 does not
 yield fresh budgets. Leaving `TRUSTED_PROXY_CIDRS` empty behind a proxy would put
-every user in the proxy's bucket; `docker-compose.yml` sets the private ranges because only nginx
-reaches the backend. Never trust a range that untrusted clients can connect from directly.
+every user in the proxy's bucket. `docker-compose.yml` declares the `rrhh_go_net` subnet explicitly
+(`172.29.77.0/24`) and trusts only that subnet, because only nginx reaches the backend on it; if
+you change the subnet, change `TRUSTED_PROXY_CIDRS` with it (a test keeps them in sync). Never
+trust a broad private range or one that untrusted clients can connect from directly.
 
 ## Migrations
 
