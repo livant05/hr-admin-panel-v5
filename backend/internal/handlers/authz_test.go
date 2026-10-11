@@ -261,6 +261,15 @@ func TestAuthz_PermissionGrantedTruthyPermissionAllows(t *testing.T) {
 		{"zero number denies", `{"vacations":0}`, "vacations", false},
 		{"nonzero number grants", `{"vacations":1}`, "vacations", true},
 		{"null denies", `{"vacations":null}`, "vacations", false},
+		// Sub-permission objects follow the frontend's applyPermissions /
+		// isPageAllowed: the module is on only when at least one sub-key is.
+		{"object with a truthy sub-key grants", `{"vacations":{"balances":false,"requests":true}}`, "vacations", true},
+		{"object with all sub-keys false denies", `{"vacations":{"balances":false,"requests":false}}`, "vacations", false},
+		{"empty object denies", `{"vacations":{}}`, "vacations", false},
+		{"object with only falsy sub-values denies", `{"vacations":{"a":0,"b":"","c":null}}`, "vacations", false},
+		{"object with a nested object sub-value grants", `{"vacations":{"a":{}}}`, "vacations", true},
+		{"empty array denies", `{"vacations":[]}`, "vacations", false},
+		{"array with a truthy element grants", `{"vacations":[false,1]}`, "vacations", true},
 	}
 
 	for _, tc := range cases {

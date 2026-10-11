@@ -62,14 +62,39 @@ func permissionGranted(row db.Role, err error, key string) bool {
 	return isTruthy(raw)
 }
 
-// isTruthy reports whether a raw JSON value would be treated as "on" by the
-// frontend's loose permission check: present, and neither null, false, a
-// zero number, nor an empty string.
+// isTruthy reports whether a raw JSON permission value would be treated as
+// "on" by the frontend (applyPermissions / isPageAllowed): a scalar must be
+// neither null, false, a zero number nor an empty string; a sub-permission
+// object (or array) is on only when at least one of its values is truthy,
+// so a module whose sub-keys are all off is denied.
 func isTruthy(raw json.RawMessage) bool {
 	var v any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return false
 	}
+	switch val := v.(type) {
+	case map[string]any:
+		for _, sub := range val {
+			if jsTruthy(sub) {
+				return true
+			}
+		}
+		return false
+	case []any:
+		for _, sub := range val {
+			if jsTruthy(sub) {
+				return true
+			}
+		}
+		return false
+	default:
+		return jsTruthy(val)
+	}
+}
+
+// jsTruthy mirrors JavaScript's !!value for a decoded JSON value: objects and
+// arrays are always truthy, scalars follow the rules isTruthy documents.
+func jsTruthy(v any) bool {
 	switch val := v.(type) {
 	case bool:
 		return val
