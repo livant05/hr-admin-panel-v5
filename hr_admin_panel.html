@@ -4207,8 +4207,8 @@ function stopZKPolling() {
 }
 
 // ════════════════ SETTINGS ═══════════════════════════════════
-function editEntity(prefix,id,updateFn,cancelFn){ var li=document.getElementById(prefix+'-li-'+id); if(!li) return; var name=(li.querySelector('span')||{}).textContent||''; li.innerHTML='<div class="d-flex align-items-center w-100"><input type="text" id="'+prefix+'-edit-'+id+'" class="form-control form-control-sm mr-2" value="'+name.trim().replace(/"/g,'&quot;')+'" style="max-width:200px"><button class="btn btn-xs btn-success mr-1" onclick="'+updateFn+'(\''+id+'\')"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-secondary" onclick="'+cancelFn+'()"><i class="fas fa-times"></i></button></div>'; }
-async function loadEntityList(cfg){ var rows=await Supa.sel(cfg.table),el=document.getElementById(cfg.listElId); if(!el||!Array.isArray(rows)) return; el.innerHTML=rows.length?rows.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="'+cfg.prefix+'-li-'+r.id+'"><span><i class="fas '+cfg.icon+' mr-2 '+cfg.color+'"></i>'+r.name+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editEntity(\''+cfg.prefix+'\',\''+r.id+'\',\''+cfg.updateFn+'\',\''+cfg.loadFn+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-danger" onclick="'+cfg.delFn+'(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">'+cfg.empty+'</li>'; }
+function editEntity(prefix,id,updateFn,cancelFn){ var li=document.getElementById(prefix+'-li-'+id); if(!li) return; var name=(li.querySelector('span')||{}).textContent||''; li.innerHTML='<div class="d-flex align-items-center w-100"><input type="text" id="'+prefix+'-edit-'+id+'" class="form-control form-control-sm mr-2" value="'+escHtml(name.trim())+'" style="max-width:200px"><button class="btn btn-xs btn-success mr-1" onclick="'+updateFn+'(\''+id+'\')"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-secondary" onclick="'+cancelFn+'()"><i class="fas fa-times"></i></button></div>'; }
+async function loadEntityList(cfg){ var rows=await Supa.sel(cfg.table),el=document.getElementById(cfg.listElId); if(!el||!Array.isArray(rows)) return; el.innerHTML=rows.length?rows.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="'+cfg.prefix+'-li-'+r.id+'"><span><i class="fas '+cfg.icon+' mr-2 '+cfg.color+'"></i>'+escHtml(r.name)+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editEntity(\''+cfg.prefix+'\',\''+r.id+'\',\''+cfg.updateFn+'\',\''+cfg.loadFn+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-danger" onclick="'+cfg.delFn+'(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">'+cfg.empty+'</li>'; }
 async function loadDeptMgmt(){ await loadEntityList({table:'departments',listElId:'dept-list',prefix:'dept',icon:'fa-sitemap',color:'text-primary',empty:'Sin departamentos',updateFn:'updateDept',delFn:'delDept',loadFn:'loadDeptMgmt'}); }
 async function saveDept(){ var n=gv('new-dept-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('departments',{name:n}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-dept-name').value=''; toast('✅ Departamento agregado'); loadDeptMgmt(); }
 async function delDept(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('departments',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadDeptMgmt(); }
@@ -4250,7 +4250,7 @@ var PERM_MODULES=[
   ]},
   {key:'settings',label:'Configuración',icon:'fa-cogs',color:'text-secondary'}
 ];
-async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el||!Array.isArray(roles)) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+r.name+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
+async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el||!Array.isArray(roles)) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+escHtml(r.name)+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
 async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
 async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
 function editRole(id){ editEntity('role',id,'updateRole','loadRoleMgmt'); }
@@ -4506,10 +4506,10 @@ async function loadEvaluations() {
   var tb = document.getElementById('eval-tbody');
   if(tb) tb.innerHTML = evals.length ? evals.map(function(e){
     var cat = evalRowCat(e);
-    return '<tr><td><strong>'+e.employee_name+'</strong></td><td>'+e.period+'</td><td>'+e.evaluator+'</td>'
+    return '<tr><td><strong>'+escHtml(e.employee_name)+'</strong></td><td>'+escHtml(e.period)+'</td><td>'+escHtml(e.evaluator)+'</td>'
       +'<td><strong>'+(Number(e.avg)||0).toFixed(1)+'</strong>/10</td>'
       +'<td><span class="badge '+cat.cls+'">'+cat.label+'</span></td>'
-      +'<td><span class="badge badge-success">'+e.status+'</span></td>'
+      +'<td><span class="badge badge-success">'+escHtml(e.status)+'</span></td>'
       +'<td><button class="btn btn-xs btn-outline-danger" onclick="delEval(\''+e.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
   }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin evaluaciones registradas.</td></tr>';
   // Top
@@ -4518,7 +4518,7 @@ async function loadEvaluations() {
     var sorted = evals.slice().sort(function(a,b){ return (Number(b.avg)||0)-(Number(a.avg)||0); }).slice(0,5);
     topTb.innerHTML = sorted.map(function(e,i){
       var cat=evalRowCat(e);
-      return '<tr><td><strong>'+(i+1)+'</strong></td><td>'+e.employee_name+'</td><td><strong>'+(Number(e.avg)||0).toFixed(1)+'</strong></td><td><span class="badge '+cat.cls+'">'+cat.label+'</span></td></tr>';
+      return '<tr><td><strong>'+(i+1)+'</strong></td><td>'+escHtml(e.employee_name)+'</td><td><strong>'+(Number(e.avg)||0).toFixed(1)+'</strong></td><td><span class="badge '+cat.cls+'">'+cat.label+'</span></td></tr>';
     }).join('');
   }
   // Chart
@@ -4531,7 +4531,7 @@ async function loadEvaluations() {
   }
   // Populate emp selector
   var ev = document.getElementById('ev-emp');
-  if(ev&&Array.isArray(emps)) ev.innerHTML='<option value="">— Seleccionar —</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'" data-name="'+e.first_name+' '+e.last_name+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ev&&Array.isArray(emps)) ev.innerHTML='<option value="">— Seleccionar —</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'" data-sal="'+escHtml(e.salary||0)+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
 }
 function openEvalModal(){
   document.getElementById('ev-id').value='';
@@ -4583,7 +4583,7 @@ async function loadUniforms() {
   if(!Array.isArray(_allUniforms)) _allUniforms = [];
   // Populate emp selectors
   var ae = document.getElementById('un-emp');
-  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   renderUniforms(_allUniforms);
   renderInventory();
 }
@@ -4596,8 +4596,8 @@ function renderUniforms(list){
   var tb=document.getElementById('uniform-tbody'); if(!tb) return;
   var catIcons={uniforme:'fa-tshirt',equipo:'fa-laptop',herramienta:'fa-tools',vehiculo:'fa-car',otro:'fa-box'};
   tb.innerHTML=list.length?list.map(function(u){
-    return '<tr><td><strong>'+u.employee_name+'</strong></td><td><i class="fas '+(catIcons[u.category]||'fa-box')+' mr-1 text-primary"></i>'+u.item+'</td><td>'+u.category+'</td><td>'+u.size+'</td><td>'+u.quantity+'</td><td>'+u.date+'</td>'
-      +'<td><span class="badge badge-'+(u.status==='activo'?'success':'secondary')+'">'+u.status+'</span></td>'
+    return '<tr><td><strong>'+escHtml(u.employee_name)+'</strong></td><td><i class="fas '+(catIcons[u.category]||'fa-box')+' mr-1 text-primary"></i>'+escHtml(u.item)+'</td><td>'+escHtml(u.category)+'</td><td>'+escHtml(u.size)+'</td><td>'+escHtml(u.quantity)+'</td><td>'+escHtml(u.date)+'</td>'
+      +'<td><span class="badge badge-'+(u.status==='activo'?'success':'secondary')+'">'+escHtml(u.status)+'</span></td>'
       +'<td><button class="btn btn-xs btn-outline-warning mr-1" onclick="returnUniform(\''+u.id+'\')" title="Marcar devuelto"><i class="fas fa-undo"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delUniform(\''+u.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
   }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin asignaciones registradas.</td></tr>';
 }
@@ -4606,7 +4606,7 @@ function renderInventory(){
   _allUniforms.forEach(function(u){ var k=u.item; if(!byItem[k]) byItem[k]={item:u.item,cat:u.category,total:0,active:0,value:u.value}; byItem[k].total+=u.quantity; if(u.status==='activo') byItem[k].active+=u.quantity; });
   var wrap=document.getElementById('inventory-cards'); if(!wrap) return;
   var catIcons={uniforme:'fa-tshirt',equipo:'fa-laptop',herramienta:'fa-tools',vehiculo:'fa-car',otro:'fa-box'};
-  wrap.innerHTML=Object.values(byItem).map(function(b){ return '<div class="col-md-3 col-sm-6 mb-3"><div class="card text-center"><div class="card-body"><i class="fas '+(catIcons[b.cat]||'fa-box')+' fa-2x text-primary mb-2"></i><h6>'+b.item+'</h6><div class="badge badge-info px-2">'+b.active+' activos</div><div class="text-muted small mt-1">Valor unit.: '+fmt(b.value)+'</div></div></div></div>'; }).join('');
+  wrap.innerHTML=Object.values(byItem).map(function(b){ return '<div class="col-md-3 col-sm-6 mb-3"><div class="card text-center"><div class="card-body"><i class="fas '+(catIcons[b.cat]||'fa-box')+' fa-2x text-primary mb-2"></i><h6>'+escHtml(b.item)+'</h6><div class="badge badge-info px-2">'+b.active+' activos</div><div class="text-muted small mt-1">Valor unit.: '+fmt(b.value)+'</div></div></div></div>'; }).join('');
 }
 function openUniformModal(){ var ud=document.getElementById('un-date'); if(ud) ud.value=TS; ['un-id','un-item','un-size','un-notes'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); document.getElementById('un-qty').value='1'; $('#uniformModal').modal('show'); }
 async function saveUniform(){
@@ -4633,7 +4633,7 @@ async function loadMedical(){
     _allMedical=[];
   }
   var ae=document.getElementById('med-emp');
-  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'" data-sal="'+(e.salary||0)+'">'+e.first_name+' '+e.last_name+'</option>'; }).join('');
+  if(ae&&Array.isArray(emps)) ae.innerHTML='<option value="">— Seleccionar —</option>'+emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<option value="'+e.id+'" data-sal="'+escHtml(e.salary||0)+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join('');
   var st=document.getElementById('medical-stats');
   var activas=_allMedical.filter(function(r){ return r.status==='activa'; }).length;
   var totalDays=_allMedical.reduce(function(s,r){ return s+(r.days||0); },0);
@@ -4649,11 +4649,11 @@ function renderMedical(list){
   var tb=document.getElementById('medical-tbody'); if(!tb) return;
   var typeLabels={enfermedad:'Enfermedad',accidente:'Acc. Laboral',maternidad:'Maternidad',paternidad:'Paternidad',familiar:'Familiar Grave'};
   tb.innerHTML=list.length?list.map(function(r){
-    return '<tr><td><strong>'+r.employee_name+'</strong></td><td>'+( typeLabels[r.type]||r.type)+'</td><td>'+r.start_date+'</td><td>'+r.end_date+'</td>'
-      +'<td><span class="badge badge-info">'+r.days+'</span></td><td>'+(r.diagnosis||'—')+'</td>'
-      +'<td><span class="badge badge-'+(r.css_days>0?'success':'secondary')+'">'+r.css_days+' días</span></td>'
+    return '<tr><td><strong>'+escHtml(r.employee_name)+'</strong></td><td>'+escHtml(typeLabels[r.type]||r.type)+'</td><td>'+escHtml(r.start_date)+'</td><td>'+escHtml(r.end_date)+'</td>'
+      +'<td><span class="badge badge-info">'+escHtml(r.days)+'</span></td><td>'+escHtml(r.diagnosis||'—')+'</td>'
+      +'<td><span class="badge badge-'+(r.css_days>0?'success':'secondary')+'">'+escHtml(r.css_days)+' días</span></td>'
       +'<td>'+(r.cost==null?'—':fmt(Number(r.cost)))+'</td>'
-      +'<td><span class="badge badge-'+(r.status==='activa'?'danger':'secondary')+'">'+r.status+'</span></td>'
+      +'<td><span class="badge badge-'+(r.status==='activa'?'danger':'secondary')+'">'+escHtml(r.status)+'</span></td>'
       +'<td><button class="btn btn-xs btn-outline-success mr-1" onclick="closeMedical(\''+r.id+'\')" title="Cerrar incapacidad"><i class="fas fa-check"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delMedical(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>';
   }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin incapacidades registradas.</td></tr>';
 }
@@ -4697,11 +4697,11 @@ function loadSurveys(){
   var typeColors={activa:'success',cerrada:'secondary',borrador:'warning'};
   wrap.innerHTML=svs.map(function(s){
     var responses=DS.survey_responses.filter(function(r){ return r.survey_id===s.id; }).length;
-    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.9rem">'+s.title+'</h3><div class="card-tools"><span class="badge badge-'+(typeColors[s.status]||'secondary')+'">'+s.status+'</span></div></div><div class="card-body"><p class="text-muted small">'+s.description+'</p><div><small class="text-muted"><i class="fas fa-question-circle mr-1"></i>'+s.questions.length+' preguntas</small><br><small class="text-muted"><i class="fas fa-calendar mr-1"></i>Cierra: '+s.close_date+'</small><br><small class="text-muted"><i class="fas fa-users mr-1"></i>'+responses+' respuestas</small></div></div><div class="card-footer d-flex gap-1"><button class="btn btn-sm btn-outline-primary mr-1" onclick="fillSurvey(\''+s.id+'\')"><i class="fas fa-pen mr-1"></i>Responder</button><button class="btn btn-sm btn-outline-danger" onclick="delSurvey(\''+s.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
+    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.9rem">'+escHtml(s.title)+'</h3><div class="card-tools"><span class="badge badge-'+(typeColors[s.status]||'secondary')+'">'+escHtml(s.status)+'</span></div></div><div class="card-body"><p class="text-muted small">'+escHtml(s.description)+'</p><div><small class="text-muted"><i class="fas fa-question-circle mr-1"></i>'+s.questions.length+' preguntas</small><br><small class="text-muted"><i class="fas fa-calendar mr-1"></i>Cierra: '+escHtml(s.close_date)+'</small><br><small class="text-muted"><i class="fas fa-users mr-1"></i>'+responses+' respuestas</small></div></div><div class="card-footer d-flex gap-1"><button class="btn btn-sm btn-outline-primary mr-1" onclick="fillSurvey(\''+s.id+'\')"><i class="fas fa-pen mr-1"></i>Responder</button><button class="btn btn-sm btn-outline-danger" onclick="delSurvey(\''+s.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
   }).join('');
   // Populate selectors
   var rSel=document.getElementById('sv-result-sel'), rSel2=document.getElementById('sv-respond-sel');
-  var opts='<option value="">— Seleccionar encuesta —</option>'+svs.map(function(s){ return '<option value="'+s.id+'">'+s.title+'</option>'; }).join('');
+  var opts='<option value="">— Seleccionar encuesta —</option>'+svs.map(function(s){ return '<option value="'+s.id+'">'+escHtml(s.title)+'</option>'; }).join('');
   if(rSel) rSel.innerHTML=opts;
   if(rSel2) rSel2.innerHTML=opts;
 }
@@ -4736,13 +4736,13 @@ function fillSurvey(svId){
   var sv=DS.surveys.find(function(s){ return s.id===svId; }); if(!sv) return;
   var wrap=document.getElementById('survey-form-wrap'); if(!wrap) return;
   var sel=document.getElementById('sv-respond-sel'); if(sel) sel.value=svId;
-  wrap.innerHTML='<div class="card"><div class="card-header bg-primary"><h3 class="card-title text-white">'+sv.title+'</h3></div><div class="card-body">'
+  wrap.innerHTML='<div class="card"><div class="card-header bg-primary"><h3 class="card-title text-white">'+escHtml(sv.title)+'</h3></div><div class="card-body">'
     +sv.questions.map(function(q,i){
       var inp='';
       if(q.type==='scale') inp='<div class="d-flex align-items-center mt-2"><span class="mr-2 text-muted small">1</span><input type="range" id="svr-'+q.id+'" class="form-control-range flex-grow-1" min="1" max="10" value="5" oninput="this.nextElementSibling.textContent=this.value"><span class="badge badge-primary ml-2" style="min-width:28px">5</span></div>';
       else if(q.type==='yesno') inp='<div class="mt-2"><div class="icheck-success d-inline mr-3"><input type="radio" name="svr-'+q.id+'" id="svr-'+q.id+'-y" value="si"><label for="svr-'+q.id+'-y"> Sí</label></div><div class="icheck-danger d-inline"><input type="radio" name="svr-'+q.id+'" id="svr-'+q.id+'-n" value="no"><label for="svr-'+q.id+'-n"> No</label></div></div>';
       else inp='<textarea id="svr-'+q.id+'" class="form-control form-control-sm mt-2" rows="2" placeholder="Tu respuesta..."></textarea>';
-      return '<div class="mb-3"><label><strong>'+(i+1)+'. '+q.text+'</strong></label>'+inp+'</div>';
+      return '<div class="mb-3"><label><strong>'+(i+1)+'. '+escHtml(q.text)+'</strong></label>'+inp+'</div>';
     }).join('')
     +'<button class="btn btn-primary btn-block mt-3" onclick="submitSurvey(\''+svId+'\')"><i class="fas fa-paper-plane mr-1"></i>Enviar Respuestas</button></div></div>';
   $('[href="#sv-respond"]').tab('show');
@@ -4770,10 +4770,10 @@ function loadSurveyResults(){
     if(q.type==='scale'){
       var vals=responses.map(function(r){ var a=r.answers.find(function(x){ return x.question_id===q.id; }); return a?parseFloat(a.answer)||0:0; });
       var avg=vals.length?(vals.reduce(function(s,v){ return s+v; },0)/vals.length).toFixed(1):0;
-      html+='<div class="col-md-6 mb-3"><div class="card"><div class="card-header"><h3 class="card-title" style="font-size:.85rem">'+q.text+'</h3></div><div class="card-body p-3 text-center"><div class="h2 text-primary">'+avg+'<small class="text-muted">/10</small></div><div class="progress mt-2"><div class="progress-bar" style="width:'+Math.round(avg/10*100)+'%"></div></div><small class="text-muted">'+vals.length+' respuestas</small></div></div></div>';
+      html+='<div class="col-md-6 mb-3"><div class="card"><div class="card-header"><h3 class="card-title" style="font-size:.85rem">'+escHtml(q.text)+'</h3></div><div class="card-body p-3 text-center"><div class="h2 text-primary">'+avg+'<small class="text-muted">/10</small></div><div class="progress mt-2"><div class="progress-bar" style="width:'+Math.round(avg/10*100)+'%"></div></div><small class="text-muted">'+vals.length+' respuestas</small></div></div></div>';
     } else {
       var txts=responses.map(function(r){ var a=r.answers.find(function(x){ return x.question_id===q.id; }); return a?a.answer:''; }).filter(Boolean);
-      html+='<div class="col-md-6 mb-3"><div class="card"><div class="card-header"><h3 class="card-title" style="font-size:.85rem">'+q.text+'</h3></div><div class="card-body p-2" style="max-height:150px;overflow-y:auto">'+txts.map(function(t){ return '<div class="alert alert-light py-1 mb-1 small">'+t+'</div>'; }).join('')+'</div></div></div>';
+      html+='<div class="col-md-6 mb-3"><div class="card"><div class="card-header"><h3 class="card-title" style="font-size:.85rem">'+escHtml(q.text)+'</h3></div><div class="card-body p-2" style="max-height:150px;overflow-y:auto">'+txts.map(function(t){ return '<div class="alert alert-light py-1 mb-1 small">'+escHtml(t)+'</div>'; }).join('')+'</div></div></div>';
     }
   });
   html+='</div>';
@@ -4799,18 +4799,18 @@ async function loadTraining(){
   var tc=document.getElementById('training-cards');
   if(tc) tc.innerHTML=trs.map(function(t){
     var enrolled=enrs.filter(function(e){ return e.training_id===t.id; }).length;
-    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.88rem"><i class="fas '+(catIcons[t.category]||'fa-book')+' mr-1 text-primary"></i>'+t.name+'</h3><div class="card-tools"><span class="badge badge-'+(stColors[t.status]||'secondary')+'">'+t.status.replace(/_/g,' ')+'</span></div></div><div class="card-body"><p class="text-muted small">'+t.description+'</p><small class="text-muted d-block"><i class="fas fa-clock mr-1"></i>'+t.hours+' horas · '+t.mode+'</small><small class="text-muted d-block"><i class="fas fa-calendar mr-1"></i>'+t.start_date+' → '+t.end_date+'</small><small class="text-muted d-block"><i class="fas fa-user-tie mr-1"></i>'+t.instructor+'</small><small class="text-muted d-block"><i class="fas fa-users mr-1"></i>'+enrolled+' inscritos</small></div><div class="card-footer"><button class="btn btn-sm btn-outline-primary mr-1" onclick="openEnrollModal(\''+t.id+'\',\''+t.name+'\')"><i class="fas fa-user-plus mr-1"></i>Inscribir</button><button class="btn btn-sm btn-outline-danger" onclick="delTraining(\''+t.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
+    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.88rem"><i class="fas '+(catIcons[t.category]||'fa-book')+' mr-1 text-primary"></i>'+escHtml(t.name)+'</h3><div class="card-tools"><span class="badge badge-'+(stColors[t.status]||'secondary')+'">'+escHtml(t.status.replace(/_/g,' '))+'</span></div></div><div class="card-body"><p class="text-muted small">'+escHtml(t.description)+'</p><small class="text-muted d-block"><i class="fas fa-clock mr-1"></i>'+escHtml(t.hours)+' horas · '+escHtml(t.mode)+'</small><small class="text-muted d-block"><i class="fas fa-calendar mr-1"></i>'+escHtml(t.start_date)+' → '+escHtml(t.end_date)+'</small><small class="text-muted d-block"><i class="fas fa-user-tie mr-1"></i>'+escHtml(t.instructor)+'</small><small class="text-muted d-block"><i class="fas fa-users mr-1"></i>'+enrolled+' inscritos</small></div><div class="card-footer"><button class="btn btn-sm btn-outline-primary mr-1" onclick="openEnrollModal(\''+t.id+'\')"><i class="fas fa-user-plus mr-1"></i>Inscribir</button><button class="btn btn-sm btn-outline-danger" onclick="delTraining(\''+t.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
   }).join('');
   // Enrollments table
   var etb=document.getElementById('enrollment-tbody');
-  if(etb) etb.innerHTML=enrs.length?enrs.map(function(e){ return '<tr><td><strong>'+e.employee_name+'</strong></td><td>'+e.training_name+'</td><td>'+(DS.trainings.find(function(t){ return t.id===e.training_id; })||{category:'—'}).category+'</td><td>'+(DS.trainings.find(function(t){ return t.id===e.training_id; })||{start_date:'—'}).start_date+'</td><td>'+(DS.trainings.find(function(t){ return t.id===e.training_id; })||{end_date:'—'}).end_date+'</td><td>'+(DS.trainings.find(function(t){ return t.id===e.training_id; })||{hours:'—'}).hours+'</td><td><span class="badge badge-'+(e.status==='completado'?'success':e.status==='en_progreso'?'warning':'secondary')+'">'+e.status.replace(/_/g,' ')+'</span></td><td>'+(e.score!==null?'<span class="badge badge-'+(e.score>=70?'success':'danger')+'">'+e.score+'%</span>':'—')+'</td><td><button class="btn btn-xs btn-outline-danger" onclick="delEnrollment(\''+e.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin inscripciones registradas.</td></tr>';
+  if(etb) etb.innerHTML=enrs.length?enrs.map(function(e){ return '<tr><td><strong>'+escHtml(e.employee_name)+'</strong></td><td>'+escHtml(e.training_name)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{category:'—'}).category)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{start_date:'—'}).start_date)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{end_date:'—'}).end_date)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{hours:'—'}).hours)+'</td><td><span class="badge badge-'+(e.status==='completado'?'success':e.status==='en_progreso'?'warning':'secondary')+'">'+escHtml(e.status.replace(/_/g,' '))+'</span></td><td>'+(e.score!==null?'<span class="badge badge-'+(e.score>=70?'success':'danger')+'">'+e.score+'%</span>':'—')+'</td><td><button class="btn btn-xs btn-outline-danger" onclick="delEnrollment(\''+e.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin inscripciones registradas.</td></tr>';
   // Certificates
   var certs=enrs.filter(function(e){ return e.status==='completado'&&e.score!==null; });
   var cc=document.getElementById('certificate-cards');
-  if(cc) cc.innerHTML=certs.length?certs.map(function(e){ return '<div class="col-md-4 mb-3"><div class="card text-center"><div class="card-body"><div style="font-size:3rem">🎓</div><h6 class="mt-2">'+e.employee_name+'</h6><p class="text-muted small">'+e.training_name+'</p><span class="badge badge-'+(e.score>=90?'success':'primary')+' px-3 py-2 mb-2">'+e.score+'% · '+( e.score>=90?'Distinción':e.score>=70?'Aprobado':'Reprobado')+'</span><br><button class="btn btn-sm btn-outline-primary mt-2" onclick="printCertificate(\''+e.id+'\')"><i class="fas fa-print mr-1"></i>Imprimir Cert.</button></div></div></div>'; }).join(''):'<div class="col-12 text-center text-muted py-4"><i class="fas fa-certificate fa-3x d-block mb-2" style="opacity:.3"></i>Sin certificados aún</div>';
+  if(cc) cc.innerHTML=certs.length?certs.map(function(e){ return '<div class="col-md-4 mb-3"><div class="card text-center"><div class="card-body"><div style="font-size:3rem">🎓</div><h6 class="mt-2">'+escHtml(e.employee_name)+'</h6><p class="text-muted small">'+escHtml(e.training_name)+'</p><span class="badge badge-'+(e.score>=90?'success':'primary')+' px-3 py-2 mb-2">'+e.score+'% · '+( e.score>=90?'Distinción':e.score>=70?'Aprobado':'Reprobado')+'</span><br><button class="btn btn-sm btn-outline-primary mt-2" onclick="printCertificate(\''+e.id+'\')"><i class="fas fa-print mr-1"></i>Imprimir Cert.</button></div></div></div>'; }).join(''):'<div class="col-12 text-center text-muted py-4"><i class="fas fa-certificate fa-3x d-block mb-2" style="opacity:.3"></i>Sin certificados aún</div>';
   // Populate emp selectors for modal
   var tw=document.getElementById('tr-emp-wrap');
-  if(tw&&Array.isArray(emps)) tw.innerHTML=emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<div class="col-md-6 mb-1"><div class="icheck-primary"><input type="checkbox" id="tr-emp-'+e.id+'" value="'+e.id+'" data-name="'+e.first_name+' '+e.last_name+'"><label for="tr-emp-'+e.id+'"> '+e.first_name+' '+e.last_name+'</label></div></div>'; }).join('');
+  if(tw&&Array.isArray(emps)) tw.innerHTML=emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<div class="col-md-6 mb-1"><div class="icheck-primary"><input type="checkbox" id="tr-emp-'+e.id+'" value="'+e.id+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'"><label for="tr-emp-'+e.id+'"> '+escHtml(e.first_name+' '+e.last_name)+'</label></div></div>'; }).join('');
 }
 function openTrainingModal(){ ['tr-id','tr-name','tr-hours','tr-start','tr-end','tr-instructor','tr-desc'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){ cb.checked=false; }); $('#trainingModal').modal('show'); }
 async function saveTraining(){
@@ -4824,7 +4824,8 @@ async function saveTraining(){
   });
   $('#trainingModal').modal('hide'); toast('✅ Capacitación guardada'); loadTraining();
 }
-function openEnrollModal(trId,trName){
+function openEnrollModal(trId){
+  var trn=DS.trainings.find(function(t){ return t.id===trId; }), trName=trn?trn.name:'';
   var emps=DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; });
   var already=DS.enrollments.filter(function(e){ return e.training_id===trId; }).map(function(e){ return e.employee_id; });
   var available=emps.filter(function(e){ return !already.includes(e.id); });
@@ -4843,15 +4844,15 @@ function printCertificate(enrollId){
   var tr=DS.trainings.find(function(t){ return t.id===en.training_id; })||{};
   var w=window.open('','_blank','width=800,height:600');
   w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Certificado</title><style>body{font-family:"Times New Roman",serif;text-align:center;padding:60px;background:#fafafa;color:#222}.cert{max-width:700px;margin:0 auto;border:8px double #007bff;padding:50px;background:#fff;border-radius:8px}.logo{font-size:3rem;margin-bottom:10px}.company{font-size:1.3rem;color:#007bff;font-weight:bold;margin-bottom:30px}.certifies{font-size:1rem;color:#666;margin-bottom:10px}.name{font-size:2.2rem;font-weight:bold;color:#007bff;border-bottom:2px solid #007bff;display:inline-block;padding-bottom:6px;margin:10px 0}.course{font-size:1.1rem;color:#333;margin:15px 0}.details{font-size:.9rem;color:#666;margin:10px 0}.sigs{display:flex;justify-content:space-around;margin-top:50px}.sig-line{border-top:1px solid #333;min-width:180px;padding-top:8px;font-size:.85rem;color:#555}.score-badge{display:inline-block;background:#28a745;color:#fff;border-radius:50px;padding:8px 24px;font-size:1.1rem;font-weight:bold;margin:15px 0}.footer{margin-top:30px;font-size:.75rem;color:#aaa}@media print{body{padding:0}.cert{border-color:#007bff}}</style></head><body>'
-    +'<div class="cert"><div class="logo">🎓</div><div class="company">'+A.companyName+'</div><hr>'
-    +'<div class="certifies">Certifica que</div><div class="name">'+en.employee_name+'</div>'
+    +'<div class="cert"><div class="logo">🎓</div><div class="company">'+escHtml(A.companyName)+'</div><hr>'
+    +'<div class="certifies">Certifica que</div><div class="name">'+escHtml(en.employee_name)+'</div>'
     +'<p class="course">Ha completado satisfactoriamente el curso de</p>'
-    +'<h2 style="color:#007bff">'+en.training_name+'</h2>'
-    +'<div class="score-badge">'+en.score+'% · '+(en.score>=90?'Con Distinción':en.score>=70?'Aprobado':'Completado')+'</div>'
-    +'<div class="details"><i>Categoría: '+( tr.category||'—')+'  ·  Duración: '+(tr.hours||'—')+' horas  ·  Modalidad: '+(tr.mode||'—')+'</i></div>'
-    +'<div class="details">Instructor: '+(tr.instructor||'—')+'  ·  Fecha: '+(tr.end_date||new Date().toLocaleDateString('es-PA'))+'</div>'
-    +'<div class="sigs"><div class="sig-line">'+en.employee_name+'<br><small>Participante</small></div><div class="sig-line">'+A.companyName+'<br><small>Recursos Humanos</small></div></div>'
-    +'<div class="footer">Certificado N° CERT-'+Date.now().toString().slice(-8)+' · '+A.companyName+' · HR Admin Panel</div>'
+    +'<h2 style="color:#007bff">'+escHtml(en.training_name)+'</h2>'
+    +'<div class="score-badge">'+escHtml(en.score)+'% · '+(en.score>=90?'Con Distinción':en.score>=70?'Aprobado':'Completado')+'</div>'
+    +'<div class="details"><i>Categoría: '+escHtml(tr.category||'—')+'  ·  Duración: '+escHtml(tr.hours||'—')+' horas  ·  Modalidad: '+escHtml(tr.mode||'—')+'</i></div>'
+    +'<div class="details">Instructor: '+escHtml(tr.instructor||'—')+'  ·  Fecha: '+escHtml(tr.end_date||new Date().toLocaleDateString('es-PA'))+'</div>'
+    +'<div class="sigs"><div class="sig-line">'+escHtml(en.employee_name)+'<br><small>Participante</small></div><div class="sig-line">'+escHtml(A.companyName)+'<br><small>Recursos Humanos</small></div></div>'
+    +'<div class="footer">Certificado N° CERT-'+Date.now().toString().slice(-8)+' · '+escHtml(A.companyName)+' · HR Admin Panel</div>'
     +'</div><div style="text-align:center;margin:20px"><button onclick="window.print()" style="background:#007bff;color:#fff;border:none;padding:8px 24px;border-radius:6px;cursor:pointer">🖨️ Imprimir</button></div>'
     +'<script>window.onload=function(){window.print();}<\/script></body></html>');
   w.document.close();
@@ -4865,7 +4866,7 @@ function loadAnnouncements(){
   var all=DS.announcements.filter(function(a){ return a.company_id===A.companyId; });
   var typeColors={general:'secondary',urgente:'danger',departamento:'primary',evento:'success'};
   var prioColors={normal:'secondary',alta:'warning',critica:'danger'};
-  if(tb) tb.innerHTML=all.length?all.map(function(a){ return '<tr><td><strong>'+a.title+'</strong></td><td><span class="badge badge-'+(typeColors[a.type]||'secondary')+'">'+a.type+'</span></td><td>'+a.audience+'</td><td><small>'+a.created_at.split('T')[0]+'</small></td><td><span class="badge badge-info">'+a.views+' vistas</span></td><td><span class="badge badge-'+(a.status==='activo'?'success':'secondary')+'">'+a.status+'</span></td><td><button class="btn btn-xs btn-outline-warning mr-1" onclick="archiveAnnouncement(\''+a.id+'\')"><i class="fas fa-archive"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delAnnouncement(\''+a.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin comunicados.</td></tr>';
+  if(tb) tb.innerHTML=all.length?all.map(function(a){ return '<tr><td><strong>'+escHtml(a.title)+'</strong></td><td><span class="badge badge-'+(typeColors[a.type]||'secondary')+'">'+escHtml(a.type)+'</span></td><td>'+escHtml(a.audience)+'</td><td><small>'+escHtml(a.created_at.split('T')[0])+'</small></td><td><span class="badge badge-info">'+escHtml(a.views)+' vistas</span></td><td><span class="badge badge-'+(a.status==='activo'?'success':'secondary')+'">'+escHtml(a.status)+'</span></td><td><button class="btn btn-xs btn-outline-warning mr-1" onclick="archiveAnnouncement(\''+a.id+'\')"><i class="fas fa-archive"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delAnnouncement(\''+a.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin comunicados.</td></tr>';
 }
 function renderAnnouncements(){
   var filterType=document.getElementById('an-filter-type').value||'';
@@ -4877,10 +4878,10 @@ function renderAnnouncements(){
     a.views=(a.views||0)+1;
     return '<div class="card mb-3" style="border-left:4px solid var(--'+(a.type==='urgente'?'danger':a.type==='evento'?'success':'primary')+')">'
       +'<div class="card-header" style="border-bottom:1px solid var(--border)"><div class="d-flex justify-content-between align-items-start">'
-      +'<div><h5 class="mb-0">'+(prioIcons[a.priority]||'')+a.title+'</h5><small class="text-muted"><span class="badge badge-'+(typeColors[a.type]||'secondary')+' mr-1">'+a.type+'</span>'+a.created_at.split('T')[0]+' · '+a.audience+'</small></div>'
-      +'<small class="text-muted"><i class="fas fa-eye mr-1"></i>'+a.views+'</small></div></div>'
-      +'<div class="card-body"><p class="mb-0">'+a.content+'</p></div>'
-      +(a.expires?'<div class="card-footer"><small class="text-muted"><i class="fas fa-calendar-times mr-1"></i>Vence: '+a.expires+'</small></div>':'')
+      +'<div><h5 class="mb-0">'+(prioIcons[a.priority]||'')+escHtml(a.title)+'</h5><small class="text-muted"><span class="badge badge-'+(typeColors[a.type]||'secondary')+' mr-1">'+escHtml(a.type)+'</span>'+escHtml(a.created_at.split('T')[0])+' · '+escHtml(a.audience)+'</small></div>'
+      +'<small class="text-muted"><i class="fas fa-eye mr-1"></i>'+escHtml(a.views)+'</small></div></div>'
+      +'<div class="card-body"><p class="mb-0">'+escHtml(a.content)+'</p></div>'
+      +(a.expires?'<div class="card-footer"><small class="text-muted"><i class="fas fa-calendar-times mr-1"></i>Vence: '+escHtml(a.expires)+'</small></div>':'')
       +'</div>';
   }).join(''):'<div class="text-center text-muted py-5"><i class="fas fa-bullhorn fa-3x d-block mb-3" style="opacity:.3"></i>Sin comunicados activos.</div>';
 }
@@ -4925,12 +4926,12 @@ function loadRecruitment() {
   // Vacantes tab
   var jTb = document.getElementById('rec-jobs-tbody');
   if(jTb) jTb.innerHTML = jobs.length ? jobs.map(function(j){
-    var st = REC_JOB_STATUS[j.status]||{cls:'badge-secondary',label:j.status};
-    var sal = (j.salary_min||j.salary_max) ? 'B/. '+(j.salary_min||0)+' – '+(j.salary_max||0) : '—';
-    return '<tr><td><strong>'+j.title+'</strong></td><td>'+(j.department||'—')+'</td><td>'+(j.location||'—')+'</td>'
+    var st = REC_JOB_STATUS[j.status]||{cls:'badge-secondary',label:escHtml(j.status)};
+    var sal = (j.salary_min||j.salary_max) ? 'B/. '+escHtml(j.salary_min||0)+' – '+escHtml(j.salary_max||0) : '—';
+    return '<tr><td><strong>'+escHtml(j.title)+'</strong></td><td>'+escHtml(j.department||'—')+'</td><td>'+escHtml(j.location||'—')+'</td>'
       +'<td>'+sal+'</td>'
       +'<td><span class="badge '+st.cls+'">'+st.label+'</span></td>'
-      +'<td>'+(j.created_at||'').substring(0,10)+'</td>'
+      +'<td>'+escHtml((j.created_at||'').substring(0,10))+'</td>'
       +'<td>'
         +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editJob(\''+j.id+'\')"><i class="fas fa-edit"></i></button>'
         +'<button class="btn btn-xs btn-outline-danger" onclick="delJob(\''+j.id+'\')"><i class="fas fa-trash"></i></button>'
@@ -4950,9 +4951,9 @@ function loadRecruitment() {
   }
   var cTb = document.getElementById('rec-candidates-tbody');
   if(cTb) cTb.innerHTML = cands.length ? cands.map(function(c){
-    return '<tr><td><strong>'+c.full_name+'</strong></td><td>'+(c.email||'—')+'</td><td>'+(c.phone||'—')+'</td>'
-      +'<td>'+c.nationality+'</td><td>'+(c.id_number||'—')+'</td>'
-      +'<td><small class="text-muted">'+((c.resume_notes||'').substring(0,60)||'—')+'</small></td>'
+    return '<tr><td><strong>'+escHtml(c.full_name)+'</strong></td><td>'+escHtml(c.email||'—')+'</td><td>'+escHtml(c.phone||'—')+'</td>'
+      +'<td>'+escHtml(c.nationality)+'</td><td>'+escHtml(c.id_number||'—')+'</td>'
+      +'<td><small class="text-muted">'+escHtml((c.resume_notes||'').substring(0,60)||'—')+'</small></td>'
       +'<td>'
         +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editCandidate(\''+c.id+'\')"><i class="fas fa-edit"></i></button>'
         +'<button class="btn btn-xs btn-outline-danger" onclick="delCandidate(\''+c.id+'\')"><i class="fas fa-trash"></i></button>'
@@ -4963,11 +4964,11 @@ function loadRecruitment() {
   var pTb = document.getElementById('rec-pipeline-tbody');
   if(pTb) pTb.innerHTML = apps.length ? apps.map(function(a){
     var bc = REC_STAGE_BADGE[a.stage]||'badge-secondary';
-    var bl = REC_STAGE_LABEL[a.stage]||a.stage;
-    return '<tr><td><strong>'+a.candidate_name+'</strong></td><td>'+a.job_title+'</td>'
+    var bl = REC_STAGE_LABEL[a.stage]||escHtml(a.stage);
+    return '<tr><td><strong>'+escHtml(a.candidate_name)+'</strong></td><td>'+escHtml(a.job_title)+'</td>'
       +'<td><span class="badge '+bc+'">'+bl+'</span></td>'
-      +'<td><small>'+(a.notes||'—')+'</small></td>'
-      +'<td>'+(a.applied_at||'').substring(0,10)+'</td>'
+      +'<td><small>'+escHtml(a.notes||'—')+'</small></td>'
+      +'<td>'+escHtml((a.applied_at||'').substring(0,10))+'</td>'
       +'<td>'
         +(a.stage==='offer'?'<button class="btn btn-xs btn-success mr-1" onclick="hireCandidate(\''+a.id+'\')"><i class="fas fa-check mr-1"></i>Contratar</button>':'')
         +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editApplication(\''+a.id+'\')"><i class="fas fa-edit"></i></button>'
@@ -5048,8 +5049,8 @@ function delCandidate(id){ if(!confirm('¿Eliminar este candidato?')) return; DS
 function openApplicationModal(id){
   var cands=DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
   var jobs=DS.job_postings.filter(function(j){ return j.company_id===A.companyId&&j.status==='open'; });
-  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+c.id+'">'+c.full_name+'</option>'; }).join('');
-  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+j.id+'">'+j.title+'</option>'; }).join('');
+  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+c.id+'">'+escHtml(c.full_name)+'</option>'; }).join('');
+  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+j.id+'">'+escHtml(j.title)+'</option>'; }).join('');
   ['ra-id','ra-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
   document.getElementById('ra-stage').value='applied';
   document.getElementById('ra-date').value=TS;
