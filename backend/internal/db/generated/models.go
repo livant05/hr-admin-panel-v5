@@ -300,6 +300,8 @@ type MedicalRecord struct {
 	Notes        pgtype.Text        `json:"notes"`
 	Status       pgtype.Text        `json:"status"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+	SalaryBasis  pgtype.Numeric     `json:"salary_basis"`
+	Cost         pgtype.Numeric     `json:"cost"`
 }
 
 type OvertimeLog struct {

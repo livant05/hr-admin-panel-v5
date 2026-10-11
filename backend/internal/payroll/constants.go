@@ -67,7 +67,17 @@ const (
 
 	indemWeekThreshold  = 10 // <=10 years: 1 week/yr; beyond: 2 weeks/yr
 	indemWeekMultiplier = 2
+
+	// Incapacity (medical_records, Phase 4a; medical.go). Source:
+	// hr_admin_panel.html calcMedical/saveMedical, lines 4616-4636. The
+	// divisor 30 reuses daysPerMonth.
+	incapacityEmployerDaysMax = 3 // employer pays min(3, days) of an incapacity
+	paternidadEmployerDays    = 3 // paternidad is always 3 employer days
 )
+
+// cssIncapacitySubsidy is the share of the daily rate paid for each CSS day
+// (calcMedical: cssDays*dailyRate*0.7, hr_admin_panel.html:4616-4636).
+var cssIncapacitySubsidy = MustParseDecimal("0.70")
 
 // CalcVersion tags every persisted liquidación breakdown (design R6, slice
 // 3g). The legal re-derivation of these constants is out of scope for this
