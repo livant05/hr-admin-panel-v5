@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
+	"github.com/livant05/rrhh-go/internal/overtime"
 )
 
 // overtimeLogRequest is the exact contract saveOT sends
@@ -54,7 +55,7 @@ func normalizeOvertimeType(raw pgtype.Text) (string, bool) {
 	if raw.Valid && strings.TrimSpace(raw.String) != "" {
 		t = raw.String
 	}
-	if _, known := otRates[t]; !known {
+	if _, known := overtime.Rate(t); !known {
 		return "", false
 	}
 	return t, true
@@ -178,7 +179,7 @@ func (a *API) CreateOvertimeLog(w http.ResponseWriter, r *http.Request) {
 
 	otType, typeOK := normalizeOvertimeType(req.Type)
 	if !typeOK {
-		fields["type"] = "must be one of regular, mixed, night, sunday, holiday"
+		fields["type"] = "must be one of " + overtime.TypesList()
 	}
 
 	if hoursOK, msg := validateOvertimeHours(req.Hours); !hoursOK {
@@ -195,7 +196,7 @@ func (a *API) CreateOvertimeLog(w http.ResponseWriter, r *http.Request) {
 	// unreachable here, but checked anyway rather than assumed.
 	rate, ok := overtimeRateNumeric(otType)
 	if !ok {
-		writeFieldErr(w, map[string]string{"type": "must be one of regular, mixed, night, sunday, holiday"})
+		writeFieldErr(w, map[string]string{"type": "must be one of " + overtime.TypesList()})
 		return
 	}
 
@@ -250,7 +251,7 @@ func (a *API) UpdateOvertimeLog(w http.ResponseWriter, r *http.Request) {
 	}
 	otType, typeOK := normalizeOvertimeType(req.Type)
 	if !typeOK {
-		fields["type"] = "must be one of regular, mixed, night, sunday, holiday"
+		fields["type"] = "must be one of " + overtime.TypesList()
 	}
 	if hoursOK, msg := validateOvertimeHours(req.Hours); !hoursOK {
 		fields["hours"] = msg
@@ -262,7 +263,7 @@ func (a *API) UpdateOvertimeLog(w http.ResponseWriter, r *http.Request) {
 
 	rate, ok := overtimeRateNumeric(otType)
 	if !ok {
-		writeFieldErr(w, map[string]string{"type": "must be one of regular, mixed, night, sunday, holiday"})
+		writeFieldErr(w, map[string]string{"type": "must be one of " + overtime.TypesList()})
 		return
 	}
 

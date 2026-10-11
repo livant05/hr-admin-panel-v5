@@ -16,6 +16,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -441,4 +442,72 @@ func ErrCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 		t.Fatalf("decode error body (body=%s): %v", rec.Body.String(), err)
 	}
 	return body.Error.Code
+}
+
+// IsolatedSchema creates a fresh Postgres schema in the test database, applies
+// every migration INCLUDING the seed into it, and returns a pool whose
+// search_path points at that schema (with public as fallback for the
+// uuid-ossp functions) plus a connection URL carrying the same search_path.
+// It exists for tests that bulk-load data (the Supabase import tool): they
+// must not touch the shared tables other packages' tests read, and the seed
+// company/admin must be present so "seed untouched" can be asserted. The
+// schema is dropped on cleanup.
+//
+// Caveat: 0007's constraint guard looks up pg_constraint by name only, so it
+// sees epr_origin_chk from the public schema and skips creating it here.
+func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	admin := Pool(t)
+	ctx := context.Background()
+
+	schema := "imp_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+		t.Fatalf("create schema: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(context.Background(), `DROP SCHEMA `+schema+` CASCADE`)
+	})
+
+	dbURL := os.Getenv("TEST_DB_URL")
+	if dbURL == "" {
+		dbURL = defaultTestDBURL
+	}
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		t.Fatalf("parse test db url: %v", err)
+	}
+	q := u.Query()
+	q.Set("search_path", schema+",public")
+	u.RawQuery = q.Encode()
+	isoURL := u.String()
+
+	pool, err := pgxpool.New(ctx, isoURL)
+	if err != nil {
+		t.Fatalf("connect isolated schema: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	files, err := filepath.Glob(filepath.Join(migrationsDir(), "*.sql"))
+	if err != nil {
+		t.Fatalf("glob migrations: %v", err)
+	}
+	sort.Strings(files)
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		if _, err := tx.Exec(ctx, string(b)); err != nil {
+			t.Fatalf("apply %s to %s: %v", filepath.Base(f), schema, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit schema migrations: %v", err)
+	}
+	return pool, isoURL
 }

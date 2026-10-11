@@ -1,0 +1,4 @@
+[
+  {"id": "904fad55-e273-4533-aa73-4bb4daa4171e", "name": "Ventatec", "ruc": null, "address": null, "phone": null, "created_at": "2024-01-01T00:00:00+00:00"},
+  {"id": "11111111-1111-4111-8111-111111111111", "name": "Acme Synthetic", "ruc": "0000-000-000000", "address": "1 Test Street", "phone": "555-0100", "created_at": "2024-01-02T00:00:00+00:00"}
+]

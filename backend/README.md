@@ -72,3 +72,105 @@ the schema:
 cd internal/db
 go run github.com/sqlc-dev/sqlc/cmd/sqlc@latest generate
 ```
+
+## Importing data from Supabase
+
+`cmd/import` loads a JSON export of the Supabase tables into this database, keeping every
+original UUID so relations (employees, evaluations, attendance...) stay intact. You export
+the data yourself; the tool never talks to Supabase.
+
+### 1. Export each table to `<table>.json`
+
+Each file is a JSON array of row objects, exactly what PostgREST returns for
+`select=*`. Put them all in one directory (for example `./export`). A missing file just skips
+that table; extra files are listed and ignored.
+
+```sh
+# service_role key: keep it out of your shell history and never commit it
+export SUPABASE_URL="https://<project>.supabase.co"
+export SUPABASE_KEY="<service_role key>"
+mkdir -p export
+for t in companies departments positions branches roles users document_templates trainings \
+         surveys announcements job_postings candidates payroll_history zkteco_devices \
+         zkteco_unknown_pins employees attendance_logs leave_balances leave_requests \
+         overtime_logs deductions employee_pay_records liquidation_history generated_documents \
+         medical_records evaluations uniforms enrollments survey_responses applications; do
+  curl -sS -H "apikey: $SUPABASE_KEY" -H "Authorization: Bearer $SUPABASE_KEY" \
+       "$SUPABASE_URL/rest/v1/$t?select=*" -o "export/$t.json"
+done
+```
+
+PostgREST caps a response at the project's `max-rows` setting (1000 by default). If a table
+is larger, raise `max-rows` in the project's API settings for the export, or fetch it in pages
+(`?select=*&limit=1000&offset=N`) and merge the arrays. Alternatively, run
+`select json_agg(t) from <table> t;` in the SQL editor and save the result as `<table>.json`.
+
+Supabase's own `auth.users` table is not needed: this backend owns credentials (see below).
+
+### 2. Dry run first
+
+```sh
+cd backend
+go run ./cmd/import --dir ./export --db-url "$DB_URL" --dry-run
+```
+
+`--db-url` defaults to the `DB_URL` environment variable. The dry run does all the validation
+and transforms inside a transaction, prints a per-table report (rows read, would insert,
+already present, invalid, dropped keys) and rolls back. It writes nothing, not even the
+passwords file.
+
+### 3. Real run
+
+```sh
+go run ./cmd/import --dir ./export --db-url "$DB_URL" --passwords-out ./import-passwords.csv
+```
+
+- The import is one transaction: any error rolls everything back.
+- Exit code 0 on success, 1 on failure, 2 on bad usage.
+- Invalid rows (a failed validation, a missing employee, a duplicate key...) abort the run
+  and are listed with table, id and reason. Fix the export, or re-run with `--skip-invalid`
+  to load the valid rows and have the skipped ones listed in the report. Rows that depend on
+  a skipped row (for example attendance of a skipped employee) are skipped too.
+- Keys in the JSON with no matching column (and generated columns such as
+  `leave_balances.remaining_days`) are dropped and listed per table.
+
+### Idempotency
+
+Rows are inserted with their original `id` and `ON CONFLICT (id) DO NOTHING`. The tool never
+updates: re-running the same export inserts nothing new, and rows that already exist, such
+as the seeded company and admin user, are left untouched ("already present" in the report).
+Because there is no update path, a row that changed in Supabase after a first import is not
+refreshed.
+
+### What is recomputed
+
+The tool reuses the same code as the API, so imported rows satisfy the server's invariants
+instead of trusting the exported values:
+
+- `evaluations`: legacy JSON-string `scores` are unwrapped and validated (integers 1-10, all
+  8 criteria, no rounding); `scores` is stored canonical, `avg` and `category` are recomputed.
+  `status` defaults to `completada`.
+- `medical_records`: days, employer/CSS split, `salary_basis` and `cost` come from the
+  imported employee's salary. An end date before the start date, an unknown type or a span
+  over 3650 days is invalid.
+- `overtime_logs`: `amount` is `hourly_rate * rate(type) * hours` with the statutory rates;
+  an unknown type or more than 3 hours is invalid.
+- `roles`: migration `0009` is re-run, so imported roles get the `medical` permission (it
+  mirrors their `attendance` access). It also applies to any other role that lacks the key.
+- Duplicate `(employee_id, date)` in `attendance_logs` and `(employee_id, year)` in
+  `leave_balances` within the export are invalid.
+- `payroll_history`, `liquidation_history` and `employee_pay_records` are history and are
+  imported as they are.
+
+### Users and temporary passwords
+
+Supabase password hashes are not portable, so every user that is not already in the database
+gets a random temporary password (24 URL-safe characters, stored as bcrypt).
+`--passwords-out <file>` is required for a real run that creates users; it writes
+`email,temporary_password`, with file mode `0600`, and refuses to overwrite an existing file.
+Passwords are never printed or logged. A user without an email, or whose email belongs to a
+different user id, is invalid.
+
+Handle the file as a secret: give each person their password through a secure channel, ask
+them to change it at first login, and delete the file once it has been delivered. Its default
+name pattern (`*passwords*.csv`) is in `.gitignore`.
