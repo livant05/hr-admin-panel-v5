@@ -18,9 +18,7 @@ func TestApplyMigrations_SelfHealsLegacyDuplicateEmails(t *testing.T) {
 	pool, _ := IsolatedSchema(t)
 	ctx := context.Background()
 
-	if _, err := pool.Exec(ctx, `DROP INDEX IF EXISTS idx_users_email_lower`); err != nil {
-		t.Fatalf("drop index: %v", err)
-	}
+	DropIndexInIsolatedSchema(t, pool, UsersEmailLowerIndex)
 	var companyID string
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (name) VALUES ('SelfHealCo') RETURNING id`).Scan(&companyID); err != nil {
 		t.Fatalf("insert company: %v", err)
@@ -127,11 +125,11 @@ func TestApplyMigrations_ConcurrentFreshDatabaseAppliesLegacyFilesOnce(t *testin
 	}
 
 	var usersTable, emailIndex bool
-	if err := pools[0].QueryRow(ctx, `SELECT to_regclass(current_schema() || '.users') IS NOT NULL, to_regclass(current_schema() || '.idx_users_email_lower') IS NOT NULL`).
+	if err := pools[0].QueryRow(ctx, `SELECT to_regclass(current_schema() || '.users') IS NOT NULL, to_regclass(current_schema() || '.' || $1) IS NOT NULL`, UsersEmailLowerIndex).
 		Scan(&usersTable, &emailIndex); err != nil {
 		t.Fatalf("inspect fresh schema: %v", err)
 	}
 	if !usersTable || !emailIndex {
-		t.Fatalf("fresh schema must end fully migrated, users=%v idx_users_email_lower=%v", usersTable, emailIndex)
+		t.Fatalf("fresh schema must end fully migrated, users=%v %s=%v", usersTable, UsersEmailLowerIndex, emailIndex)
 	}
 }

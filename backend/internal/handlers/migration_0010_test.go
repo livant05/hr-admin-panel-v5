@@ -15,8 +15,6 @@ import (
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
 
-const uniqueEmailIndex = "idx_users_email_lower"
-
 func read0010(t *testing.T) string {
 	t.Helper()
 	_, file, _, _ := runtime.Caller(0)
@@ -36,9 +34,7 @@ func TestMigration0010_DuplicatesAbortAndNameThem(t *testing.T) {
 	ctx := context.Background()
 	sql := read0010(t)
 
-	if _, err := pool.Exec(ctx, `DROP INDEX IF EXISTS `+uniqueEmailIndex); err != nil {
-		t.Fatalf("drop index: %v", err)
-	}
+	testutil.DropIndexInIsolatedSchema(t, pool, testutil.UsersEmailLowerIndex)
 	var companyID string
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (name) VALUES ('Mig0010Co') RETURNING id`).Scan(&companyID); err != nil {
 		t.Fatalf("insert company: %v", err)
@@ -69,9 +65,7 @@ func TestMigration0010_CleanDataIsIdempotentAndEnforcesUniqueness(t *testing.T) 
 	ctx := context.Background()
 	sql := read0010(t)
 
-	if _, err := pool.Exec(ctx, `DROP INDEX IF EXISTS `+uniqueEmailIndex); err != nil {
-		t.Fatalf("drop index: %v", err)
-	}
+	testutil.DropIndexInIsolatedSchema(t, pool, testutil.UsersEmailLowerIndex)
 	var companyID string
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (name) VALUES ('Mig0010CleanCo') RETURNING id`).Scan(&companyID); err != nil {
 		t.Fatalf("insert company: %v", err)
@@ -107,7 +101,7 @@ func indexExists(t *testing.T, pool *pgxpool.Pool, ctx context.Context) bool {
 	var exists bool
 	err := pool.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema() AND indexname = $1)`,
-		uniqueEmailIndex).Scan(&exists)
+		testutil.UsersEmailLowerIndex).Scan(&exists)
 	if err != nil {
 		t.Fatalf("check index: %v", err)
 	}

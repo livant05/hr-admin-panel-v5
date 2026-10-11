@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/auth"
@@ -102,6 +103,10 @@ const migrationLockKey = 7261008810
 // safely re-applied. Every migration numbered at or above it MUST be
 // idempotent: this harness re-applies it on every Pool() call.
 const firstIdempotentMigration = 10
+
+// UsersEmailLowerIndex is the name of the unique lower(email) index created by
+// migration 0010. Tests share this constant instead of repeating the literal.
+const UsersEmailLowerIndex = "idx_users_email_lower"
 
 // isIdempotentMigration reports whether a migration file is numbered
 // >= firstIdempotentMigration.
@@ -579,4 +584,33 @@ func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
 		t.Fatalf("commit schema migrations: %v", err)
 	}
 	return pool, isoURL
+}
+
+// DropIndexInIsolatedSchema drops the named index from the schema the pool is
+// isolated into. The DROP is schema-qualified, so it can never resolve to a
+// same-named index in public through search_path; the test fails instead when
+// the pool is not schema-isolated or the index is absent from its schema.
+func DropIndexInIsolatedSchema(t *testing.T, pool *pgxpool.Pool, index string) {
+	t.Helper()
+	ctx := context.Background()
+
+	var schema string
+	if err := pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatalf("current_schema: %v", err)
+	}
+	if schema == "public" {
+		t.Fatalf("refusing to drop index %s: pool is on public, not an isolated schema", index)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = $1 AND indexname = $2)`,
+		schema, index).Scan(&exists); err != nil {
+		t.Fatalf("check index %s.%s: %v", schema, index, err)
+	}
+	if !exists {
+		t.Fatalf("index %s is absent from isolated schema %s", index, schema)
+	}
+	if _, err := pool.Exec(ctx, `DROP INDEX `+pgx.Identifier{schema, index}.Sanitize()); err != nil {
+		t.Fatalf("drop index %s.%s: %v", schema, index, err)
+	}
 }
