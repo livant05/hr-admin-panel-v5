@@ -19,7 +19,7 @@ func (a *API) rateLimited(l *ratelimit.Limiter, next http.Handler) http.Handler 
 		panic("handlers: rateLimited requires a non-nil limiter")
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ok, retryAfter := l.Allow(ratelimit.ClientIP(r, a.TrustedProxies))
+		ok, retryAfter := l.Allow(ratelimit.Key(ratelimit.ClientIP(r, a.TrustedProxies)))
 		if !ok {
 			w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 			writeErrCode(w, http.StatusTooManyRequests, codeRateLimited, "too many requests, retry later")

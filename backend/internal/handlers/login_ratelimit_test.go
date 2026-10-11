@@ -222,3 +222,26 @@ func TestNew_DefaultsMatchProductionLimits(t *testing.T) {
 		t.Fatalf("default auth burst = %d, want 10", allowed)
 	}
 }
+
+func TestLoginRateLimit_IPv6ClientsShareTheirSlash64Budget(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, pool, 10, 1)
+
+	loginFrom(h, "[2001:db8:1:2::1]:40000", "", "nobody@corp.test", "x")
+	if rec := loginFrom(h, "[2001:db8:1:2:dead:beef::7]:40000", "", "nobody@corp.test", "x"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("another address in the same /64 must share the exhausted budget, got %d", rec.Code)
+	}
+	if rec := loginFrom(h, "[2001:db8:1:3::1]:40000", "", "nobody@corp.test", "x"); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("a different /64 keeps its own budget, got %d", rec.Code)
+	}
+}
+
+func TestLoginRateLimit_IPv4MappedPeerSharesTheIPv4Budget(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _, _ := limitedAPI(t, pool, 10, 1)
+
+	loginFrom(h, "203.0.113.9:40000", "", "nobody@corp.test", "x")
+	if rec := loginFrom(h, "[::ffff:203.0.113.9]:40000", "", "nobody@corp.test", "x"); rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("an IPv4-mapped peer is the same client as its IPv4 form, got %d", rec.Code)
+	}
+}
