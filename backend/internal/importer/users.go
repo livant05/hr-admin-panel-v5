@@ -19,6 +19,7 @@ const passwordBytes = 18
 // credential is one new user's login. The password lives only in memory until
 // the CSV is written; it is never logged or printed.
 type credential struct {
+	ID       string // user id, used to verify an ambiguous commit
 	Email    string
 	Password string
 }
@@ -65,7 +66,7 @@ func transformUser(ctx context.Context, q querier, row Row, st *runState) error 
 		return invalidf("email: already used by a different user")
 	}
 
-	cred := &credential{Email: email}
+	cred := &credential{ID: id, Email: email}
 	delete(row, "password_hash") // an export never carries Supabase's hashes; never trust one
 	if st.dryRun {
 		st.pending = cred // counted only; no password is generated or hashed

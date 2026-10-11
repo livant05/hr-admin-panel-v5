@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/livant05/rrhh-go/internal/auth"
 	"github.com/livant05/rrhh-go/internal/importer"
 	"github.com/livant05/rrhh-go/internal/testutil"
@@ -222,5 +224,63 @@ func TestUsers_AbortedRunLeavesNoPasswordsFile(t *testing.T) {
 	}
 	if _, err := os.Stat(csvPath); !os.IsNotExist(err) {
 		t.Fatalf("aborted run left a passwords file (err=%v)", err)
+	}
+}
+
+func commitThenFail(ctx context.Context, tx pgx.Tx) error {
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	return errors.New("connection reset after COMMIT")
+}
+
+func TestUsers_AmbiguousCommitThatLandedKeepsPasswordsAndWarns(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	csvPath := filepath.Join(t.TempDir(), "passwords.csv")
+	rep, err := run(t, pool, importer.Options{Dir: writeExport(t, usersExport()), PasswordsOut: csvPath, Commit: commitThenFail})
+	if err != nil {
+		t.Fatalf("err = %v, want success-with-warning", err)
+	}
+	if rep.CommitWarning == "" {
+		t.Fatalf("expected a CommitWarning")
+	}
+	if got := readCreds(t, csvPath); len(got) != 2 {
+		t.Fatalf("passwords file must be kept with both users, got %d", len(got))
+	}
+	for _, pw := range readCreds(t, csvPath) {
+		if strings.Contains(rep.CommitWarning, pw) {
+			t.Fatal("warning leaks a password")
+		}
+	}
+	if n := count(t, pool, `SELECT count(*) FROM users WHERE id IN ($1,$2)`, user1, user2); n != 2 {
+		t.Fatalf("users = %d, want 2", n)
+	}
+}
+
+func TestUsers_FailedCommitThatDidNotLandRemovesPasswords(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	csvPath := filepath.Join(t.TempDir(), "passwords.csv")
+	boom := errors.New("commit refused")
+	_, err := run(t, pool, importer.Options{Dir: writeExport(t, usersExport()), PasswordsOut: csvPath,
+		Commit: func(context.Context, pgx.Tx) error { return boom }})
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want it to wrap the commit error", err)
+	}
+	if _, err := os.Stat(csvPath); !os.IsNotExist(err) {
+		t.Fatalf("passwords file must be removed when nothing was committed (err=%v)", err)
+	}
+}
+
+func TestUsers_UnverifiableCommitOutcomeKeepsPasswords(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	csvPath := filepath.Join(t.TempDir(), "passwords.csv")
+	_, err := run(t, pool, importer.Options{Dir: writeExport(t, usersExport()), PasswordsOut: csvPath,
+		Commit: func(context.Context, pgx.Tx) error { return errors.New("timeout") },
+		Probe:  func(context.Context, string) (bool, error) { return false, errors.New("db unreachable") }})
+	if !errors.Is(err, importer.ErrCommitOutcomeUnknown) {
+		t.Fatalf("err = %v, want ErrCommitOutcomeUnknown", err)
+	}
+	if _, err := os.Stat(csvPath); err != nil {
+		t.Fatalf("passwords file must be kept when the outcome is unknown: %v", err)
 	}
 }

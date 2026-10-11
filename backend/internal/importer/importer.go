@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,7 +30,17 @@ type Options struct {
 	// written (CSV, 0600, never overwritten). Required only for a real run
 	// that creates users; a dry run never writes it.
 	PasswordsOut string
+
+	// Test seams (nil in production). Commit replaces tx.Commit; Probe
+	// replaces the post-failure check that a user id exists in the database.
+	Commit func(ctx context.Context, tx pgx.Tx) error
+	Probe  func(ctx context.Context, userID string) (bool, error)
 }
+
+// ErrCommitOutcomeUnknown is returned when the commit failed and whether the
+// transaction reached the database could not be determined; the passwords
+// file was kept on purpose.
+var ErrCommitOutcomeUnknown = errors.New("importer: commit outcome unknown")
 
 // Run imports the export in opts.Dir. The returned report is non-nil
 // whenever the run got as far as reading the export, including on
@@ -70,7 +81,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Report, error)
 
 	// The credentials are written before the commit: if the file cannot be
 	// created exclusively, nothing is committed; if the commit fails, the
-	// file (whose passwords belong to rolled-back users) is removed.
+	// file is removed only once the rollback is confirmed.
 	wroteFile := false
 	if len(st.creds) > 0 {
 		if opts.PasswordsOut == "" {
@@ -81,13 +92,47 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Report, error)
 		}
 		wroteFile = true
 	}
-	if err := tx.Commit(ctx); err != nil {
-		if wroteFile {
-			os.Remove(opts.PasswordsOut)
+	commit := opts.Commit
+	if commit == nil {
+		commit = func(ctx context.Context, tx pgx.Tx) error { return tx.Commit(ctx) }
+	}
+	if err := commit(ctx, tx); err != nil {
+		if !wroteFile {
+			return rep, fmt.Errorf("commit: %w", err)
 		}
-		return rep, fmt.Errorf("commit: %w", err)
+		// The outcome of a failed commit is ambiguous (the connection may
+		// drop after COMMIT was sent, or ctx may be cancelled mid-commit):
+		// never delete the only copy of the passwords without checking.
+		return rep, resolveCommitFailure(opts, pool, st.creds[0].ID, rep, err)
 	}
 	return rep, nil
+}
+
+// resolveCommitFailure checks, on a fresh context, whether the import was in
+// fact committed, and decides the fate of the passwords file accordingly.
+func resolveCommitFailure(opts Options, pool *pgxpool.Pool, userID string, rep *Report, commitErr error) error {
+	vctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	probe := opts.Probe
+	if probe == nil {
+		probe = func(ctx context.Context, id string) (bool, error) {
+			var ok bool
+			err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM users WHERE id = $1::uuid)`, id).Scan(&ok)
+			return ok, err
+		}
+	}
+	committed, perr := probe(vctx, userID)
+	switch {
+	case perr != nil:
+		return fmt.Errorf("%w: commit failed (%v) and the check failed (%v); the passwords file %s was KEPT on purpose, it may hold the only copy of the temporary passwords",
+			ErrCommitOutcomeUnknown, commitErr, perr, opts.PasswordsOut)
+	case committed:
+		rep.CommitWarning = fmt.Sprintf("the commit reported an error (%v) but the import WAS committed; keep and distribute %s", commitErr, opts.PasswordsOut)
+		return nil
+	default:
+		os.Remove(opts.PasswordsOut) // confirmed absent: those passwords belong to nothing
+		return fmt.Errorf("commit: %w", commitErr)
+	}
 }
 
 // loadTable reads one table's file and inserts its rows, each inside a

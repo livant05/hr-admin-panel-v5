@@ -35,6 +35,9 @@ type Report struct {
 	// UsersCreated counts users that got (or, in a dry run, would get) a
 	// temporary password.
 	UsersCreated int
+	// CommitWarning is set when the commit reported an error but the data
+	// was in fact committed.
+	CommitWarning string
 }
 
 // Table returns the report of the named table, or nil.
@@ -80,6 +83,9 @@ func (r *Report) Write(w io.Writer) {
 			verb = "would be created"
 		}
 		fmt.Fprintf(w, "\nUsers %s with a temporary password: %d\n", verb, r.UsersCreated)
+	}
+	if r.CommitWarning != "" {
+		fmt.Fprintf(w, "\nWARNING: %s\n", r.CommitWarning)
 	}
 	if len(r.Invalid) > 0 {
 		fmt.Fprintf(w, "\nInvalid rows (%d):\n", len(r.Invalid))
