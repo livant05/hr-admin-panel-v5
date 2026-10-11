@@ -2167,6 +2167,11 @@ function downJSON(obj, name) {
   a.href=URL.createObjectURL(new Blob([JSON.stringify(obj,null,2)],{type:'application/json'}));
   a.download=name; a.click();
 }
+// Escapes text for HTML/attribute contexts. Template and document content is
+// plain text (rendered with white-space:pre-wrap), so escaping is lossless.
+function escHtml(v) {
+  return String(v==null?'':v).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; });
+}
 function applyVars(content, emp) {
   var r = content;
   Object.keys(VARS).forEach(function(k){ r = r.split(k).join(VARS[k](emp)); });
@@ -3917,14 +3922,14 @@ function printLiq(name,reason,date,d) {
 async function loadDocuments() {
   var emps=await Supa.sel('employees'), tpls=await Supa.sel('document_templates'), docs=await Supa.sel('generated_documents');
   var dge=document.getElementById('dg-emp');
-  if(dge&&Array.isArray(emps)){ dge.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+e.id+'">'+e.first_name+' '+e.last_name+'</option>'; }).join(''); if(A._docEmpId){ dge.value=A._docEmpId; A._docEmpId=null; } }
+  if(dge&&Array.isArray(emps)){ dge.innerHTML='<option value="">— Seleccionar —</option>'+emps.map(function(e){ return '<option value="'+escHtml(e.id)+'">'+escHtml(e.first_name+' '+e.last_name)+'</option>'; }).join(''); if(A._docEmpId){ dge.value=A._docEmpId; A._docEmpId=null; } }
   var icons={contract:'fa-file-contract',letter:'fa-envelope',warning:'fa-exclamation-triangle',resignation:'fa-door-open',certification:'fa-certificate'};
   var tp=document.getElementById('tpl-list-pick');
-  if(tp&&Array.isArray(tpls)) tp.innerHTML=tpls.map(function(t){ return '<div class="tpl-card" id="tp-'+t.id+'" onclick="selectTpl(\''+t.id+'\')"><div class="d-flex align-items-center"><i class="fas '+(icons[t.type]||'fa-file')+' mr-2 text-primary"></i><div><div style="font-size:.82rem;font-weight:500">'+t.name+'</div><small class="text-muted">'+t.type+'</small></div></div></div>'; }).join('');
+  if(tp&&Array.isArray(tpls)) tp.innerHTML=tpls.map(function(t){ return '<div class="tpl-card" id="tp-'+t.id+'" onclick="selectTpl(\''+t.id+'\')"><div class="d-flex align-items-center"><i class="fas '+(icons[t.type]||'fa-file')+' mr-2 text-primary"></i><div><div style="font-size:.82rem;font-weight:500">'+escHtml(t.name)+'</div><small class="text-muted">'+escHtml(t.type)+'</small></div></div></div>'; }).join('');
   var tc=document.getElementById('tpl-cards');
-  if(tc&&Array.isArray(tpls)) tc.innerHTML=tpls.map(function(t){ return '<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title"><i class="fas '+(icons[t.type]||'fa-file')+' mr-1"></i>'+t.name+'</h3><div class="card-tools"><button class="btn btn-tool" onclick="editTpl(\''+t.id+'\')"><i class="fas fa-edit"></i></button><button class="btn btn-tool text-danger" onclick="delTpl(\''+t.id+'\')"><i class="fas fa-trash"></i></button></div></div><div class="card-body py-2"><span class="badge badge-info">'+t.type+'</span><p class="text-muted small mt-2 mb-0">'+t.content.substring(0,90)+'...</p></div></div></div>'; }).join('');
+  if(tc&&Array.isArray(tpls)) tc.innerHTML=tpls.map(function(t){ return '<div class="col-md-4"><div class="card"><div class="card-header"><h3 class="card-title"><i class="fas '+(icons[t.type]||'fa-file')+' mr-1"></i>'+escHtml(t.name)+'</h3><div class="card-tools"><button class="btn btn-tool" onclick="editTpl(\''+t.id+'\')"><i class="fas fa-edit"></i></button><button class="btn btn-tool text-danger" onclick="delTpl(\''+t.id+'\')"><i class="fas fa-trash"></i></button></div></div><div class="card-body py-2"><span class="badge badge-info">'+escHtml(t.type)+'</span><p class="text-muted small mt-2 mb-0">'+escHtml(t.content.substring(0,90))+'...</p></div></div></div>'; }).join('');
   var hist=document.getElementById('hist-tbody');
-  if(hist&&Array.isArray(docs)) hist.innerHTML=docs.length?docs.map(function(d){ return '<tr><td><i class="fas fa-file-pdf text-danger mr-1"></i>'+(d.document_name||'Doc')+'</td><td>'+(d.employee_name||'—')+'</td><td>'+(d.template_name||'—')+'</td><td><small>'+(d.created_at||'').split('T')[0]+'</small></td><td><button class="btn btn-xs btn-outline-primary" onclick="reDownload(\''+d.id+'\')"><i class="fas fa-download mr-1"></i>PDF</button></td></tr>'; }).join(''):'<tr><td colspan="5" class="text-center p-3 text-muted">Sin documentos generados.</td></tr>';
+  if(hist&&Array.isArray(docs)) hist.innerHTML=docs.length?docs.map(function(d){ return '<tr><td><i class="fas fa-file-pdf text-danger mr-1"></i>'+escHtml(d.document_name||'Doc')+'</td><td>'+escHtml(d.employee_name||'—')+'</td><td>'+escHtml(d.template_name||'—')+'</td><td><small>'+(d.created_at||'').split('T')[0]+'</small></td><td><button class="btn btn-xs btn-outline-primary" onclick="reDownload(\''+d.id+'\')"><i class="fas fa-download mr-1"></i>PDF</button></td></tr>'; }).join(''):'<tr><td colspan="5" class="text-center p-3 text-muted">Sin documentos generados.</td></tr>';
   var chips=document.getElementById('var-chips');
   if(chips) chips.innerHTML=Object.keys(VARS).map(function(vr){ return '<span class="var-chip" onclick="insertVar(\''+vr+'\')">'+vr+'</span>'; }).join('');
 }
@@ -3935,7 +3940,7 @@ async function previewDoc() {
   var emps=await Supa.sel('employees',{id:empId}), tpls=await Supa.sel('document_templates',{id:tplId});
   var emp=Array.isArray(emps)?emps[0]:null, tpl=Array.isArray(tpls)?tpls[0]:null; if(!emp||!tpl) return;
   var content=applyVars(tpl.content,emp);
-  prev.innerHTML='<div style="font-size:.88rem;line-height:1.8;color:inherit;white-space:pre-wrap">'+content+'</div>';
+  prev.innerHTML='<div style="font-size:.88rem;line-height:1.8;color:inherit;white-space:pre-wrap">'+escHtml(content)+'</div>';
   document.getElementById('prev-tag').textContent=emp.first_name+' '+emp.last_name+' · '+tpl.name;
 }
 async function generateAndDownload() {
@@ -3951,7 +3956,7 @@ async function generateAndDownload() {
 function printDocFull(title,content) {
   var docNum='DOC-'+Date.now().toString().slice(-6);
   var w=window.open('','_blank','width=820,height=900');
-  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+title+'</title><style>body{font-family:Georgia,serif;max-width:680px;margin:40px auto;color:#222;line-height:1.8;font-size:13px}.header{text-align:center;border-bottom:2px solid #333;padding-bottom:15px;margin-bottom:30px}.footer{margin-top:60px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:10px;display:flex;justify-content:space-between}@media print{body{margin:15mm}}</style></head><body><div class="header"><strong style="font-size:1.1rem">'+A.companyName+'</strong><br><small>Recursos Humanos · N° '+docNum+'</small></div><div style="white-space:pre-wrap">'+content+'</div><div class="footer"><div>'+A.companyName+' · HR Admin · '+new Date().toLocaleDateString('es-PA')+'</div><div>N° '+docNum+'</div></div><script>window.onload=function(){window.print();}<\/script></body></html>');
+  w.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>'+escHtml(title)+'</title><style>body{font-family:Georgia,serif;max-width:680px;margin:40px auto;color:#222;line-height:1.8;font-size:13px}.header{text-align:center;border-bottom:2px solid #333;padding-bottom:15px;margin-bottom:30px}.footer{margin-top:60px;font-size:10px;color:#999;border-top:1px solid #ddd;padding-top:10px;display:flex;justify-content:space-between}@media print{body{margin:15mm}}</style></head><body><div class="header"><strong style="font-size:1.1rem">'+escHtml(A.companyName)+'</strong><br><small>Recursos Humanos · N° '+docNum+'</small></div><div style="white-space:pre-wrap">'+escHtml(content)+'</div><div class="footer"><div>'+escHtml(A.companyName)+' · HR Admin · '+new Date().toLocaleDateString('es-PA')+'</div><div>N° '+docNum+'</div></div><script>window.onload=function(){window.print();}<\/script></body></html>');
   w.document.close();
 }
 async function reDownload(id) { var docs=await Supa.sel('generated_documents',{id:id}); var d=Array.isArray(docs)?docs[0]:null; if(!d) return; printDocFull(d.document_name,d.content); }
