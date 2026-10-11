@@ -30,6 +30,7 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	dbURL := fs.String("db-url", "", "database URL (default: env DB_URL)")
 	dryRun := fs.Bool("dry-run", false, "validate and report, then roll back; writes nothing")
 	skipInvalid := fs.Bool("skip-invalid", false, "skip invalid rows and list them instead of aborting")
+	passwordsOut := fs.String("passwords-out", "", "file for the temporary passwords of newly created users (CSV, mode 0600, never overwritten; required when users are created)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -62,7 +63,7 @@ func run(args []string, stdout, stderr io.Writer, getenv func(string) string) in
 	}
 
 	rep, err := importer.Run(ctx, pool, importer.Options{
-		Dir: *dir, DryRun: *dryRun, SkipInvalid: *skipInvalid,
+		Dir: *dir, DryRun: *dryRun, SkipInvalid: *skipInvalid, PasswordsOut: *passwordsOut,
 	})
 	if rep != nil {
 		rep.Write(stdout)

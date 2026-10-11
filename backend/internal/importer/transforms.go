@@ -29,7 +29,7 @@ const maxLegacyScoreWrap = 3
 // transformEvaluation unwraps the legacy double-encoded scores string,
 // validates it with evaluation.ParseScores (no silent rounding), and stores
 // the canonical object with the recomputed avg and category.
-func transformEvaluation(_ context.Context, _ querier, row Row) error {
+func transformEvaluation(_ context.Context, _ querier, row Row, _ *runState) error {
 	if row["scores"] == nil {
 		return invalidf("scores: required")
 	}
@@ -60,7 +60,7 @@ func transformEvaluation(_ context.Context, _ querier, row Row) error {
 
 // transformMedicalRecord recomputes days, employer/CSS split, salary_basis and
 // cost with payroll.CalculateIncapacity over the imported employee's salary.
-func transformMedicalRecord(ctx context.Context, q querier, row Row) error {
+func transformMedicalRecord(ctx context.Context, q querier, row Row, _ *runState) error {
 	typ, ok := payroll.ParseIncapacityType(stringField(row, "type"))
 	if !ok {
 		return invalidf("type: must be one of enfermedad, accidente, maternidad, paternidad, familiar")
@@ -105,7 +105,7 @@ func transformMedicalRecord(ctx context.Context, q querier, row Row) error {
 
 // transformOvertimeLog recomputes amount = hourly_rate * rate(type) * hours and
 // applies the API's type allowlist and 3-hour cap.
-func transformOvertimeLog(_ context.Context, _ querier, row Row) error {
+func transformOvertimeLog(_ context.Context, _ querier, row Row, _ *runState) error {
 	typ := stringField(row, "type")
 	if typ == "" {
 		typ = overtime.DefaultType

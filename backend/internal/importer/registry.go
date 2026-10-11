@@ -12,7 +12,7 @@ type tableSpec struct {
 	// Transform validates and rewrites a row before it is inserted, mirroring
 	// the server-side invariants of the matching API handler. It returns an
 	// *invalidError to reject the row. It runs inside the row's savepoint.
-	Transform func(ctx context.Context, q querier, row Row) error
+	Transform func(ctx context.Context, q querier, row Row, st *runState) error
 	// Unique lists column sets that must be unique within the export; the
 	// database enforces them too, this gives a clearer reason and does not
 	// depend on insertion order against rows already present.
@@ -32,7 +32,7 @@ var tables = []tableSpec{
 	{Name: "positions"},
 	{Name: "branches"},
 	{Name: "roles", After: seedMedicalPermission},
-	{Name: "users"},
+	{Name: "users", Transform: transformUser},
 	{Name: "document_templates"},
 	{Name: "trainings"},
 	{Name: "surveys"},

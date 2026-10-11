@@ -32,6 +32,9 @@ type Report struct {
 	Tables  []TableReport
 	Invalid []InvalidRow
 	Ignored []string // *.json files in the directory that map to no table
+	// UsersCreated counts users that got (or, in a dry run, would get) a
+	// temporary password.
+	UsersCreated int
 }
 
 // Table returns the report of the named table, or nil.
@@ -70,6 +73,13 @@ func (r *Report) Write(w io.Writer) {
 
 	if len(r.Ignored) > 0 {
 		fmt.Fprintf(w, "\nIgnored files (not a known table): %s\n", strings.Join(r.Ignored, ", "))
+	}
+	if r.UsersCreated > 0 {
+		verb := "created"
+		if r.DryRun {
+			verb = "would be created"
+		}
+		fmt.Fprintf(w, "\nUsers %s with a temporary password: %d\n", verb, r.UsersCreated)
 	}
 	if len(r.Invalid) > 0 {
 		fmt.Fprintf(w, "\nInvalid rows (%d):\n", len(r.Invalid))

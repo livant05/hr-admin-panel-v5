@@ -3,6 +3,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -91,5 +94,43 @@ func TestRun_InvalidRowsFailWithReportUnlessSkipped(t *testing.T) {
 	}
 	if got := countRows(t, pool, "employees"); got != 1 {
 		t.Fatalf("employees = %d, want 1", got)
+	}
+}
+
+func TestRun_UsersNeedPasswordsOutAndNeverPrintPasswords(t *testing.T) {
+	pool, url := testutil.IsolatedSchema(t)
+
+	code, _, stderr := runCLI(t, nil, "--dir", "testdata/export_users", "--db-url", url)
+	if code != 1 || !strings.Contains(stderr, "--passwords-out") {
+		t.Fatalf("without --passwords-out: code=%d stderr=%q, want 1 and a hint", code, stderr)
+	}
+	if countRows(t, pool, "users") != 1 { // only the seed admin
+		t.Fatalf("users were committed without a passwords file")
+	}
+
+	csvPath := filepath.Join(t.TempDir(), "passwords.csv")
+	code, stdout, stderr := runCLI(t, nil, "--dir", "testdata/export_users", "--db-url", url, "--passwords-out", csvPath)
+	if code != 0 {
+		t.Fatalf("exit=%d stderr=%q", code, stderr)
+	}
+	b, err := os.ReadFile(csvPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 3 || lines[0] != "email,temporary_password" {
+		t.Fatalf("csv = %q", b)
+	}
+	for _, l := range lines[1:] {
+		pw := strings.SplitN(l, ",", 2)[1]
+		if strings.Contains(stdout, pw) || strings.Contains(stderr, pw) {
+			t.Fatalf("a temporary password was printed")
+		}
+	}
+
+	// Refuses to overwrite the file on a later run that would create users.
+	code, _, _ = runCLI(t, nil, "--dir", "testdata/export_users", "--db-url", url, "--passwords-out", csvPath)
+	if code != 1 {
+		t.Fatalf("existing passwords file: exit=%d, want 1", code)
 	}
 }

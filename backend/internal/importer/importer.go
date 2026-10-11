@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/jackc/pgx/v5"
@@ -24,12 +25,21 @@ type Options struct {
 	Dir         string // directory with <table>.json files
 	DryRun      bool   // validate and report, then roll back
 	SkipInvalid bool   // skip and report invalid rows instead of aborting
+	// PasswordsOut is where the temporary passwords of newly created users are
+	// written (CSV, 0600, never overwritten). Required only for a real run
+	// that creates users; a dry run never writes it.
+	PasswordsOut string
 }
 
 // Run imports the export in opts.Dir. The returned report is non-nil
 // whenever the run got as far as reading the export, including on
 // ErrInvalidRows, so callers can print what was wrong.
 func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Report, error) {
+	if !opts.DryRun {
+		if err := checkPasswordsOut(opts.PasswordsOut); err != nil {
+			return nil, err
+		}
+	}
 	ignored, err := ignoredFiles(opts.Dir)
 	if err != nil {
 		return nil, err
@@ -41,8 +51,9 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Report, error)
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
 
 	rep := &Report{DryRun: opts.DryRun, Ignored: ignored}
+	st := &runState{dryRun: opts.DryRun}
 	for _, spec := range tables {
-		tr, err := loadTable(ctx, tx, spec, opts, rep)
+		tr, err := loadTable(ctx, tx, spec, opts, rep, st)
 		if err != nil {
 			return rep, fmt.Errorf("%s: %w", spec.Name, err)
 		}
@@ -52,10 +63,28 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Report, error)
 	if len(rep.Invalid) > 0 && !opts.SkipInvalid {
 		return rep, fmt.Errorf("%w: %d row(s) rejected, nothing was written", ErrInvalidRows, len(rep.Invalid))
 	}
+	rep.UsersCreated = len(st.creds)
 	if opts.DryRun {
 		return rep, nil // deferred Rollback discards everything
 	}
+
+	// The credentials are written before the commit: if the file cannot be
+	// created exclusively, nothing is committed; if the commit fails, the
+	// file (whose passwords belong to rolled-back users) is removed.
+	wroteFile := false
+	if len(st.creds) > 0 {
+		if opts.PasswordsOut == "" {
+			return rep, fmt.Errorf("%w: %d new user(s)", ErrPasswordsOutRequired, len(st.creds))
+		}
+		if err := writePasswords(opts.PasswordsOut, st.creds); err != nil {
+			return rep, err
+		}
+		wroteFile = true
+	}
 	if err := tx.Commit(ctx); err != nil {
+		if wroteFile {
+			os.Remove(opts.PasswordsOut)
+		}
 		return rep, fmt.Errorf("commit: %w", err)
 	}
 	return rep, nil
@@ -63,7 +92,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool, opts Options) (*Report, error)
 
 // loadTable reads one table's file and inserts its rows, each inside a
 // savepoint so a rejected row does not poison the transaction.
-func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep *Report) (TableReport, error) {
+func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep *Report, st *runState) (TableReport, error) {
 	tr := TableReport{Name: spec.Name}
 	rows, exists, err := readTable(opts.Dir, spec.Name)
 	if err != nil {
@@ -103,7 +132,7 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 			continue
 		}
 
-		inserted, drop, err := processRow(ctx, tx, spec, meta, row)
+		inserted, drop, err := processRow(ctx, tx, spec, meta, row, st)
 		for _, k := range drop {
 			dropped[k] = true
 		}
@@ -135,13 +164,14 @@ func loadTable(ctx context.Context, tx pgx.Tx, spec tableSpec, opts Options, rep
 
 // processRow runs one row inside a savepoint: on error the savepoint is
 // rolled back so the surrounding transaction stays usable.
-func processRow(ctx context.Context, tx pgx.Tx, spec tableSpec, meta *tableMeta, row Row) (inserted bool, dropped []string, err error) {
+func processRow(ctx context.Context, tx pgx.Tx, spec tableSpec, meta *tableMeta, row Row, st *runState) (inserted bool, dropped []string, err error) {
+	st.pending = nil
 	sp, err := tx.Begin(ctx)
 	if err != nil {
 		return false, nil, err
 	}
 	if spec.Transform != nil {
-		if err = spec.Transform(ctx, sp, row); err != nil {
+		if err = spec.Transform(ctx, sp, row, st); err != nil {
 			_ = sp.Rollback(ctx)
 			return false, nil, err
 		}
@@ -151,5 +181,15 @@ func processRow(ctx context.Context, tx pgx.Tx, spec tableSpec, meta *tableMeta,
 		_ = sp.Rollback(ctx)
 		return false, dropped, err
 	}
-	return inserted, dropped, sp.Commit(ctx)
+	if err := sp.Commit(ctx); err != nil {
+		return false, dropped, err
+	}
+	if inserted && st.pending != nil {
+		st.creds = append(st.creds, *st.pending)
+	}
+	return inserted, dropped, nil
 }
+
+// ErrPasswordsOutRequired is returned when a real run would create users but
+// Options.PasswordsOut is empty.
+var ErrPasswordsOutRequired = errors.New("importer: --passwords-out is required when new users are created")

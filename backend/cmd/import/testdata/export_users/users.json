@@ -1,0 +1,4 @@
+[
+  {"id": "dddddddd-dddd-4ddd-8ddd-ddddddddddd1", "company_id": "11111111-1111-4111-8111-111111111111", "email": "ana@example.test", "role": "admin", "first_name": "Ana", "last_name": "Prueba", "status": "active"},
+  {"id": "dddddddd-dddd-4ddd-8ddd-ddddddddddd2", "company_id": "11111111-1111-4111-8111-111111111111", "email": "beto@example.test", "role": "empleado", "first_name": "Beto", "last_name": "Muestra", "status": "active"}
+]
