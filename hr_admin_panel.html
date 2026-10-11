@@ -2944,18 +2944,18 @@ async function loadPayroll() {
   var allOT=await Supa.sel('overtime_logs');
   var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return l.date&&l.date.startsWith(mPfx); }):[];
   var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return o.date&&o.date.startsWith(mPfx); }):[];
-  // Medical records from in-memory cache filtered to the selected month
-  var mMed=Array.isArray(DS.medical_records)?DS.medical_records.filter(function(r){ return r.start_date&&r.start_date.substring(0,7)===mPfx&&r.status==='activa'; }):[];
+  // Active medical records starting in the selected month (display-only badge)
+  var allMed=await Supa.selAll('medical_records',{status:'activa'});
+  var mMed=Array.isArray(allMed)?allMed.filter(function(r){ return r.start_date&&r.start_date.substring(0,7)===mPfx; }):[];
   var wDays=getWorkingDays(year,month);
   var pDays=period==='mensual'?wDays:Math.floor(wDays/2);
 
   // The money calculation itself (prCalc, deleted in slice 3h) now runs
   // server-side, once, for every active employee in this period (design
   // R4e) -- attendance_logs/overtime_logs are still fetched above, but only
-  // for the display-only badge counts (workedDays/absentDays/otHours) and
-  // the medical-records columns, which the preview response does not carry
-  // (an accepted open item -- medDays/medEmpDays stay client-cached until a
-  // later phase owns DS.medical_records server-side).
+  // for the display-only badge counts (workedDays/absentDays/otHours), as
+  // medical_records is for medDays/medEmpDays; the preview response carries
+  // neither.
   var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:month,year:year,period:period}));
   var calcByEmp={};
   if(Array.isArray(calc)) calc.forEach(function(row){ calcByEmp[row.employee_id]=row; });
