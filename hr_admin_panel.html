@@ -4365,7 +4365,8 @@ function userErrMsg(err,fallback){
     return f.length?'Datos inválidos: revisa '+f.join(', '):'Datos inválidos';
   }
   if(code==='rate_limited') return 'Demasiadas solicitudes, intenta de nuevo en un momento';
-  return fallback;
+  // Unmapped codes (bad_request, internal, network errors) keep the reason; toast() escapes it.
+  return msg?fallback+': '+msg:fallback;
 }
 // The temporary password lives only in this modal's input; it is wiped on hidden.bs.modal.
 function showTempPassword(email,pw){
