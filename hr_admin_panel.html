@@ -1732,12 +1732,25 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
     <div class="form-group"><label>Nombre</label><input type="text" id="um-name" class="form-control form-control-sm"></div>
     <div class="form-group"><label>Email</label><input type="email" id="um-email" class="form-control form-control-sm"></div>
     <div class="form-group"><label>Rol</label><select id="um-role" class="form-control form-control-sm"><option value="admin">Admin</option><option value="rrhh">RRHH</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option></select></div>
-    <div class="alert alert-info small"><i class="fas fa-info-circle mr-1"></i>En producción con Supabase se enviará invitación por email.</div>
+    <div class="alert alert-info small"><i class="fas fa-info-circle mr-1"></i>Al crear un usuario se genera una contraseña temporal que se muestra una sola vez; entrégala de forma segura.</div>
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
     <button type="button" class="btn btn-primary btn-sm" onclick="saveUser()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
+</div></div></div>
+
+<div class="modal fade" id="userTempPwModal" tabindex="-1" data-backdrop="static" data-keyboard="false"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-key mr-2"></i>Contraseña temporal</h5></div>
+  <div class="modal-body">
+    <p class="small mb-2">Usuario creado: <strong id="utp-email"></strong></p>
+    <div class="input-group input-group-sm mb-2">
+      <input type="text" id="utp-pass" class="form-control" readonly autocomplete="off">
+      <div class="input-group-append"><button type="button" class="btn btn-outline-secondary" onclick="copyTempPassword()"><i class="fas fa-copy mr-1"></i>Copiar</button></div>
+    </div>
+    <div class="alert alert-warning small mb-0"><i class="fas fa-exclamation-triangle mr-1"></i>Se muestra una sola vez. Al cerrar esta ventana no se podrá volver a ver.</div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-primary btn-sm" data-dismiss="modal">Cerrar</button></div>
 </div></div></div>
 
 <div class="modal fade" id="rolePermsModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
@@ -1981,7 +1994,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms', 'users'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -4306,7 +4319,11 @@ async function openUserModal(id){
   var nm=document.getElementById('um-name'); if(nm) nm.value=u?((u.first_name||'')+' '+(u.last_name||'')).trim():'';
   var em=document.getElementById('um-email'); if(em) em.value=u?u.email:'';
   var rs=document.getElementById('um-role');
-  if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+escHtml(r.name)+'">'+escHtml(r.name)+'</option>'; }).join(''); rs.value=u&&u.role?u.role:(rs.options[0]?rs.options[0].value:''); }
+  if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+escHtml(r.name)+'">'+escHtml(r.name)+'</option>'; }).join('');
+    if(!A.demo){ // the server accepts the system roles and the user's current role even when no roles row exists
+      ['admin','empleado',u&&u.role].forEach(function(n){ if(n&&!Array.prototype.some.call(rs.options,function(o){return o.value===n;})) rs.insertAdjacentHTML('beforeend','<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'); });
+    }
+    rs.value=u&&u.role?u.role:(rs.options[0]?rs.options[0].value:''); }
   document.querySelector('#userModal .modal-title').innerHTML='<i class="fas fa-'+(u?'user-edit':'user-plus')+' mr-2"></i>'+(u?'Editar Usuario':'Nuevo Usuario');
   $('#userModal').modal('show');
 }
@@ -4315,22 +4332,60 @@ async function saveUser(){
   if(!name||!email){toast('Nombre y email requeridos','warning');return;}
   var parts=name.split(' '), fn=parts[0], ln=parts.slice(1).join(' ')||'';
   var d={first_name:fn,last_name:ln,email:email,role:role,status:'active'};
-  if(id){
-    if(A.demo){ var idx=DS.users.findIndex(function(u){return u.id===id;}); if(idx>-1) DS.users[idx]=Object.assign({},DS.users[idx],d); }
-    else await Supa.upd('users',id,d);
-  } else {
-    if(A.demo) DS.users.push(Object.assign({id:'u-'+Date.now(),company_id:A.companyId},d));
-    else await Supa.ins('users',d);
+  if(A.demo){
+    if(id){ var idx=DS.users.findIndex(function(u){return u.id===id;}); if(idx>-1) DS.users[idx]=Object.assign({},DS.users[idx],d); }
+    else DS.users.push(Object.assign({id:'u-'+Date.now(),company_id:A.companyId},d));
+    $('#userModal').modal('hide'); toast('✅ Usuario guardado'); loadUserMgmt(); return;
   }
-  $('#userModal').modal('hide'); toast('✅ Usuario guardado'); loadUserMgmt();
+  // Real mode (Go): never send status or company_id. Edit leaves the status alone;
+  // create returns the server-generated temporary password exactly once.
+  var body={first_name:fn,last_name:ln,email:email,role:role};
+  var r=id?await Supa.upd('users',id,body):await Supa.ins('users',body);
+  if(r&&r.error){ toast(r.error.message||'No se pudo guardar el usuario','danger'); return; }
+  var tmp=(!id&&Array.isArray(r)&&r[0])?r[0].temporary_password:'';
+  if(tmp) showTempPassword(email,tmp); // registers the follow-up before the hide transition starts
+  else if(!id) toast('Usuario creado, pero el servidor no devolvió la contraseña temporal','warning');
+  $('#userModal').modal('hide');
+  toast('✅ Usuario guardado'); loadUserMgmt();
 }
+// The temporary password lives only in this modal's input; it is wiped on hidden.bs.modal.
+function showTempPassword(email,pw){
+  document.getElementById('utp-email').textContent=email;
+  document.getElementById('utp-pass').value=pw;
+  $('#userModal').one('hidden.bs.modal',function(){ $('#userTempPwModal').modal('show'); });
+}
+function copyTempPassword(){
+  var el=document.getElementById('utp-pass'); if(!el||!el.value) return;
+  var ok=function(){ toast('Contraseña copiada'); };
+  var fallback=function(){ el.select(); try{ if(document.execCommand('copy')) ok(); else toast('Selecciona y copia manualmente','warning'); }catch(e){ toast('Selecciona y copia manualmente','warning'); } };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(el.value).then(ok).catch(fallback); else fallback();
+}
+$(document).on('hidden.bs.modal','#userTempPwModal',function(){
+  document.getElementById('utp-pass').value=''; document.getElementById('utp-email').textContent='';
+});
 async function loadUserMgmt(){
-  var users=A.demo?DS.users.filter(function(u){return u.company_id===A.companyId;}):(await Supa.sel('users')||[]);
+  var users;
+  if(A.demo) users=DS.users.filter(function(u){return u.company_id===A.companyId;});
+  else {
+    var res=await Supa.selAll('users'); // DS.users is the read cache the modal openers use
+    var tbe=document.getElementById('user-list-tbody');
+    if(!Array.isArray(res)){
+      if(tbe) tbe.innerHTML='';
+      toast(res&&res.error&&res.error.code==='forbidden'?'Solo administradores':((res&&res.error&&res.error.message)||'No se pudieron cargar los usuarios'),'danger'); return;
+    }
+    DS.users=users=res;
+  }
   var tb=document.getElementById('user-list-tbody'); if(!tb) return;
   var rCls={admin:'badge-danger',rrhh:'badge-primary',supervisor:'badge-success',empleado:'badge-secondary'};
-  tb.innerHTML=users.map(function(u){ return '<tr><td><strong>'+escHtml((u.first_name||'')+' '+(u.last_name||''))+'</strong></td><td>'+escHtml(u.email)+'</td><td><span class="badge '+(rCls[u.role]||'badge-secondary')+' px-2 py-1">'+escHtml((u.role||'—').toUpperCase())+'</span></td><td><span class="badge '+(u.status==='active'?'badge-success':'badge-secondary')+'">'+(u.status==='active'?'Activo':'Inactivo')+'</span></td><td class="text-right"><button class="btn btn-xs btn-outline-secondary mr-1" onclick="openUserModal(\''+u.id+'\')" title="Editar"><i class="fas fa-pencil-alt"></i></button>'+(u.id!=='u1'?'<button class="btn btn-xs btn-outline-danger" onclick="delUser(\''+u.id+'\')" title="Eliminar"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'; }).join('');
+  tb.innerHTML=users.map(function(u){ return '<tr><td><strong>'+escHtml((u.first_name||'')+' '+(u.last_name||''))+'</strong></td><td>'+escHtml(u.email)+'</td><td><span class="badge '+(rCls[u.role]||'badge-secondary')+' px-2 py-1">'+escHtml((u.role||'—').toUpperCase())+'</span></td><td><span class="badge '+(u.status==='active'?'badge-success':'badge-secondary')+'">'+(u.status==='active'?'Activo':'Inactivo')+'</span></td><td class="text-right"><button class="btn btn-xs btn-outline-secondary mr-1" onclick="openUserModal(\''+escHtml(u.id)+'\')" title="Editar"><i class="fas fa-pencil-alt"></i></button>'+(u.id!=='u1'?'<button class="btn btn-xs btn-outline-danger" onclick="delUser(\''+escHtml(u.id)+'\')" title="Eliminar"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'; }).join('');
 }
-function delUser(id){ if(!confirm('¿Eliminar usuario?')) return; DS.users=DS.users.filter(function(u){ return u.id!==id; }); toast('Eliminado','info'); loadUserMgmt(); }
+async function delUser(id){
+  if(A.demo){ if(!confirm('¿Eliminar usuario?')) return; DS.users=DS.users.filter(function(u){ return u.id!==id; }); toast('Eliminado','info'); loadUserMgmt(); return; }
+  if(!confirm('¿Desactivar usuario? Ya no podrá iniciar sesión.')) return;
+  var r=await Supa.del('users',id); // soft delete: the row stays as inactive
+  if(r&&r.error){ toast(r.error.message||'No se pudo desactivar el usuario','danger'); return; }
+  toast('Usuario desactivado','info'); loadUserMgmt();
+}
 
 // ════════════════ BACKUP & SQL ════════════════════════════════
 function exportBackup(){

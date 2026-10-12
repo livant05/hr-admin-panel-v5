@@ -178,7 +178,7 @@ test for the frontend slice.
       change the user's status.
 - [ ] Real mode, create: Nuevo Usuario sends only first name, last name, email and role. The
       temporary password appears in its own modal exactly once, the copy button copies it, and after
-      closing that modal (button, X or backdrop) the password field is empty in the DOM and cannot be
+      closing that modal (Cerrar button; the backdrop and Esc do not close it) the password field is empty in the DOM and cannot be
       shown again. The new user can log in with it through `POST /api/auth/login`.
 - [ ] Real mode, delete: the trash button asks for confirmation, then the row stays in the list as
       Inactivo (soft delete) and that user can no longer log in.
