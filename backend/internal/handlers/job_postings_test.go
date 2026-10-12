@@ -695,6 +695,43 @@ func TestJobPostings_PatchValidation(t *testing.T) {
 	}
 }
 
+// errMessage extracts error.message (A2) for assertions.
+func errMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var env struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := decodeJSON(rec, &env); err != nil {
+		t.Fatalf("decode error body (%s): %v", rec.Body.String(), err)
+	}
+	return env.Error.Message
+}
+
+// waitUntilBlockedBy polls until some backend is waiting on a lock held by the
+// backend holderPID, so a test knows the request under test has reached the
+// lock instead of guessing with a sleep. It fails the test after 10 seconds.
+func waitUntilBlockedBy(t *testing.T, pool *pgxpool.Pool, holderPID int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid))`,
+			holderPID).Scan(&waiting); err != nil {
+			t.Fatalf("count backends blocked by %d: %v", holderPID, err)
+		}
+		if waiting > 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no backend became blocked by backend %d within 10s", holderPID)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func seedApplication(t *testing.T, pool *pgxpool.Pool, companyID, jobID string) string {
 	t.Helper()
 	id := uuid.NewString()
@@ -738,8 +775,8 @@ func TestJobPostings_DeleteBlockedWhileApplicationsExist(t *testing.T) {
 	if code := testutil.ErrCode(t, rec); code != "conflict" {
 		t.Fatalf("error.code = %q, want conflict", code)
 	}
-	if !strings.Contains(rec.Body.String(), "2") {
-		t.Fatalf("409 message does not carry the application count (2): %s", rec.Body.String())
+	if msg := errMessage(t, rec); !strings.HasPrefix(msg, "2 postulación") {
+		t.Fatalf("409 message = %q, want it to start with the application count %q", msg, "2 postulación")
 	}
 	if _, code := getJobPosting(t, h, tok, withApps.ID); code != http.StatusOK {
 		t.Fatalf("posting was removed by a blocked delete: %d", code)
@@ -790,6 +827,10 @@ func TestJobPostings_DeleteWaitsForAnInFlightApplication(t *testing.T) {
 		 VALUES ($1, $2, 'Racy', 'Inflight')`, c.CompanyID, job.ID); err != nil {
 		t.Fatalf("insert in tx: %v", err)
 	}
+	var holderPID int
+	if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
+		t.Fatalf("holder pid: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodDelete, jobPostingsPath+"/"+job.ID, nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -800,7 +841,7 @@ func TestJobPostings_DeleteWaitsForAnInFlightApplication(t *testing.T) {
 		defer wg.Done()
 		h.ServeHTTP(rec, req)
 	}()
-	time.Sleep(200 * time.Millisecond) // let the handler reach its row lock
+	waitUntilBlockedBy(t, pool, holderPID) // the handler is parked on the posting row lock
 	if err := tx.Commit(ctx); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
