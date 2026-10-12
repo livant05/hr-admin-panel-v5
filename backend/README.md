@@ -229,6 +229,23 @@ delete of it waits for the PATCH and then answers `409`. An application whose fo
 (imported data) can still change stage. `DELETE /{id}` is a hard delete (`204`; another company's id is
 `404`): nothing references an application.
 
+## ZKTeco devices and unknown PINs
+
+`GET /api/zkteco_devices` lists the caller's devices (any authenticated role; filter `id`;
+`_limit`/`_offset`; any other parameter, including `_order`, is `400 validation_failed`), newest
+`last_seen` first and never-seen devices last. Devices with no company (the unclaimed pool) never
+appear here. `PATCH /api/zkteco_devices/{id}` (any authenticated role) takes `name` and `location`
+only and returns a one-element array: an absent key is kept, `null` clears, a present value is trimmed
+and must be 1 to 200 characters (`400 validation_failed` with `fields`). Any other key, such as
+`serial_number`, `company_id` or `status`, is `400 bad_request` and nothing changes. A device of another
+company, an unclaimed device and a missing id are all `404`. There is no `GET /{id}`; read one device
+with the `id` filter.
+
+`GET /api/zkteco_unknown_pins` is admin only (`403` otherwise, checked before any query validation).
+The table has no `company_id`, because an unresolved PIN has no employee and therefore no company, so
+every admin sees the same global list. Filter `resolved` (`true` or `false`; an empty or other value is
+`400 validation_failed`), `_limit`/`_offset`, newest `last_seen` first. It is read-only.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens

@@ -377,6 +377,11 @@ type Querier interface {
 	// The users API selects explicit columns and never password_hash, so the
 	// generated row types cannot carry the hash (XC-2 holds structurally).
 	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
+	// Rows with company_id NULL (the unclaimed pool) never match company_id = $1.
+	ListZktecoDevices(ctx context.Context, arg ListZktecoDevicesParams) ([]ZktecoDevice, error)
+	// zkteco_unknown_pins has no company_id (an unresolved PIN has no employee,
+	// hence no company); the caller must be gated by requireAdmin.
+	ListZktecoUnknownPins(ctx context.Context, arg ListZktecoUnknownPinsParams) ([]ZktecoUnknownPin, error)
 	// The write path below locks rows so the last-active-admin guard holds under
 	// concurrency (design D6). Callers MUST run LockActiveAdmins first and
 	// GetUserForUpdate second, inside one transaction: every transaction then takes
@@ -452,6 +457,10 @@ type Querier interface {
 	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
 	UpdateUniform(ctx context.Context, arg UpdateUniformParams) (Uniform, error)
 	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)
+	// Only name and location are writable. A column is overwritten only when its
+	// set_* flag is true, so an absent JSON key keeps the stored value and an
+	// explicit null clears it.
+	UpdateZktecoDevice(ctx context.Context, arg UpdateZktecoDeviceParams) (ZktecoDevice, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
 	// client-supplied employee_id IS the insert — a foreign employee_id selects
 	// zero rows from `employees`, so a cross-tenant write becomes

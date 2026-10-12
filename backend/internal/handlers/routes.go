@@ -72,6 +72,14 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("GET /api/companies", a.ListCompanies)
 	protected.HandleFunc("GET /api/companies/{id}", a.GetCompany)
 
+	// zkteco_devices: the caller's devices only (unclaimed NULL-company rows are
+	// invisible). Any authenticated role; PATCH takes name and location ONLY.
+	protected.HandleFunc("GET /api/zkteco_devices", a.ListZktecoDevices)
+	protected.HandleFunc("PATCH /api/zkteco_devices/{id}", a.UpdateZktecoDevice)
+
+	// zkteco_unknown_pins: admin only (requireAdmin); the table has no company_id.
+	protected.HandleFunc("GET /api/zkteco_unknown_pins", a.ListZktecoUnknownPins)
+
 	protected.HandleFunc("GET /api/employees", a.ListEmployees)
 	protected.HandleFunc("POST /api/employees", a.CreateEmployee)
 	protected.HandleFunc("GET /api/employees/{id}", a.GetEmployee)
