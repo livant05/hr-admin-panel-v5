@@ -45,6 +45,11 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/users/{id}", a.UpdateUser)  // last-active-admin guard (409)
 	protected.HandleFunc("DELETE /api/users/{id}", a.DeleteUser) // soft delete, idempotent 204
 
+	// job_postings: any authenticated role; this slice is list/get/create.
+	protected.HandleFunc("GET /api/job_postings", a.ListJobPostings)
+	protected.HandleFunc("POST /api/job_postings", a.CreateJobPosting)
+	protected.HandleFunc("GET /api/job_postings/{id}", a.GetJobPosting)
+
 	// companies: read-only, the caller's own company (no write routes; the
 	// mux answers PATCH/POST/DELETE with 404 or 405).
 	protected.HandleFunc("GET /api/companies", a.ListCompanies)

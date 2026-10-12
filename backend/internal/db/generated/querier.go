@@ -118,6 +118,7 @@ type Querier interface {
 	// SENT only when that id is null. content is opaque: the client already ran
 	// applyVars; the server performs no {{VAR}} substitution.
 	CreateGeneratedDocument(ctx context.Context, arg CreateGeneratedDocumentParams) (GeneratedDocument, error)
+	CreateJobPosting(ctx context.Context, arg CreateJobPostingParams) (JobPosting, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql): the tenant
 	// check on the client-supplied employee_id IS the insert -- a foreign
 	// employee_id selects zero rows from `employees`, so a cross-tenant create
@@ -266,6 +267,7 @@ type Querier interface {
 	GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error)
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
+	GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetLiquidationHistory(ctx context.Context, arg GetLiquidationHistoryParams) (LiquidationHistory, error)
@@ -300,6 +302,7 @@ type Querier interface {
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
 	ListEvaluations(ctx context.Context, arg ListEvaluationsParams) ([]Evaluation, error)
 	ListGeneratedDocuments(ctx context.Context, arg ListGeneratedDocumentsParams) ([]GeneratedDocument, error)
+	ListJobPostings(ctx context.Context, arg ListJobPostingsParams) ([]JobPosting, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
 	// Filterable by employee_id (spec "List filtered by employee returns only

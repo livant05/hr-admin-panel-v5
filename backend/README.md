@@ -159,6 +159,17 @@ the auth middleware is the follow-up if this window becomes unacceptable.
 `GET /api/companies/{id}` returns it by id; any authenticated role may read. Another company's id
 is `404` on the by-id route and `[]` as a list filter. There are no write routes.
 
+## Recruitment: job postings
+
+`/api/job_postings` is tenant-scoped and open to any authenticated role. `GET` lists (filters `id`,
+`status`; `_limit`/`_offset`; any other parameter, including `_order`, is `400 validation_failed`),
+`GET /{id}` returns one posting (another company's id is `404`), and `POST` creates one and returns a
+one-element array. Body fields: `title` (required, trimmed, at most 200 characters), `department`,
+`location`, `description`, `requirements`, `salary_min`, `salary_max` (null or a number from 0 to
+99999999.99, max not below min) and `status` (`open` default, `paused`, `closed`). Unknown fields,
+including `id`, `company_id` and `created_at`, are `400 bad_request`; invalid values are
+`400 validation_failed` with `fields`.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens
