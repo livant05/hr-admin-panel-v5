@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countApplicationsForJobPosting = `-- name: CountApplicationsForJobPosting :one
+SELECT count(*) FROM applications WHERE job_posting_id = $1
+`
+
+// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
+func (q *Queries) CountApplicationsForJobPosting(ctx context.Context, jobPostingID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countApplicationsForJobPosting, jobPostingID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createJobPosting = `-- name: CreateJobPosting :one
 INSERT INTO job_postings (
   company_id, title, department, location, description, requirements,
@@ -61,6 +73,24 @@ func (q *Queries) CreateJobPosting(ctx context.Context, arg CreateJobPostingPara
 	return i, err
 }
 
+const deleteJobPosting = `-- name: DeleteJobPosting :execrows
+DELETE FROM job_postings
+WHERE id = $2 AND company_id = $1
+`
+
+type DeleteJobPostingParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) DeleteJobPosting(ctx context.Context, arg DeleteJobPostingParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteJobPosting, arg.CompanyID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getJobPosting = `-- name: GetJobPosting :one
 SELECT id, company_id, title, department, location, description, requirements,
   salary_min, salary_max, status, created_at
@@ -75,6 +105,40 @@ type GetJobPostingParams struct {
 
 func (q *Queries) GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error) {
 	row := q.db.QueryRow(ctx, getJobPosting, arg.CompanyID, arg.ID)
+	var i JobPosting
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Title,
+		&i.Department,
+		&i.Location,
+		&i.Description,
+		&i.Requirements,
+		&i.SalaryMin,
+		&i.SalaryMax,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getJobPostingForUpdate = `-- name: GetJobPostingForUpdate :one
+SELECT id, company_id, title, department, location, description, requirements,
+  salary_min, salary_max, status, created_at
+FROM job_postings
+WHERE id = $2 AND company_id = $1
+FOR UPDATE
+`
+
+type GetJobPostingForUpdateParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// Row lock: serializes PATCH merges, and DELETE against concurrent application
+// inserts (their FK check takes FOR KEY SHARE on this row, which this lock blocks).
+func (q *Queries) GetJobPostingForUpdate(ctx context.Context, arg GetJobPostingForUpdateParams) (JobPosting, error) {
+	row := q.db.QueryRow(ctx, getJobPostingForUpdate, arg.CompanyID, arg.ID)
 	var i JobPosting
 	err := row.Scan(
 		&i.ID,
@@ -147,4 +211,56 @@ func (q *Queries) ListJobPostings(ctx context.Context, arg ListJobPostingsParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateJobPosting = `-- name: UpdateJobPosting :one
+UPDATE job_postings SET
+  title = $3, department = $4, location = $5, description = $6,
+  requirements = $7, salary_min = $8, salary_max = $9, status = $10
+WHERE id = $2 AND company_id = $1
+RETURNING id, company_id, title, department, location, description, requirements,
+  salary_min, salary_max, status, created_at
+`
+
+type UpdateJobPostingParams struct {
+	CompanyID    pgtype.UUID    `json:"company_id"`
+	ID           pgtype.UUID    `json:"id"`
+	Title        string         `json:"title"`
+	Department   pgtype.Text    `json:"department"`
+	Location     pgtype.Text    `json:"location"`
+	Description  pgtype.Text    `json:"description"`
+	Requirements pgtype.Text    `json:"requirements"`
+	SalaryMin    pgtype.Numeric `json:"salary_min"`
+	SalaryMax    pgtype.Numeric `json:"salary_max"`
+	Status       pgtype.Text    `json:"status"`
+}
+
+func (q *Queries) UpdateJobPosting(ctx context.Context, arg UpdateJobPostingParams) (JobPosting, error) {
+	row := q.db.QueryRow(ctx, updateJobPosting,
+		arg.CompanyID,
+		arg.ID,
+		arg.Title,
+		arg.Department,
+		arg.Location,
+		arg.Description,
+		arg.Requirements,
+		arg.SalaryMin,
+		arg.SalaryMax,
+		arg.Status,
+	)
+	var i JobPosting
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Title,
+		&i.Department,
+		&i.Location,
+		&i.Description,
+		&i.Requirements,
+		&i.SalaryMin,
+		&i.SalaryMax,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
 }

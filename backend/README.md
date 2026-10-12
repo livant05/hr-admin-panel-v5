@@ -170,6 +170,13 @@ one-element array. Body fields: `title` (required, trimmed, at most 200 characte
 including `id`, `company_id` and `created_at`, are `400 bad_request`; invalid values are
 `400 validation_failed` with `fields`.
 
+`PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, an explicit
+`null` clears an optional field (`title` and `status` cannot be null), and the result is validated as the
+whole posting, so the salary ordering also holds against a stored salary the body did not repeat.
+`DELETE /{id}` returns `204`, or `409 conflict` (message carries the count) while any application still
+references the posting: the schema's `ON DELETE CASCADE` never fires through the API. The posting row is
+locked during the check, so an application being created concurrently is waited for and counted.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens

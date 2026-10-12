@@ -33,6 +33,8 @@ type Querier interface {
 	// guard makes a second DELETE on an already-cancelled row report 404
 	// (0 rows affected), consistent with that precedent.
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
+	// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
+	CountApplicationsForJobPosting(ctx context.Context, jobPostingID pgtype.UUID) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
 	CountDocumentTemplates(ctx context.Context, arg CountDocumentTemplatesParams) (int64, error)
@@ -202,6 +204,7 @@ type Querier interface {
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
 	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
+	DeleteJobPosting(ctx context.Context, arg DeleteJobPostingParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
 	// while status='pending' -- an approved/rejected leave is the record behind
@@ -268,6 +271,9 @@ type Querier interface {
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error)
+	// Row lock: serializes PATCH merges, and DELETE against concurrent application
+	// inserts (their FK check takes FOR KEY SHARE on this row, which this lock blocks).
+	GetJobPostingForUpdate(ctx context.Context, arg GetJobPostingForUpdateParams) (JobPosting, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetLiquidationHistory(ctx context.Context, arg GetLiquidationHistoryParams) (LiquidationHistory, error)
@@ -373,6 +379,7 @@ type Querier interface {
 	// create -- it is a derived column regardless of which verb wrote it);
 	// net_salary is NOT recomputed, matching create.
 	UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmployeePayRecordParams) (UpdateEmployeePayRecordRow, error)
+	UpdateJobPosting(ctx context.Context, arg UpdateJobPostingParams) (JobPosting, error)
 	// PATCH restricted to used_days only (design Q3): earned_days is owned by
 	// the accrual job (AccrueVacationDays below) and would be silently reverted
 	// on the next scheduled run, and remaining_days is a GENERATED column that

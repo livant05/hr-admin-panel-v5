@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -195,4 +196,197 @@ func (a *API) CreateJobPosting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeRows(w, http.StatusCreated, []db.JobPosting{row})
+}
+
+// decodeRecruitmentPatch is decodeRecruitmentBody plus the set of keys the
+// client actually sent, so an absent field (keep) can be told from an explicit
+// null (clear). Unknown fields are still a 400.
+func decodeRecruitmentPatch(w http.ResponseWriter, r *http.Request, dst any) (map[string]json.RawMessage, bool) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRecruitmentBody))
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return nil, false
+	}
+	var sent map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &sent); err != nil || sent == nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return nil, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return nil, false
+	}
+	return sent, true
+}
+
+// mergeJobPosting overlays the sent fields on the stored row, so a PATCH is
+// validated as the full posting it will become (the salary ordering rule
+// holds against a stored salary the body did not repeat).
+func mergeJobPosting(cur db.JobPosting, req jobPostingFields, sent map[string]json.RawMessage) jobPostingFields {
+	merged := jobPostingFields{
+		Title:        cur.Title,
+		Department:   cur.Department,
+		Location:     cur.Location,
+		Description:  cur.Description,
+		Requirements: cur.Requirements,
+		Status:       cur.Status,
+	}
+	merged.SalaryMin, _ = json.Marshal(cur.SalaryMin)
+	merged.SalaryMax, _ = json.Marshal(cur.SalaryMax)
+
+	has := func(k string) bool { _, ok := sent[k]; return ok }
+	if has("title") {
+		merged.Title = req.Title
+	}
+	if has("department") {
+		merged.Department = req.Department
+	}
+	if has("location") {
+		merged.Location = req.Location
+	}
+	if has("description") {
+		merged.Description = req.Description
+	}
+	if has("requirements") {
+		merged.Requirements = req.Requirements
+	}
+	if has("salary_min") {
+		merged.SalaryMin = req.SalaryMin
+	}
+	if has("salary_max") {
+		merged.SalaryMax = req.SalaryMax
+	}
+	if has("status") {
+		merged.Status = req.Status
+		if !req.Status.Valid {
+			// An explicit null must not silently fall back to the create default.
+			merged.Status = pgtype.Text{Valid: true}
+		}
+	}
+	return merged
+}
+
+// PATCH /api/job_postings/{id} — partial update; returns a one-element array.
+func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	var req jobPostingFields
+	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	if !ok {
+		return
+	}
+
+	tx, err := a.Pool.Begin(r.Context())
+	if err != nil {
+		a.Log.Error("update job posting begin tx", "err", err)
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	q := a.Queries.WithTx(tx)
+
+	cur, err := q.GetJobPostingForUpdate(r.Context(), db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		a.writeDBErr(w, err, "update job posting")
+		return
+	}
+
+	v, fields := validateJobPosting(mergeJobPosting(cur, req, sent))
+	if len(fields) > 0 {
+		writeFieldErr(w, fields)
+		return
+	}
+
+	row, err := q.UpdateJobPosting(r.Context(), db.UpdateJobPostingParams{
+		CompanyID:    companyID,
+		ID:           id,
+		Title:        v.Title,
+		Department:   v.Department,
+		Location:     v.Location,
+		Description:  v.Description,
+		Requirements: v.Requirements,
+		SalaryMin:    v.SalaryMin,
+		SalaryMax:    v.SalaryMax,
+		Status:       v.Status,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "update job posting")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		a.Log.Error("update job posting commit tx", "err", err)
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+		return
+	}
+	writeRows(w, http.StatusOK, []db.JobPosting{row})
+}
+
+// DELETE /api/job_postings/{id} — RESTRICT that the schema cannot express:
+// applications reference the posting with ON DELETE CASCADE, which would
+// silently destroy pipeline history, so the delete is 409 while any application
+// still points at it (REC-4). The posting row is locked first: an application
+// insert in flight holds a key-share lock on it, so the delete waits for that
+// insert and then sees (and counts) it instead of cascading it away.
+func (a *API) DeleteJobPosting(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	tx, err := a.Pool.Begin(r.Context())
+	if err != nil {
+		a.Log.Error("delete job posting begin tx", "err", err)
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	q := a.Queries.WithTx(tx)
+
+	if _, err := q.GetJobPostingForUpdate(r.Context(), db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id}); err != nil {
+		a.writeDBErr(w, err, "delete job posting")
+		return
+	}
+	n, err := q.CountApplicationsForJobPosting(r.Context(), id)
+	if err != nil {
+		a.writeDBErr(w, err, "delete job posting")
+		return
+	}
+	if n > 0 {
+		writeErrCode(w, http.StatusConflict, codeConflict,
+			fmt.Sprintf("%d postulación(es) siguen asociadas a esta vacante", n))
+		return
+	}
+
+	affected, err := q.DeleteJobPosting(r.Context(), db.DeleteJobPostingParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		a.writeDBErr(w, err, "delete job posting")
+		return
+	}
+	if affected == 0 {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		a.Log.Error("delete job posting commit tx", "err", err)
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

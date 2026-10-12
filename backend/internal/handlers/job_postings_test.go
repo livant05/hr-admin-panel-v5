@@ -5,7 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -72,8 +74,8 @@ func jobIDs(rows []jobPostingRow) []string {
 	return ids
 }
 
-// TestJobPostings_CrossTenantLeak covers XC-1 for the read/create half of the
-// resource (PATCH/DELETE assertions arrive with S2b).
+// TestJobPostings_CrossTenantLeak covers XC-1: GET, PATCH, DELETE and LIST
+// never reach another company's postings.
 func TestJobPostings_CrossTenantLeak(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
@@ -120,6 +122,32 @@ func TestJobPostings_CrossTenantLeak(t *testing.T) {
 		own := testutil.DecodeRows[jobPostingRow](t, testutil.Do(t, h, http.MethodGet, jobPostingsPath+"?id="+jobA.ID, ta, nil))
 		if len(own) != 1 || own[0].ID != jobA.ID {
 			t.Fatalf("A filtered by its own id got %v, want [%s]", jobIDs(own), jobA.ID)
+		}
+	})
+
+	t.Run("patch other tenant row is 404 and leaves it byte-identical", func(t *testing.T) {
+		before := testutil.Do(t, h, http.MethodGet, jobPostingsPath+"/"+jobA.ID, ta, nil).Body.String()
+		for _, body := range []map[string]any{{"title": "Hacked"}, {"status": "closed", "salary_min": 1}} {
+			rec := testutil.Do(t, h, http.MethodPatch, jobPostingsPath+"/"+jobA.ID, tb, body)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("PATCH %v: got %d (%s), want 404", body, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "not_found" {
+				t.Fatalf("error.code = %q, want not_found", code)
+			}
+		}
+		if after := testutil.Do(t, h, http.MethodGet, jobPostingsPath+"/"+jobA.ID, ta, nil).Body.String(); after != before {
+			t.Fatalf("row changed by a cross-tenant PATCH:\nbefore %s\nafter  %s", before, after)
+		}
+	})
+
+	t.Run("delete other tenant row is 404 and the row survives", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodDelete, jobPostingsPath+"/"+jobA.ID, tb, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d, want 404", rec.Code)
+		}
+		if got := testutil.Do(t, h, http.MethodGet, jobPostingsPath+"/"+jobA.ID, ta, nil); got.Code != http.StatusOK {
+			t.Fatalf("row did not survive the cross-tenant delete: %d", got.Code)
 		}
 	})
 
@@ -447,4 +475,322 @@ func TestJobPostings_ListGetFilters(t *testing.T) {
 			t.Fatalf("empleado list: got %d", rec.Code)
 		}
 	})
+}
+
+func getJobPosting(t *testing.T, h http.Handler, token, id string) (jobPostingRow, int) {
+	t.Helper()
+	rec := testutil.Do(t, h, http.MethodGet, jobPostingsPath+"/"+id, token, nil)
+	if rec.Code != http.StatusOK {
+		return jobPostingRow{}, rec.Code
+	}
+	return testutil.DecodeRow[jobPostingRow](t, rec), rec.Code
+}
+
+func TestJobPostings_CrudRoundTrip(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "JobCrudCo")
+	tok := c.Token(t, signer)
+
+	created := createJobPosting(t, h, tok, map[string]any{
+		"title": "Original", "department": "Ventas", "description": "desc",
+		"salary_min": 1000, "salary_max": 2000, "status": "open",
+	})
+	path := jobPostingsPath + "/" + created.ID
+
+	t.Run("patch changes only the sent fields and returns a one-element array", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{"title": "  Renamed  ", "status": "paused"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		rows := testutil.DecodeRows[jobPostingRow](t, rec)
+		if len(rows) != 1 {
+			t.Fatalf("PATCH returned %d rows, want a one-element array", len(rows))
+		}
+		got := rows[0]
+		if got.Title != "Renamed" || got.Status != "paused" {
+			t.Fatalf("title/status = %q/%q", got.Title, got.Status)
+		}
+		if got.Department == nil || *got.Department != "Ventas" || got.Description == nil || *got.Description != "desc" {
+			t.Fatalf("unsent text fields changed: %v/%v", got.Department, got.Description)
+		}
+		if got.SalaryMin == nil || *got.SalaryMin != 1000 || got.SalaryMax == nil || *got.SalaryMax != 2000 {
+			t.Fatalf("unsent salaries changed: %v/%v", deref(got.SalaryMin), deref(got.SalaryMax))
+		}
+		if got.ID != created.ID || got.CompanyID != c.CompanyID || got.CreatedAt != created.CreatedAt {
+			t.Fatalf("identity fields changed: %+v", got)
+		}
+		stored, _ := getJobPosting(t, h, tok, created.ID)
+		if stored.Title != "Renamed" || stored.Status != "paused" {
+			t.Fatalf("GET after PATCH = %q/%q", stored.Title, stored.Status)
+		}
+	})
+
+	t.Run("null clears an optional field", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{"salary_min": nil, "department": nil})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		got := testutil.DecodeRows[jobPostingRow](t, rec)[0]
+		if got.SalaryMin != nil || got.Department != nil {
+			t.Fatalf("salary_min/department = %v/%v, want null", deref(got.SalaryMin), got.Department)
+		}
+		if got.SalaryMax == nil || *got.SalaryMax != 2000 || got.Title != "Renamed" {
+			t.Fatalf("a null on one field disturbed others: %+v", got)
+		}
+	})
+
+	t.Run("empty patch is a no-op that returns the row", func(t *testing.T) {
+		before, _ := getJobPosting(t, h, tok, created.ID)
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		got := testutil.DecodeRows[jobPostingRow](t, rec)[0]
+		if got.ID != before.ID || got.Title != before.Title || got.Status != before.Status ||
+			!sameF64(got.SalaryMax, before.SalaryMax) || !sameF64(got.SalaryMin, before.SalaryMin) {
+			t.Fatalf("empty patch changed the row: %+v -> %+v", before, got)
+		}
+	})
+
+	t.Run("delete returns 204 and the id is gone", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodDelete, path, tok, nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("204 carries a body: %q", rec.Body.String())
+		}
+		if _, code := getJobPosting(t, h, tok, created.ID); code != http.StatusNotFound {
+			t.Fatalf("GET after delete = %d, want 404", code)
+		}
+		if n := countJobPostings(t, pool, c.CompanyID); n != 0 {
+			t.Fatalf("%d rows left after delete", n)
+		}
+	})
+
+	t.Run("a deleted or malformed id is 404 for patch and delete", func(t *testing.T) {
+		for _, id := range []string{created.ID, uuid.NewString(), "not-a-uuid"} {
+			for _, m := range []string{http.MethodPatch, http.MethodDelete} {
+				rec := testutil.Do(t, h, m, jobPostingsPath+"/"+id, tok, map[string]any{"title": "x"})
+				if rec.Code != http.StatusNotFound {
+					t.Fatalf("%s %s: got %d, want 404", m, id, rec.Code)
+				}
+			}
+		}
+	})
+}
+
+func TestJobPostings_PatchValidation(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "JobPatchValidationCo")
+	tok := c.Token(t, signer)
+
+	job := createJobPosting(t, h, tok, map[string]any{
+		"title": "Base", "salary_min": 1000, "salary_max": 2000, "status": "open",
+	})
+	path := jobPostingsPath + "/" + job.ID
+	baseline := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String()
+
+	cases := []struct {
+		name  string
+		body  string
+		code  string
+		field string
+	}{
+		{"blank title", `{"title":"   "}`, "validation_failed", "title"},
+		{"null title", `{"title":null}`, "validation_failed", "title"},
+		{"title over 200 runes", `{"title":"` + strings.Repeat("a", 201) + `"}`, "validation_failed", "title"},
+		{"negative salary_min", `{"salary_min":-1}`, "validation_failed", "salary_min"},
+		{"salary_max as string", `{"salary_max":"abc"}`, "validation_failed", "salary_max"},
+		{"salary overflows numeric(10,2)", `{"salary_max":100000000}`, "validation_failed", "salary_max"},
+		{"max below the stored min", `{"salary_max":999}`, "validation_failed", "salary_max"},
+		{"min above the stored max", `{"salary_min":2001}`, "validation_failed", "salary_max"},
+		{"max below min in the same body", `{"salary_min":5000,"salary_max":4000}`, "validation_failed", "salary_max"},
+		{"unknown status", `{"status":"archived"}`, "validation_failed", "status"},
+		{"null status", `{"status":null}`, "validation_failed", "status"},
+		{"empty status", `{"status":""}`, "validation_failed", "status"},
+		{"unknown field", `{"bogus":1}`, "bad_request", ""},
+		{"company_id in body", `{"company_id":"` + uuid.NewString() + `"}`, "bad_request", ""},
+		{"id in body", `{"id":"` + uuid.NewString() + `"}`, "bad_request", ""},
+		{"created_at in body", `{"created_at":"2020-01-01T00:00:00Z"}`, "bad_request", ""},
+		{"title wrong type", `{"title":5}`, "bad_request", ""},
+		{"malformed json", `{"title":`, "bad_request", ""},
+		{"not an object", `["title"]`, "bad_request", ""},
+		{"trailing value", `{"title":"x"}{"title":"y"}`, "bad_request", ""},
+		{"empty body", ``, "bad_request", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRawBody(t, h, http.MethodPatch, path, tok, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("got %d (%s), want 400", rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != tc.code {
+				t.Fatalf("error.code = %q, want %q (%s)", code, tc.code, rec.Body.String())
+			}
+			if tc.field != "" {
+				var env struct {
+					Error struct {
+						Fields map[string]string `json:"fields"`
+					} `json:"error"`
+				}
+				if err := decodeJSON(rec, &env); err != nil {
+					t.Fatalf("decode: %v", err)
+				}
+				if _, ok := env.Error.Fields[tc.field]; !ok {
+					t.Fatalf("fields = %v, want a %q entry", env.Error.Fields, tc.field)
+				}
+			}
+			if after := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String(); after != baseline {
+				t.Fatalf("a rejected PATCH changed the row:\nbefore %s\nafter  %s", baseline, after)
+			}
+		})
+	}
+
+	accepted := []struct {
+		name string
+		body string
+		min  *float64
+		max  *float64
+	}{
+		{"widening both salaries together", `{"salary_min":100,"salary_max":9000}`, f64(100), f64(9000)},
+		{"max equal to the stored min", `{"salary_min":1000,"salary_max":1000}`, f64(1000), f64(1000)},
+		{"clearing max lifts the ordering rule", `{"salary_max":null,"salary_min":5000}`, f64(5000), nil},
+	}
+	for _, tc := range accepted {
+		t.Run("accepts "+tc.name, func(t *testing.T) {
+			rec := doRawBody(t, h, http.MethodPatch, path, tok, tc.body)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+			}
+			row := testutil.DecodeRows[jobPostingRow](t, rec)[0]
+			if !sameF64(row.SalaryMin, tc.min) || !sameF64(row.SalaryMax, tc.max) {
+				t.Fatalf("salaries = %v/%v, want %v/%v", deref(row.SalaryMin), deref(row.SalaryMax), deref(tc.min), deref(tc.max))
+			}
+		})
+	}
+}
+
+func seedApplication(t *testing.T, pool *pgxpool.Pool, companyID, jobID string) string {
+	t.Helper()
+	id := uuid.NewString()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO applications (id, company_id, job_posting_id, job_title, candidate_name)
+		 VALUES ($1, $2, $3, 'Seed', 'Candidate')`, id, companyID, jobID); err != nil {
+		t.Fatalf("seed application: %v", err)
+	}
+	return id
+}
+
+func countApplications(t *testing.T, pool *pgxpool.Pool, jobID string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM applications WHERE job_posting_id = $1`, jobID).Scan(&n); err != nil {
+		t.Fatalf("count applications: %v", err)
+	}
+	return n
+}
+
+// TestJobPostings_DeleteBlockedWhileApplicationsExist pins REC-4: the schema
+// CASCADE never fires through the API, a delete with applications is 409 with
+// the count, and nothing is removed.
+func TestJobPostings_DeleteBlockedWhileApplicationsExist(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "JobDeleteRestrictCo")
+	tok := c.Token(t, signer)
+
+	withApps := createJobPosting(t, h, tok, map[string]any{"title": "With applications"})
+	other := createJobPosting(t, h, tok, map[string]any{"title": "Other"})
+	seedApplication(t, pool, c.CompanyID, withApps.ID)
+	seedApplication(t, pool, c.CompanyID, withApps.ID)
+	seedApplication(t, pool, c.CompanyID, other.ID)
+
+	rec := testutil.Do(t, h, http.MethodDelete, jobPostingsPath+"/"+withApps.ID, tok, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d (%s), want 409", rec.Code, rec.Body.String())
+	}
+	if code := testutil.ErrCode(t, rec); code != "conflict" {
+		t.Fatalf("error.code = %q, want conflict", code)
+	}
+	if !strings.Contains(rec.Body.String(), "2") {
+		t.Fatalf("409 message does not carry the application count (2): %s", rec.Body.String())
+	}
+	if _, code := getJobPosting(t, h, tok, withApps.ID); code != http.StatusOK {
+		t.Fatalf("posting was removed by a blocked delete: %d", code)
+	}
+	if n := countApplications(t, pool, withApps.ID); n != 2 {
+		t.Fatalf("applications = %d after a blocked delete, want 2 (cascade must not fire)", n)
+	}
+
+	t.Run("another posting's applications do not block this delete", func(t *testing.T) {
+		third := createJobPosting(t, h, tok, map[string]any{"title": "No applications"})
+		if rec := testutil.Do(t, h, http.MethodDelete, jobPostingsPath+"/"+third.ID, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+		if n := countApplications(t, pool, other.ID); n != 1 {
+			t.Fatalf("unrelated applications = %d, want 1", n)
+		}
+	})
+
+	t.Run("delete succeeds once the applications are gone", func(t *testing.T) {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM applications WHERE job_posting_id = $1`, withApps.ID); err != nil {
+			t.Fatalf("remove applications: %v", err)
+		}
+		if rec := testutil.Do(t, h, http.MethodDelete, jobPostingsPath+"/"+withApps.ID, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// TestJobPostings_DeleteWaitsForAnInFlightApplication holds an uncommitted
+// application insert open while DELETE runs. The delete must not count past
+// it and cascade the application away: it waits on the posting row and then
+// answers 409 once the insert commits.
+func TestJobPostings_DeleteWaitsForAnInFlightApplication(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "JobDeleteRaceCo")
+	tok := c.Token(t, signer)
+	job := createJobPosting(t, h, tok, map[string]any{"title": "Racy"})
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO applications (company_id, job_posting_id, job_title, candidate_name)
+		 VALUES ($1, $2, 'Racy', 'Inflight')`, c.CompanyID, job.ID); err != nil {
+		t.Fatalf("insert in tx: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, jobPostingsPath+"/"+job.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		h.ServeHTTP(rec, req)
+	}()
+	time.Sleep(200 * time.Millisecond) // let the handler reach its row lock
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	wg.Wait()
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d (%s), want 409", rec.Code, rec.Body.String())
+	}
+	if n := countApplications(t, pool, job.ID); n != 1 {
+		t.Fatalf("applications = %d, want the in-flight one to survive", n)
+	}
+	if _, code := getJobPosting(t, h, tok, job.ID); code != http.StatusOK {
+		t.Fatalf("posting was deleted under an in-flight application: %d", code)
+	}
 }
