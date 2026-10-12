@@ -1652,7 +1652,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-primary btn-sm" onclick="saveJob()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" class="btn btn-primary btn-sm" id="rj-save" onclick="saveJob()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1674,7 +1674,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-success btn-sm" onclick="saveCandidate()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" class="btn btn-success btn-sm" id="rc-save" onclick="saveCandidate()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1693,7 +1693,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-info btn-sm" onclick="saveApplication()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" class="btn btn-info btn-sm" id="ra-save" onclick="saveApplication()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1994,7 +1994,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms', 'users'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms', 'users', 'job_postings', 'candidates', 'applications'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -4353,20 +4353,34 @@ async function saveUser(){
   if(!id&&!tmp){ toast('Usuario creado, pero el servidor no devolvió la contraseña temporal','warning'); loadUserMgmt(); return; }
   toast('✅ Usuario guardado'); loadUserMgmt();
 }
-// Spanish text for the Go error envelope on the users screen (real mode only).
-// The 409 code is shared, so the last-admin guard is told apart by its message.
-var USER_FIELD_ES={email:'email',first_name:'nombre',last_name:'apellido',role:'rol',status:'estado'};
-function userErrMsg(err,fallback){
+// Spanish text for the Go error envelope (real mode only), shared by the users and
+// recruitment screens. Per-screen wording comes in through `o`: o.forbidden (text),
+// o.conflict (fn(serverMessage) -> text, default: the server message), o.notFound (text).
+// Without o.notFound a 404 keeps the generic "fallback: reason" form.
+var API_FIELD_ES={email:'email',first_name:'nombre',last_name:'apellido',role:'rol',status:'estado',
+  title:'puesto',department:'departamento',location:'ubicación',description:'descripción',requirements:'requisitos',
+  salary_min:'salario mínimo',salary_max:'salario máximo',full_name:'nombre',id_number:'cédula',phone:'teléfono',
+  nationality:'nacionalidad',resume_notes:'notas del CV',job_posting_id:'vacante',candidate_id:'candidato',
+  stage:'etapa',notes:'notas',applied_at:'fecha'};
+function apiErrMsg(err,fallback,o){
+  o=o||{};
   var code=err&&err.code, msg=(err&&err.message)||'';
-  if(code==='forbidden') return 'Solo administradores';
-  if(code==='conflict') return /active admin/i.test(msg)?'La empresa debe conservar al menos un administrador activo':'Ya existe un usuario con ese email';
+  if(code==='forbidden') return o.forbidden||'No tienes permiso para esta acción';
+  if(code==='conflict') return o.conflict?o.conflict(msg):(msg||'La operación entra en conflicto con el estado actual');
+  if(code==='not_found'&&o.notFound) return o.notFound;
   if(code==='validation_failed'){
-    var f=Object.keys((err&&err.fields)||{}).map(function(k){ return USER_FIELD_ES[k]||k; });
+    var f=Object.keys((err&&err.fields)||{}).map(function(k){ return API_FIELD_ES[k]||k; });
     return f.length?'Datos inválidos: revisa '+f.join(', '):'Datos inválidos';
   }
   if(code==='rate_limited') return 'Demasiadas solicitudes, intenta de nuevo en un momento';
   // Unmapped codes (bad_request, internal, network errors) keep the reason; toast() escapes it.
   return msg?fallback+': '+msg:fallback;
+}
+// Users screen wording: the 409 code is shared, so the last-admin guard is told apart by its message.
+function userErrMsg(err,fallback){
+  return apiErrMsg(err,fallback,{forbidden:'Solo administradores',conflict:function(msg){
+    return /active admin/i.test(msg)?'La empresa debe conservar al menos un administrador activo':'Ya existe un usuario con ese email';
+  }});
 }
 // The temporary password lives only in this modal's input; it is wiped on hidden.bs.modal.
 function showTempPassword(email,pw){
@@ -5002,10 +5016,36 @@ var REC_STAGE_BADGE = {applied:'badge-info',screening:'badge-warning',interview:
 var REC_STAGE_LABEL = {applied:'Postulado',screening:'Revisión',interview:'Entrevista',offer:'Oferta',hired:'Contratado',rejected:'Rechazado'};
 var REC_JOB_STATUS  = {open:{cls:'badge-success',label:'Abierta'},paused:{cls:'badge-warning',label:'Pausada'},closed:{cls:'badge-danger',label:'Cerrada'}};
 
-function loadRecruitment() {
-  var jobs  = DS.job_postings.filter(function(j){ return j.company_id===A.companyId; });
-  var cands = DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
-  var apps  = DS.applications.filter(function(a){ return a.company_id===A.companyId; });
+// Real mode (Go): requests run through recRequest, which drops a repeated call while the same
+// key is in flight (double click) and turns a thrown network error into an error envelope.
+var REC_INFLIGHT = {};
+async function recRequest(key, btnId, call) {
+  if (REC_INFLIGHT[key]) return null;
+  REC_INFLIGHT[key] = true;
+  var btn = btnId ? document.getElementById(btnId) : null;
+  if (btn) btn.disabled = true;
+  try { return await call(); }
+  catch (e) { return {error:{code:'network', message:String(e&&e.message||e)}}; }
+  finally { delete REC_INFLIGHT[key]; if (btn) btn.disabled = false; }
+}
+function recErrMsg(err, fallback, notFound) { return apiErrMsg(err, fallback, {notFound:notFound}); }
+
+async function loadRecruitment() {
+  var jobs, cands, apps;
+  if (A.demo) {
+    jobs  = DS.job_postings.filter(function(j){ return j.company_id===A.companyId; });
+    cands = DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
+    apps  = DS.applications.filter(function(a){ return a.company_id===A.companyId; });
+  } else {
+    // DS.* is only the read cache the modal openers use; the server is the source of truth.
+    var res = await Promise.all([Supa.selAll('job_postings'), Supa.selAll('candidates'), Supa.selAll('applications')]);
+    var bad = res.find(function(x){ return !Array.isArray(x); });
+    if (bad) {
+      ['rec-jobs-tbody','rec-candidates-tbody','rec-pipeline-tbody'].forEach(function(id){ var e=document.getElementById(id); if(e) e.innerHTML=''; });
+      toast(recErrMsg(bad.error, 'No se pudo cargar reclutamiento'), 'danger'); return;
+    }
+    DS.job_postings = jobs = res[0]; DS.candidates = cands = res[1]; DS.applications = apps = res[2];
+  }
 
   // Vacantes tab
   var jTb = document.getElementById('rec-jobs-tbody');
@@ -5017,8 +5057,8 @@ function loadRecruitment() {
       +'<td><span class="badge '+st.cls+'">'+st.label+'</span></td>'
       +'<td>'+escHtml((j.created_at||'').substring(0,10))+'</td>'
       +'<td>'
-        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editJob(\''+j.id+'\')"><i class="fas fa-edit"></i></button>'
-        +'<button class="btn btn-xs btn-outline-danger" onclick="delJob(\''+j.id+'\')"><i class="fas fa-trash"></i></button>'
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editJob(\''+escHtml(j.id)+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delJob(\''+escHtml(j.id)+'\')"><i class="fas fa-trash"></i></button>'
       +'</td></tr>';
   }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin vacantes registradas.</td></tr>';
 
@@ -5039,8 +5079,8 @@ function loadRecruitment() {
       +'<td>'+escHtml(c.nationality)+'</td><td>'+escHtml(c.id_number||'—')+'</td>'
       +'<td><small class="text-muted">'+escHtml((c.resume_notes||'').substring(0,60)||'—')+'</small></td>'
       +'<td>'
-        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editCandidate(\''+c.id+'\')"><i class="fas fa-edit"></i></button>'
-        +'<button class="btn btn-xs btn-outline-danger" onclick="delCandidate(\''+c.id+'\')"><i class="fas fa-trash"></i></button>'
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editCandidate(\''+escHtml(c.id)+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delCandidate(\''+escHtml(c.id)+'\')"><i class="fas fa-trash"></i></button>'
       +'</td></tr>';
   }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin candidatos registrados.</td></tr>';
 
@@ -5054,9 +5094,9 @@ function loadRecruitment() {
       +'<td><small>'+escHtml(a.notes||'—')+'</small></td>'
       +'<td>'+escHtml((a.applied_at||'').substring(0,10))+'</td>'
       +'<td>'
-        +(a.stage==='offer'?'<button class="btn btn-xs btn-success mr-1" onclick="hireCandidate(\''+a.id+'\')"><i class="fas fa-check mr-1"></i>Contratar</button>':'')
-        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editApplication(\''+a.id+'\')"><i class="fas fa-edit"></i></button>'
-        +'<button class="btn btn-xs btn-outline-danger" onclick="delApplication(\''+a.id+'\')"><i class="fas fa-trash"></i></button>'
+        +(a.stage==='offer'?'<button class="btn btn-xs btn-success mr-1" onclick="hireCandidate(\''+escHtml(a.id)+'\')"><i class="fas fa-check mr-1"></i>Contratar</button>':'')
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editApplication(\''+escHtml(a.id)+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delApplication(\''+escHtml(a.id)+'\')"><i class="fas fa-trash"></i></button>'
       +'</td></tr>';
   }).join('') : '<tr><td colspan="6" class="text-center p-3 text-muted">Sin postulaciones registradas.</td></tr>';
 }
@@ -5086,17 +5126,25 @@ async function saveJob(){
   var title=gv('rj-title'); if(!title){ toast('Ingresa el puesto','warning'); return; }
   var d={title:title,department:gv('rj-dept'),location:gv('rj-location'),description:gv('rj-desc'),requirements:gv('rj-req'),salary_min:parseFloat(document.getElementById('rj-sal-min').value)||null,salary_max:parseFloat(document.getElementById('rj-sal-max').value)||null,status:gv('rj-status')};
   var id=gv('rj-id');
-  if(id){
-    var j=DS.job_postings.find(function(x){ return x.id===id; }); if(j) Object.assign(j,d);
-    if(!A.demo) await Supa.upd('job_postings',id,d);
-  } else {
-    var rec=Object.assign({id:'jp-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d);
-    DS.job_postings.push(rec);
-    if(!A.demo) await Supa.ins('job_postings',d);
+  if(A.demo){
+    if(id){ var j=DS.job_postings.find(function(x){ return x.id===id; }); if(j) Object.assign(j,d); }
+    else DS.job_postings.push(Object.assign({id:'jp-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+    $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); loadRecruitment(); return;
   }
-  $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); loadRecruitment();
+  // Real mode: the server assigns ids and company; the list is reloaded from it on success.
+  var r=await recRequest('save:job','rj-save',function(){ return id?Supa.upd('job_postings',id,d):Supa.ins('job_postings',d); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo guardar la vacante','La vacante ya no existe'),'danger'); return; }
+  $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); await loadRecruitment();
 }
-function delJob(id){ if(!confirm('¿Eliminar esta vacante?')) return; DS.job_postings=DS.job_postings.filter(function(j){ return j.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
+async function delJob(id){
+  if(A.demo){ if(!confirm('¿Eliminar esta vacante?')) return; DS.job_postings=DS.job_postings.filter(function(j){ return j.id!==id; }); toast('Eliminada','info'); loadRecruitment(); return; }
+  if(!confirm('¿Eliminar esta vacante?')) return;
+  var r=await recRequest('del:'+id,null,function(){ return Supa.del('job_postings',id); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo eliminar la vacante','La vacante ya no existe'),'danger'); return; }
+  toast('Eliminada','info'); await loadRecruitment();
+}
 
 function openCandidateModal(id){
   ['rc-id','rc-name','rc-idnum','rc-email','rc-phone','rc-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
@@ -5119,22 +5167,32 @@ async function saveCandidate(){
   var name=gv('rc-name'); if(!name){ toast('Ingresa el nombre','warning'); return; }
   var d={full_name:name,id_number:gv('rc-idnum'),email:gv('rc-email'),phone:gv('rc-phone'),nationality:gv('rc-nationality'),resume_notes:gv('rc-notes')};
   var id=gv('rc-id');
-  if(id){
-    var c=DS.candidates.find(function(x){ return x.id===id; }); if(c) Object.assign(c,d);
-    if(!A.demo) await Supa.upd('candidates',id,d);
-  } else {
-    DS.candidates.push(Object.assign({id:'ca-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
-    if(!A.demo) await Supa.ins('candidates',d);
+  if(A.demo){
+    if(id){ var c=DS.candidates.find(function(x){ return x.id===id; }); if(c) Object.assign(c,d); }
+    else DS.candidates.push(Object.assign({id:'ca-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+    $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); loadRecruitment(); return;
   }
-  $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); loadRecruitment();
+  var r=await recRequest('save:candidate','rc-save',function(){ return id?Supa.upd('candidates',id,d):Supa.ins('candidates',d); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo guardar el candidato','El candidato ya no existe'),'danger'); return; }
+  $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); await loadRecruitment();
 }
-function delCandidate(id){ if(!confirm('¿Eliminar este candidato?')) return; DS.candidates=DS.candidates.filter(function(c){ return c.id!==id; }); toast('Eliminado','info'); loadRecruitment(); }
+async function delCandidate(id){
+  if(A.demo){ if(!confirm('¿Eliminar este candidato?')) return; DS.candidates=DS.candidates.filter(function(c){ return c.id!==id; }); toast('Eliminado','info'); loadRecruitment(); return; }
+  if(!confirm('¿Eliminar este candidato?')) return;
+  var r=await recRequest('del:'+id,null,function(){ return Supa.del('candidates',id); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo eliminar el candidato','El candidato ya no existe'),'danger'); return; }
+  toast('Eliminado','info'); await loadRecruitment();
+}
 
 function openApplicationModal(id){
   var cands=DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
-  var jobs=DS.job_postings.filter(function(j){ return j.company_id===A.companyId&&j.status==='open'; });
-  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+c.id+'">'+escHtml(c.full_name)+'</option>'; }).join('');
-  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+j.id+'">'+escHtml(j.title)+'</option>'; }).join('');
+  var cur=id?DS.applications.find(function(x){ return x.id===id; }):null;
+  // Real mode: keep the application's current vacante selectable even when it is no longer open.
+  var jobs=DS.job_postings.filter(function(j){ return j.company_id===A.companyId&&(j.status==='open'||(!A.demo&&cur&&j.id===cur.job_posting_id)); });
+  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+escHtml(c.id)+'">'+escHtml(c.full_name)+'</option>'; }).join('');
+  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+escHtml(j.id)+'">'+escHtml(j.title)+'</option>'; }).join('');
   ['ra-id','ra-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
   document.getElementById('ra-stage').value='applied';
   document.getElementById('ra-date').value=TS;
@@ -5142,10 +5200,10 @@ function openApplicationModal(id){
     var a=DS.applications.find(function(x){ return x.id===id; });
     if(!a) return;
     document.getElementById('ra-id').value=a.id;
-    document.getElementById('ra-candidate').value=a.candidate_id;
-    document.getElementById('ra-job').value=a.job_posting_id;
+    document.getElementById('ra-candidate').value=a.candidate_id||'';
+    document.getElementById('ra-job').value=a.job_posting_id||'';
     document.getElementById('ra-stage').value=a.stage;
-    document.getElementById('ra-date').value=a.applied_at||TS;
+    document.getElementById('ra-date').value=String(a.applied_at||TS).substring(0,10);
     document.getElementById('ra-notes').value=a.notes||'';
   }
   $('#recruitApplicationModal').modal('show');
@@ -5154,21 +5212,41 @@ function editApplication(id){ openApplicationModal(id); }
 async function saveApplication(){
   var cid=gv('ra-candidate'), jid=gv('ra-job');
   if(!cid||!jid){ toast('Selecciona candidato y vacante','warning'); return; }
-  var cand=DS.candidates.find(function(x){ return x.id===cid; });
-  var job=DS.job_postings.find(function(x){ return x.id===jid; });
-  var d={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
   var id=gv('ra-id');
-  if(id){
-    var a=DS.applications.find(function(x){ return x.id===id; }); if(a) Object.assign(a,d);
-    if(!A.demo) await Supa.upd('applications',id,d);
-  } else {
-    DS.applications.push(Object.assign({id:'ap-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
-    if(!A.demo) await Supa.ins('applications',d);
+  if(A.demo){
+    var cand=DS.candidates.find(function(x){ return x.id===cid; });
+    var job=DS.job_postings.find(function(x){ return x.id===jid; });
+    var dd={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
+    if(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(a) Object.assign(a,dd); }
+    else DS.applications.push(Object.assign({id:'ap-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},dd));
+    $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); loadRecruitment(); return;
   }
-  $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); loadRecruitment();
+  // Real mode: job_title and candidate_name are derived by the server from the two ids.
+  var d={job_posting_id:jid,candidate_id:cid,stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
+  var r=await recRequest('save:application','ra-save',function(){ return id?Supa.upd('applications',id,d):Supa.ins('applications',d); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo guardar la postulación','La vacante, el candidato o la postulación ya no existe'),'danger'); return; }
+  $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); await loadRecruitment();
 }
-function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
-function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
+async function delApplication(id){
+  if(A.demo){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); return; }
+  if(!confirm('¿Eliminar esta postulación?')) return;
+  var r=await recRequest('del:'+id,null,function(){ return Supa.del('applications',id); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo eliminar la postulación','La postulación ya no existe'),'danger'); return; }
+  toast('Eliminada','info'); await loadRecruitment();
+}
+async function hireCandidate(id){
+  var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return;
+  if(A.demo){ if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); return; }
+  var who=a.candidate_name||'este candidato';
+  if(!confirm('¿Marcar a '+who+' como Contratado?')) return;
+  // Hiring is a stage change only; the server creates no employee.
+  var r=await recRequest('hire:'+id,null,function(){ return Supa.upd('applications',id,{stage:'hired'}); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo marcar como contratado','La postulación ya no existe'),'danger'); return; }
+  toast('🎉 '+who+' contratado/a'); await loadRecruitment();
+}
 
 document.head.insertAdjacentHTML('beforeend','<style>:root{--corp-navy:#1e3a5f;--corp-teal:#0d7490;--corp-slate:#2563a8;--corp-burgandy:#8b1c1c;--corp-steel:#334155;--corp-green:#15803d;--corp-primary:#1e40af}.stat-card.bg-info{background-color:var(--corp-navy)!important}.stat-card.bg-info .small-box-footer{background:rgba(0,0,0,.2)!important}.stat-card.bg-success{background-color:var(--corp-teal)!important}.stat-card.bg-success .small-box-footer{background:rgba(0,0,0,.15)!important}.stat-card.bg-warning{background-color:var(--corp-slate)!important;color:#fff!important}.stat-card.bg-warning .inner,.stat-card.bg-warning p,.stat-card.bg-warning h3{color:#fff!important}.stat-card.bg-warning .small-box-footer{background:rgba(0,0,0,.15)!important;color:#fff!important}.stat-card.bg-danger{background-color:var(--corp-burgandy)!important}.stat-card.bg-danger .small-box-footer{background:rgba(0,0,0,.2)!important}.card-header.bg-gradient-warning{background:var(--corp-steel)!important;background-image:none!important;color:#fff!important}.card-header.bg-gradient-warning *{color:#fff!important}.card-header.bg-success{background-color:var(--corp-teal)!important}.card-header.bg-warning:not(.sidebar *){background-color:var(--corp-slate)!important;color:#fff!important}.card-header.bg-warning:not(.sidebar *) *{color:#fff!important}.card-header.bg-danger:not(.sidebar *){background-color:var(--corp-burgandy)!important}.card-header.bg-info{background-color:var(--corp-navy)!important}.card-header.bg-primary{background-color:var(--corp-primary)!important}.btn-primary{background-color:var(--corp-primary)!important;border-color:var(--corp-primary)!important}.btn-primary:hover{background-color:#1a35a8!important;border-color:#1a35a8!important}.content-wrapper .badge-success{background-color:var(--corp-green)!important}.content-wrapper .badge-info{background-color:var(--corp-navy)!important}.content-wrapper .badge-warning{background-color:var(--corp-slate)!important;color:#fff!important}.content-wrapper .badge-danger{background-color:var(--corp-burgandy)!important}</style>');
 document.head.insertAdjacentHTML('beforeend','<style>/* ── Tailwind-look global ── */.content-wrapper{background:#f8fafc!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.content-wrapper .card{border:1px solid #e2e8f0!important;border-radius:12px!important;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)!important;overflow:hidden}.content-wrapper .card-header{background:#fff!important;border-bottom:1px solid #e2e8f0!important;padding:14px 18px!important;font-weight:600}.content-wrapper .card-header h3.card-title{font-size:.9rem!important;font-weight:600!important;color:#1e293b!important}.content-wrapper .card-body{padding:16px 18px!important}.content-wrapper .card-footer{background:#f8fafc!important;border-top:1px solid #e2e8f0!important}.content-wrapper .table{border-collapse:separate!important;border-spacing:0!important}.content-wrapper .table thead th{background:#f8fafc!important;color:#64748b!important;font-size:.72rem!important;font-weight:600!important;text-transform:uppercase!important;letter-spacing:.05em!important;padding:10px 14px!important;border-bottom:1px solid #e2e8f0!important;border-top:none!important}.content-wrapper .table td{padding:10px 14px!important;border-top:1px solid #f1f5f9!important;color:#334155!important;font-size:.83rem!important;vertical-align:middle!important}.content-wrapper .table-hover tbody tr:hover td{background:#f8fafc!important}.content-wrapper .table-sm td,.content-wrapper .table-sm th{padding:8px 12px!important}.content-wrapper .badge{border-radius:9999px!important;padding:3px 10px!important;font-size:.68rem!important;font-weight:600!important;letter-spacing:.02em!important}.content-wrapper .form-control{border:1px solid #d1d5db!important;border-radius:8px!important;font-size:.85rem!important;padding:7px 12px!important;transition:border-color .15s,box-shadow .15s!important}.content-wrapper .form-control:focus{border-color:#2563a8!important;box-shadow:0 0 0 3px rgba(37,99,168,.12)!important;outline:none!important}.content-wrapper select.form-control{background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\'%3E%3Cpath fill=\'%2364748b\' d=\'M7 10l5 5 5-5z\'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}.content-wrapper .btn{border-radius:8px!important;font-size:.82rem!important;font-weight:500!important;padding:6px 14px!important;transition:all .15s!important}.content-wrapper .btn-xs{padding:3px 8px!important;font-size:.72rem!important;border-radius:6px!important}.content-wrapper .nav-tabs{border-bottom:1px solid #e2e8f0!important}.content-wrapper .nav-tabs .nav-link{border:none!important;border-bottom:2px solid transparent!important;color:#64748b!important;font-size:.82rem!important;font-weight:500!important;padding:8px 14px!important;margin-bottom:-1px!important;border-radius:0!important}.content-wrapper .nav-tabs .nav-link.active{color:#1e40af!important;border-bottom-color:#1e40af!important;background:transparent!important}.content-wrapper .input-group-text{border:1px solid #d1d5db!important;border-radius:8px!important;background:#f8fafc!important}.content-wrapper .input-group .form-control{border-radius:8px 0 0 8px!important}.content-wrapper .input-group .btn{border-radius:0 8px 8px 0!important}.content-wrapper h1{font-size:1.5rem!important;font-weight:700!important;color:#0f172a!important}.content-wrapper .alert{border-radius:10px!important;border:none!important;font-size:.83rem!important}.content-wrapper .page-link{border-radius:6px!important;margin:0 2px!important;font-size:.78rem!important}.content-wrapper .modal-content{border-radius:14px!important;border:none!important;box-shadow:0 20px 60px rgba(0,0,0,.15)!important}.content-wrapper .modal-header{border-bottom:1px solid #e2e8f0!important;padding:16px 20px!important}.content-wrapper .modal-footer{border-top:1px solid #e2e8f0!important;padding:12px 20px!important}.content-wrapper .liq-section{border-radius:8px!important;background:#f8fafc!important;padding:10px 14px!important;margin-bottom:8px!important}</style>');
