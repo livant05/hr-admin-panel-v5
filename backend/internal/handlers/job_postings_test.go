@@ -941,37 +941,9 @@ func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 	tok := c.Token(t, signer)
 	job := createJobPosting(t, h, tok, map[string]any{"title": "Held"})
 
-	ctx := context.Background()
-	key := rand.Int63()
 	const holdTitle = "hold-this-patch"
-	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		CREATE FUNCTION hold_job_patch() RETURNS trigger LANGUAGE plpgsql AS $$
-		BEGIN PERFORM pg_advisory_xact_lock(%d); RETURN NEW; END $$;
-		CREATE TRIGGER trg_hold_job_patch BEFORE UPDATE ON job_postings
-		FOR EACH ROW WHEN (NEW.title = '%s') EXECUTE FUNCTION hold_job_patch();`, key, holdTitle)); err != nil {
-		t.Fatalf("install hold trigger: %v", err)
-	}
-
-	holder, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire holder: %v", err)
-	}
-	defer holder.Release()
-	var holderPID int
-	if err := holder.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
-		t.Fatalf("holder pid: %v", err)
-	}
-	if _, err := holder.Exec(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
-		t.Fatalf("hold advisory lock: %v", err)
-	}
-	released := false
-	release := func() {
-		if !released {
-			released = true
-			_, _ = holder.Exec(ctx, `SELECT pg_advisory_unlock($1)`, key)
-		}
-	}
-	defer release()
+	holderPID, release := parkPatchesInTrigger(t, pool, "job_postings", "title", holdTitle)
+	ctx := context.Background()
 
 	req := httptest.NewRequest(http.MethodPatch, jobPostingsPath+"/"+job.ID, strings.NewReader(`{"title":"`+holdTitle+`"}`))
 	req.Header.Set("Content-Type", "application/json")
@@ -1013,4 +985,46 @@ func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 	if n := countApplications(t, pool, job.ID); n != 1 {
 		t.Fatalf("applications = %d, want the concurrent insert to be kept", n)
 	}
+}
+
+// parkPatchesInTrigger makes any UPDATE of table that sets column to marker
+// block inside a BEFORE UPDATE trigger on a database-wide advisory lock, which
+// this helper holds on a dedicated connection. A PATCH to the marker value
+// therefore stays in flight after its merge read, holding whatever row lock
+// that read took. The pool MUST be schema-isolated (testutil.IsolatedSchema) so
+// the trigger can never fire for another test. It returns the holder backend
+// pid (for waitUntilBlockedBy) and an idempotent release; cleanup releases too.
+func parkPatchesInTrigger(t *testing.T, pool *pgxpool.Pool, table, column, marker string) (holderPID int, release func()) {
+	t.Helper()
+	ctx := context.Background()
+	key := rand.Int63() // advisory locks are database-wide, so the key is random
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE FUNCTION hold_%[1]s_patch() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN PERFORM pg_advisory_xact_lock(%[4]d); RETURN NEW; END $$;
+		CREATE TRIGGER trg_hold_%[1]s_patch BEFORE UPDATE ON %[1]s
+		FOR EACH ROW WHEN (NEW.%[2]s = '%[3]s') EXECUTE FUNCTION hold_%[1]s_patch();`,
+		table, column, marker, key)); err != nil {
+		t.Fatalf("install hold trigger on %s: %v", table, err)
+	}
+
+	holder, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire holder: %v", err)
+	}
+	if err := holder.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
+		t.Fatalf("holder pid: %v", err)
+	}
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
+		t.Fatalf("hold advisory lock: %v", err)
+	}
+	released := false
+	release = func() {
+		if !released {
+			released = true
+			_, _ = holder.Exec(ctx, `SELECT pg_advisory_unlock($1)`, key)
+			holder.Release()
+		}
+	}
+	t.Cleanup(release)
+	return holderPID, release
 }
