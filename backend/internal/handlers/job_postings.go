@@ -296,7 +296,7 @@ func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(r.Context())
 	q := a.Queries.WithTx(tx)
 
-	cur, err := q.GetJobPostingForUpdate(r.Context(), db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id})
+	cur, err := q.GetJobPostingForMerge(r.Context(), db.GetJobPostingForMergeParams{CompanyID: companyID, ID: id})
 	if err != nil {
 		a.writeDBErr(w, err, "update job posting")
 		return

@@ -271,8 +271,13 @@ type Querier interface {
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error)
-	// Row lock: serializes PATCH merges, and DELETE against concurrent application
-	// inserts (their FK check takes FOR KEY SHARE on this row, which this lock blocks).
+	// PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+	// PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+	// does not block application inserts: the PATCH never changes the key.
+	GetJobPostingForMerge(ctx context.Context, arg GetJobPostingForMergeParams) (JobPosting, error)
+	// DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+	// insert takes on this row (FK check), so a delete waits for an in-flight insert
+	// and then counts it instead of cascading it away.
 	GetJobPostingForUpdate(ctx context.Context, arg GetJobPostingForUpdateParams) (JobPosting, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)

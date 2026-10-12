@@ -2,6 +2,8 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -920,4 +922,95 @@ func deref0(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert holds a PATCH open
+// after its merge read (a BEFORE UPDATE trigger parks it on an advisory lock)
+// and inserts an application for the same posting. The merge read takes FOR NO
+// KEY UPDATE, which does not conflict with the FOR KEY SHARE an application
+// insert takes on the posting, so the insert must complete while the PATCH is
+// still in flight (CO-S2b-3). DELETE keeps FOR UPDATE and is covered by
+// TestJobPostings_DeleteWaitsForAnInFlightApplication.
+func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
+	// The trigger lives in an isolated schema so it can never fire for another
+	// test; the advisory lock key is random because advisory locks are
+	// database-wide.
+	pool, _ := testutil.IsolatedSchema(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "JobPatchHoldCo")
+	tok := c.Token(t, signer)
+	job := createJobPosting(t, h, tok, map[string]any{"title": "Held"})
+
+	ctx := context.Background()
+	key := rand.Int63()
+	const holdTitle = "hold-this-patch"
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`
+		CREATE FUNCTION hold_job_patch() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN PERFORM pg_advisory_xact_lock(%d); RETURN NEW; END $$;
+		CREATE TRIGGER trg_hold_job_patch BEFORE UPDATE ON job_postings
+		FOR EACH ROW WHEN (NEW.title = '%s') EXECUTE FUNCTION hold_job_patch();`, key, holdTitle)); err != nil {
+		t.Fatalf("install hold trigger: %v", err)
+	}
+
+	holder, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("acquire holder: %v", err)
+	}
+	defer holder.Release()
+	var holderPID int
+	if err := holder.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
+		t.Fatalf("holder pid: %v", err)
+	}
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_lock($1)`, key); err != nil {
+		t.Fatalf("hold advisory lock: %v", err)
+	}
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_, _ = holder.Exec(ctx, `SELECT pg_advisory_unlock($1)`, key)
+		}
+	}
+	defer release()
+
+	req := httptest.NewRequest(http.MethodPatch, jobPostingsPath+"/"+job.ID, strings.NewReader(`{"title":"`+holdTitle+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		h.ServeHTTP(rec, req)
+	}()
+	waitUntilBlockedBy(t, pool, holderPID) // the PATCH holds its merge-read lock and is parked in the trigger
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '2s'`); err != nil {
+		t.Fatalf("set lock_timeout: %v", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO applications (company_id, job_posting_id, job_title, candidate_name)
+		 VALUES ($1, $2, 'Held', 'Candidate')`, c.CompanyID, job.ID); err != nil {
+		t.Fatalf("application insert was blocked by a PATCH in flight: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit application: %v", err)
+	}
+
+	release()
+	wg.Wait()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if got := testutil.DecodeRows[jobPostingRow](t, rec)[0]; got.Title != holdTitle {
+		t.Fatalf("PATCH title = %q, want %q", got.Title, holdTitle)
+	}
+	if n := countApplications(t, pool, job.ID); n != 1 {
+		t.Fatalf("applications = %d, want the concurrent insert to be kept", n)
+	}
 }
