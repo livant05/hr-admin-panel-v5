@@ -64,13 +64,14 @@ touches tenant data must read it from there, never from a client-supplied field.
 
 `rate_limited` extends the original A2 set: it is returned with HTTP 429 and a `Retry-After`
 header (whole seconds) when a client IP exceeds its budget on a public endpoint. Today that is
-`POST /api/auth/login`; register and the device ingestion endpoints join it in later slices.
+`POST /api/auth/login` and `POST /api/auth/register`; the device ingestion endpoints join it in a later slice.
 
 **Login counts only failures.** A successful login does not consume budget, so users behind a
 shared NAT are not locked out by each other's valid sessions. Any 401 outcome (wrong password,
 unknown email, inactive user, empty stored hash) consumes one token. A request whose client key has
-no token left is rejected with 429 before any bcrypt work, even if its password is correct. Other
-endpoints on the same limiter (register, device ingestion) consume a token on every request.
+no token left is rejected with 429 before any bcrypt work, even if its password is correct. Register
+shares the same strict bucket but charges every request, success included, and never refunds: it has no
+legitimate success stream and each success creates a tenant. Device ingestion also charges every request.
 
 **Rate limiting** is an in-process token bucket per client IP (burst equals the per-minute rate),
 so each backend instance keeps its own counters. At most 10,000 client keys are tracked: beyond
@@ -80,7 +81,7 @@ keying for IPv6 and the cap size keep that expensive. Settings:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `AUTH_RATE_PER_MIN` | `10` | Failed login attempts (and, once it exists, register requests) per client IP per minute. |
+| `AUTH_RATE_PER_MIN` | `10` | Failed login attempts and every register request, per client IP per minute (one shared bucket). |
 | `AUTH_ATTEMPT_RATE_PER_MIN` | `60` | Looser per-client budget that counts **every** login attempt, successful ones included, so valid credentials cannot force unbounded bcrypt work. Checked before the strict budget; never refunded. |
 | `ADMS_RATE_PER_MIN` | `600` | Device ingestion per client IP per minute. **Provisional** until a real-device check. |
 | `TRUSTED_PROXY_CIDRS` | empty | Comma-separated CIDRs of reverse proxies whose `X-Real-IP` is believed. |
@@ -100,6 +101,22 @@ budget, `auth_attempt` for the looser attempt budget), `client` (the IP, or /64 
 was charged) and `retry_after_s`. Request bodies, headers and credentials are never logged. Users
 behind one shared NAT can lock each other out of the strict budget (accepted behavior); these log
 lines are how an operator sees it happen.
+
+## Public register (`POST /api/auth/register`)
+
+Public (no token), behind the shared `AuthLimiter` described above. Body `{company_name, first_name,
+last_name?, email, password}`; unknown keys (`role`, `status`, `company_id`, ...) and bodies over
+4 KiB are a `400 bad_request`. Validation failures are `400 validation_failed` with `fields`:
+`company_name` 1-200 characters (trimmed), `first_name` 1-100, `last_name` at most 100, `email` a
+plausible address of at most 254 characters, `password` 8-72 **bytes** (`auth.ValidatePassword`; a
+37-character string of 2-byte runes is too long).
+
+The email is trimmed and lowercased. The password is hashed before the transaction opens; one
+transaction then creates the company and its first user (always `admin`, `active`). A duplicate email
+in any case or company hits the unique `lower(email)` index, rolls the transaction back (no company
+remains) and answers `409 conflict`. On success the answer is `201` with exactly the login payload
+(`access_token`, `token_type`, `expires_in`, `company_name`, `user` with `user_metadata`), so the
+caller is logged in; it never contains `password_hash`. The frontend is not wired to it yet (S7).
 
 ## Users and roles (admin only)
 

@@ -154,6 +154,11 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	mux.HandleFunc("GET /api/health", a.Health) // public — more specific than /api/
 	// Login is public but throttled per client IP; more specific than /api/.
 	mux.Handle("POST /api/auth/login", a.rateLimitedLogin(a.AuthLimiter, a.AuthAttemptLimiter, http.HandlerFunc(a.Login)))
+	// register shares AuthLimiter (one bucket per client with login, AUTH-5) but
+	// uses the generic wrapper: every attempt is charged and never refunded. Unlike
+	// login (decision #911) there is no legitimate stream of successful registers
+	// behind a shared NAT, and each success creates a tenant, so success must cost.
+	mux.Handle("POST /api/auth/register", a.rateLimited(limiterAuth, a.AuthLimiter, http.HandlerFunc(a.Register)))
 	mux.Handle("/api/", signer.Middleware(protected))
 	return mux
 }

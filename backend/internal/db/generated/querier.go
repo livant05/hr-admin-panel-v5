@@ -49,7 +49,12 @@ type Querier interface {
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
+	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
+	// Public register (design D14): one company plus its first admin, created in a
+	// single transaction by the handler. Neither query returns password_hash, so
+	// the generated row types cannot carry it (XC-2).
+	CreateCompany(ctx context.Context, name string) (CreateCompanyRow, error)
 	// A1 rule 6 (design Q2): the tenant check on the client-supplied employee_id
 	// IS the insert, same as the other four Phase 2 tables -- a foreign
 	// employee_id selects zero rows from `employees`, so a cross-tenant create
