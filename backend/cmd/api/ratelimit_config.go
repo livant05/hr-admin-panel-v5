@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -25,6 +26,9 @@ type rateConfig struct {
 func loadRateConfig(getenv func(string) string) (rateConfig, error) {
 	var cfg rateConfig
 	var err error
+	if getenv("AUTH_SUCCESS_RATE_PER_MIN") != "" {
+		return rateConfig{}, errors.New("AUTH_SUCCESS_RATE_PER_MIN was renamed: use AUTH_ATTEMPT_RATE_PER_MIN")
+	}
 	if cfg.AuthPerMin, err = positiveIntEnv(getenv, "AUTH_RATE_PER_MIN", handlers.DefaultAuthRatePerMin); err != nil {
 		return rateConfig{}, err
 	}
