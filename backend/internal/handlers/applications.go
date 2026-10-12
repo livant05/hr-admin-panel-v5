@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"time"
@@ -188,4 +189,154 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeRows(w, http.StatusCreated, []db.Application{row})
+}
+
+// validateApplicationPatch checks the fields a PATCH sent. Absent keeps the
+// stored value; null is only meaningful for notes (it clears them): the foreign
+// keys, the stage and the date cannot be cleared.
+func validateApplicationPatch(req applicationFields, sent map[string]json.RawMessage) (jobID, candID pgtype.UUID, stage string, appliedAt pgtype.Date, fields map[string]string) {
+	fields = map[string]string{}
+	isNull := func(k string) bool { return bytes.Equal(bytes.TrimSpace(sent[k]), []byte("null")) }
+	has := func(k string) bool { _, ok := sent[k]; return ok }
+
+	for _, k := range []string{"job_posting_id", "candidate_id", "stage", "applied_at"} {
+		if has(k) && isNull(k) {
+			fields[k] = "cannot be null"
+		}
+	}
+	if has("job_posting_id") && !isNull("job_posting_id") {
+		jobID = requiredUUIDField(fields, "job_posting_id", req.JobPostingID)
+	}
+	if has("candidate_id") && !isNull("candidate_id") {
+		candID = requiredUUIDField(fields, "candidate_id", req.CandidateID)
+	}
+	if has("stage") && !isNull("stage") {
+		stage = req.Stage.String
+		if !applicationStageValid(stage) {
+			fields["stage"] = "must be one of applied, screening, interview, offer, hired, rejected"
+		}
+	}
+	if has("applied_at") && !isNull("applied_at") {
+		appliedAt = optionalDateField(fields, "applied_at", req.AppliedAt)
+	}
+	return jobID, candID, stage, appliedAt, fields
+}
+
+// PATCH /api/applications/{id} — partial update; returns a one-element array.
+// Re-pointing job_posting_id or candidate_id to a row of another company (or to
+// one that does not exist) is 404 and the application is left unchanged; the new
+// target is locked FOR KEY SHARE for the rest of the transaction, so a guarded
+// delete of it waits and then counts this application (REC-2).
+func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	var req applicationFields
+	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	if !ok {
+		return
+	}
+
+	tx, q, ok := a.beginRecruitmentTx(w, r, "update application")
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	cur, err := q.GetApplicationForMerge(r.Context(), db.GetApplicationForMergeParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		a.writeDBErr(w, err, "update application")
+		return
+	}
+
+	jobID, candID, stage, appliedAt, fields := validateApplicationPatch(req, sent)
+	if len(fields) > 0 {
+		writeFieldErr(w, fields)
+		return
+	}
+
+	params := db.UpdateApplicationParams{
+		CompanyID:     companyID,
+		ID:            id,
+		JobPostingID:  cur.JobPostingID,
+		JobTitle:      cur.JobTitle,
+		CandidateID:   cur.CandidateID,
+		CandidateName: cur.CandidateName,
+		Stage:         cur.Stage,
+		Notes:         cur.Notes,
+		AppliedAt:     cur.AppliedAt,
+	}
+	if _, has := sent["notes"]; has {
+		params.Notes = req.Notes
+	}
+	if stage != "" {
+		params.Stage = pgtype.Text{String: stage, Valid: true}
+	}
+	if appliedAt.Valid {
+		params.AppliedAt = appliedAt
+	}
+	// A foreign key that is sent unchanged keeps the stored, create-time names;
+	// one that moves is checked, locked and re-derived from the new row.
+	if jobID.Valid && jobID != cur.JobPostingID {
+		jp, err := q.LockJobPostingForShare(r.Context(), db.LockJobPostingForShareParams{CompanyID: companyID, ID: jobID})
+		if err != nil {
+			a.writeDBErr(w, err, "update application")
+			return
+		}
+		params.JobPostingID = jp.ID
+		params.JobTitle = pgtype.Text{String: jp.Title, Valid: true}
+	}
+	if candID.Valid && candID != cur.CandidateID {
+		c, err := q.LockCandidateForShare(r.Context(), db.LockCandidateForShareParams{CompanyID: companyID, ID: candID})
+		if err != nil {
+			a.writeDBErr(w, err, "update application")
+			return
+		}
+		params.CandidateID = c.ID
+		params.CandidateName = pgtype.Text{String: c.FullName, Valid: true}
+	}
+
+	row, err := q.UpdateApplication(r.Context(), params)
+	if err != nil {
+		a.writeDBErr(w, err, "update application")
+		return
+	}
+	if !a.commitRecruitmentTx(w, r, tx, "update application") {
+		return
+	}
+	writeRows(w, http.StatusOK, []db.Application{row})
+}
+
+// DELETE /api/applications/{id} — hard delete (204). Nothing references an
+// application, so no guard is needed; another company's id is 404.
+func (a *API) DeleteApplication(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	n, err := a.Queries.DeleteApplication(r.Context(), db.DeleteApplicationParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		a.writeDBErr(w, err, "delete application")
+		return
+	}
+	if n == 0 {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

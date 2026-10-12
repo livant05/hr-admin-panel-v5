@@ -68,6 +68,24 @@ func (q *Queries) CreateApplication(ctx context.Context, arg CreateApplicationPa
 	return i, err
 }
 
+const deleteApplication = `-- name: DeleteApplication :execrows
+DELETE FROM applications
+WHERE id = $2 AND company_id = $1
+`
+
+type DeleteApplicationParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) DeleteApplication(ctx context.Context, arg DeleteApplicationParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteApplication, arg.CompanyID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getApplication = `-- name: GetApplication :one
 SELECT id, company_id, job_posting_id, job_title, candidate_id, candidate_name,
   stage, notes, applied_at, created_at
@@ -82,6 +100,40 @@ type GetApplicationParams struct {
 
 func (q *Queries) GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error) {
 	row := q.db.QueryRow(ctx, getApplication, arg.CompanyID, arg.ID)
+	var i Application
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.JobPostingID,
+		&i.JobTitle,
+		&i.CandidateID,
+		&i.CandidateName,
+		&i.Stage,
+		&i.Notes,
+		&i.AppliedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getApplicationForMerge = `-- name: GetApplicationForMerge :one
+SELECT id, company_id, job_posting_id, job_title, candidate_id, candidate_name,
+  stage, notes, applied_at, created_at
+FROM applications
+WHERE id = $2 AND company_id = $1
+FOR NO KEY UPDATE
+`
+
+type GetApplicationForMergeParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
+// against DELETE, and keeps a concurrent committed write from being overwritten
+// with a stale copy.
+func (q *Queries) GetApplicationForMerge(ctx context.Context, arg GetApplicationForMergeParams) (Application, error) {
+	row := q.db.QueryRow(ctx, getApplicationForMerge, arg.CompanyID, arg.ID)
 	var i Application
 	err := row.Scan(
 		&i.ID,
@@ -158,4 +210,104 @@ func (q *Queries) ListApplications(ctx context.Context, arg ListApplicationsPara
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockCandidateForShare = `-- name: LockCandidateForShare :one
+SELECT id, full_name FROM candidates
+WHERE id = $2 AND company_id = $1
+FOR KEY SHARE
+`
+
+type LockCandidateForShareParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type LockCandidateForShareRow struct {
+	ID       pgtype.UUID `json:"id"`
+	FullName string      `json:"full_name"`
+}
+
+// Same as LockJobPostingForShare, for a re-point to a new candidate.
+func (q *Queries) LockCandidateForShare(ctx context.Context, arg LockCandidateForShareParams) (LockCandidateForShareRow, error) {
+	row := q.db.QueryRow(ctx, lockCandidateForShare, arg.CompanyID, arg.ID)
+	var i LockCandidateForShareRow
+	err := row.Scan(&i.ID, &i.FullName)
+	return i, err
+}
+
+const lockJobPostingForShare = `-- name: LockJobPostingForShare :one
+SELECT id, title FROM job_postings
+WHERE id = $2 AND company_id = $1
+FOR KEY SHARE
+`
+
+type LockJobPostingForShareParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type LockJobPostingForShareRow struct {
+	ID    pgtype.UUID `json:"id"`
+	Title string      `json:"title"`
+}
+
+// The tenant check of a re-point to a new posting, with the lock the foreign key
+// check would take later: while the PATCH is in flight a guarded delete of the
+// posting (FOR UPDATE) waits and then counts the re-pointed application; a posting
+// deleted first leaves no row here (404) instead of a 23503.
+func (q *Queries) LockJobPostingForShare(ctx context.Context, arg LockJobPostingForShareParams) (LockJobPostingForShareRow, error) {
+	row := q.db.QueryRow(ctx, lockJobPostingForShare, arg.CompanyID, arg.ID)
+	var i LockJobPostingForShareRow
+	err := row.Scan(&i.ID, &i.Title)
+	return i, err
+}
+
+const updateApplication = `-- name: UpdateApplication :one
+UPDATE applications SET
+  job_posting_id = $3, job_title = $4, candidate_id = $5, candidate_name = $6,
+  stage = $7, notes = $8, applied_at = $9
+WHERE id = $2 AND company_id = $1
+RETURNING id, company_id, job_posting_id, job_title, candidate_id, candidate_name,
+  stage, notes, applied_at, created_at
+`
+
+type UpdateApplicationParams struct {
+	CompanyID     pgtype.UUID `json:"company_id"`
+	ID            pgtype.UUID `json:"id"`
+	JobPostingID  pgtype.UUID `json:"job_posting_id"`
+	JobTitle      pgtype.Text `json:"job_title"`
+	CandidateID   pgtype.UUID `json:"candidate_id"`
+	CandidateName pgtype.Text `json:"candidate_name"`
+	Stage         pgtype.Text `json:"stage"`
+	Notes         pgtype.Text `json:"notes"`
+	AppliedAt     pgtype.Date `json:"applied_at"`
+}
+
+func (q *Queries) UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (Application, error) {
+	row := q.db.QueryRow(ctx, updateApplication,
+		arg.CompanyID,
+		arg.ID,
+		arg.JobPostingID,
+		arg.JobTitle,
+		arg.CandidateID,
+		arg.CandidateName,
+		arg.Stage,
+		arg.Notes,
+		arg.AppliedAt,
+	)
+	var i Application
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.JobPostingID,
+		&i.JobTitle,
+		&i.CandidateID,
+		&i.CandidateName,
+		&i.Stage,
+		&i.Notes,
+		&i.AppliedAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }

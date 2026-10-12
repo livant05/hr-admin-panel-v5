@@ -218,6 +218,17 @@ The posting and the candidate must belong to the caller's company. The check is 
 guarded delete of either (`FOR UPDATE`) waits for it and then answers `409`, and an insert that loses to
 a delete answers `404` instead of a foreign key error.
 
+`PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, `notes` may be
+`null` to clear it, and `job_posting_id`, `candidate_id`, `stage` and `applied_at` cannot be null
+(`400 validation_failed`). A stage change is only a stage change: moving an application to `hired` creates
+no employee. Re-pointing `job_posting_id` or `candidate_id` to another company's row, or to one that does
+not exist, is `404` and the application is unchanged; a re-point re-derives `job_title` or
+`candidate_name` from the new row, while an id sent unchanged (the frontend resends both) keeps the
+stored names. The new target is locked `FOR KEY SHARE` for the rest of the transaction, so a guarded
+delete of it waits for the PATCH and then answers `409`. An application whose foreign key is `NULL`
+(imported data) can still change stage. `DELETE /{id}` is a hard delete (`204`; another company's id is
+`404`): nothing references an application.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens

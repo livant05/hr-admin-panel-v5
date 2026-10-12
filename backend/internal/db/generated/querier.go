@@ -203,6 +203,7 @@ type Querier interface {
 	// FK error. No handler ever issues DELETE FROM employees.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (int64, error)
 	DeactivateUser(ctx context.Context, arg DeactivateUserParams) (DeactivateUserRow, error)
+	DeleteApplication(ctx context.Context, arg DeleteApplicationParams) (int64, error)
 	// Hard delete (design Q3): a mistyped punch is an operational correction,
 	// not history worth preserving — attendance_logs is not an FK target
 	// (rg 'REFERENCES attendance_logs' migrations/ -> zero matches).
@@ -248,6 +249,10 @@ type Querier interface {
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
 	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
+	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
+	// against DELETE, and keeps a concurrent committed write from being overwritten
+	// with a stale copy.
+	GetApplicationForMerge(ctx context.Context, arg GetApplicationForMergeParams) (Application, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCandidate(ctx context.Context, arg GetCandidateParams) (Candidate, error)
@@ -378,9 +383,17 @@ type Querier interface {
 	// the admin rows in id order before any other user row, so two requests can
 	// never wait on each other.
 	LockActiveAdmins(ctx context.Context, companyID pgtype.UUID) ([]pgtype.UUID, error)
+	// Same as LockJobPostingForShare, for a re-point to a new candidate.
+	LockCandidateForShare(ctx context.Context, arg LockCandidateForShareParams) (LockCandidateForShareRow, error)
+	// The tenant check of a re-point to a new posting, with the lock the foreign key
+	// check would take later: while the PATCH is in flight a guarded delete of the
+	// posting (FOR UPDATE) waits and then counts the re-pointed application; a posting
+	// deleted first leaves no row here (404) instead of a 23503.
+	LockJobPostingForShare(ctx context.Context, arg LockJobPostingForShareParams) (LockJobPostingForShareRow, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
+	UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (Application, error)
 	// PATCH keeps employee_id and date immutable (the upsert's own unique key)
 	// -- changing which employee or day a punch belongs to is a new record, not
 	// an edit, mirroring leave_requests' Q4 precedent of restricting PATCH to
