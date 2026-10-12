@@ -1736,7 +1736,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-primary btn-sm" onclick="saveUser()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" id="um-save" class="btn btn-primary btn-sm" onclick="saveUser()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -4340,13 +4340,32 @@ async function saveUser(){
   // Real mode (Go): never send status or company_id. Edit leaves the status alone;
   // create returns the server-generated temporary password exactly once.
   var body={first_name:fn,last_name:ln,email:email,role:role};
-  var r=id?await Supa.upd('users',id,body):await Supa.ins('users',body);
-  if(r&&r.error){ toast(r.error.message||'No se pudo guardar el usuario','danger'); return; }
+  var btn=document.getElementById('um-save');
+  if(btn){ if(btn.disabled) return; btn.disabled=true; } // a second click while the request is in flight would send a duplicate POST
+  var r;
+  try{ r=id?await Supa.upd('users',id,body):await Supa.ins('users',body); }
+  catch(e){ r={error:{code:'network',message:String(e&&e.message||e)}}; }
+  finally{ if(btn) btn.disabled=false; }
+  if(r&&r.error){ toast(userErrMsg(r.error,'No se pudo guardar el usuario'),'danger'); return; }
   var tmp=(!id&&Array.isArray(r)&&r[0])?r[0].temporary_password:'';
   if(tmp) showTempPassword(email,tmp); // registers the follow-up before the hide transition starts
-  else if(!id) toast('Usuario creado, pero el servidor no devolvió la contraseña temporal','warning');
   $('#userModal').modal('hide');
+  if(!id&&!tmp){ toast('Usuario creado, pero el servidor no devolvió la contraseña temporal','warning'); loadUserMgmt(); return; }
   toast('✅ Usuario guardado'); loadUserMgmt();
+}
+// Spanish text for the Go error envelope on the users screen (real mode only).
+// The 409 code is shared, so the last-admin guard is told apart by its message.
+var USER_FIELD_ES={email:'email',first_name:'nombre',last_name:'apellido',role:'rol',status:'estado'};
+function userErrMsg(err,fallback){
+  var code=err&&err.code, msg=(err&&err.message)||'';
+  if(code==='forbidden') return 'Solo administradores';
+  if(code==='conflict') return /active admin/i.test(msg)?'La empresa debe conservar al menos un administrador activo':'Ya existe un usuario con ese email';
+  if(code==='validation_failed'){
+    var f=Object.keys((err&&err.fields)||{}).map(function(k){ return USER_FIELD_ES[k]||k; });
+    return f.length?'Datos inválidos: revisa '+f.join(', '):'Datos inválidos';
+  }
+  if(code==='rate_limited') return 'Demasiadas solicitudes, intenta de nuevo en un momento';
+  return fallback;
 }
 // The temporary password lives only in this modal's input; it is wiped on hidden.bs.modal.
 function showTempPassword(email,pw){
@@ -4371,7 +4390,7 @@ async function loadUserMgmt(){
     var tbe=document.getElementById('user-list-tbody');
     if(!Array.isArray(res)){
       if(tbe) tbe.innerHTML='';
-      toast(res&&res.error&&res.error.code==='forbidden'?'Solo administradores':((res&&res.error&&res.error.message)||'No se pudieron cargar los usuarios'),'danger'); return;
+      toast(userErrMsg(res&&res.error,'No se pudieron cargar los usuarios'),'danger'); return;
     }
     DS.users=users=res;
   }
@@ -4383,7 +4402,7 @@ async function delUser(id){
   if(A.demo){ if(!confirm('¿Eliminar usuario?')) return; DS.users=DS.users.filter(function(u){ return u.id!==id; }); toast('Eliminado','info'); loadUserMgmt(); return; }
   if(!confirm('¿Desactivar usuario? Ya no podrá iniciar sesión.')) return;
   var r=await Supa.del('users',id); // soft delete: the row stays as inactive
-  if(r&&r.error){ toast(r.error.message||'No se pudo desactivar el usuario','danger'); return; }
+  if(r&&r.error){ toast(userErrMsg(r.error,'No se pudo desactivar el usuario'),'danger'); return; }
   toast('Usuario desactivado','info'); loadUserMgmt();
 }
 
