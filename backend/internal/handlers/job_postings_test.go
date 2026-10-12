@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/testutil"
@@ -713,19 +715,22 @@ func errMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
 
 // waitUntilBlockedBy polls until some backend is waiting on a lock held by the
 // backend holderPID, so a test knows the request under test has reached the
-// lock instead of guessing with a sleep. It fails the test after 10 seconds.
-func waitUntilBlockedBy(t *testing.T, pool *pgxpool.Pool, holderPID int) {
+// lock instead of guessing with a sleep. It returns the pid of a backend that
+// is blocked (the request's own connection) and fails the test after 10
+// seconds.
+func waitUntilBlockedBy(t *testing.T, pool *pgxpool.Pool, holderPID int) int {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		var waiting int
-		if err := pool.QueryRow(context.Background(),
-			`SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid))`,
-			holderPID).Scan(&waiting); err != nil {
-			t.Fatalf("count backends blocked by %d: %v", holderPID, err)
+		err := pool.QueryRow(context.Background(),
+			`SELECT pid FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid)) ORDER BY pid LIMIT 1`,
+			holderPID).Scan(&waiting)
+		if err == nil {
+			return waiting
 		}
-		if waiting > 0 {
-			return
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("find backends blocked by %d: %v", holderPID, err)
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("no backend became blocked by backend %d within 10s", holderPID)
@@ -954,6 +959,12 @@ func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		h.ServeHTTP(rec, req)
+	}()
+	// A failed assertion must not leave the PATCH goroutine parked in the trigger
+	// and running past the test: release the hold, then wait for it.
+	defer func() {
+		release()
+		wg.Wait()
 	}()
 	waitUntilBlockedBy(t, pool, holderPID) // the PATCH holds its merge-read lock and is parked in the trigger
 

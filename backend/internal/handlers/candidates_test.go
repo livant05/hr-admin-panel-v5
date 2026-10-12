@@ -783,6 +783,12 @@ func TestCandidates_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 		defer wg.Done()
 		h.ServeHTTP(rec, req)
 	}()
+	// A failed assertion must not leave the PATCH goroutine parked in the trigger
+	// and running past the test: release the hold, then wait for it.
+	defer func() {
+		release()
+		wg.Wait()
+	}()
 	waitUntilBlockedBy(t, pool, holderPID) // the PATCH holds its merge-read lock and is parked in the trigger
 
 	tx, err := pool.Begin(ctx)
