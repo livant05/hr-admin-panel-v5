@@ -181,6 +181,17 @@ locked (`FOR UPDATE`) during the check, so an application being created concurre
 and counted. `PATCH` only takes `FOR NO KEY UPDATE`: it still serializes with other PATCHes and with
 DELETE, but it never blocks an application insert.
 
+## Recruitment: candidates
+
+`/api/candidates` follows the same rules as job postings: tenant-scoped, open to any authenticated
+role, `GET` lists (filter `id`; `_limit`/`_offset`; any other parameter is `400 validation_failed`),
+`GET /{id}` returns one candidate (another company's id is `404`) and `POST` creates one and returns a
+one-element array. Body fields: `full_name` (required, trimmed, at most 200 characters), `email`,
+`phone`, `nationality` (absent or `null` stores the default `Panameña`; a blank string is kept as
+`""`), `id_number` and `resume_notes`. Unknown fields, including `id`, `company_id` and `created_at`,
+and bodies over 1 MiB are `400 bad_request`; an invalid `full_name` is `400 validation_failed` with
+`fields`. A blank optional string is stored as `""`, not `NULL`.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens

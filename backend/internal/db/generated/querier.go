@@ -53,6 +53,7 @@ type Querier interface {
 	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
+	CreateCandidate(ctx context.Context, arg CreateCandidateParams) (Candidate, error)
 	// Public register (design D14): one company plus its first admin, created in a
 	// single transaction by the handler. Neither query returns password_hash, so
 	// the generated row types cannot carry it (XC-2).
@@ -237,6 +238,7 @@ type Querier interface {
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
+	GetCandidate(ctx context.Context, arg GetCandidateParams) (Candidate, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
@@ -304,6 +306,7 @@ type Querier interface {
 	GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
+	ListCandidates(ctx context.Context, arg ListCandidatesParams) ([]Candidate, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
 	ListDocumentTemplates(ctx context.Context, arg ListDocumentTemplatesParams) ([]DocumentTemplate, error)
