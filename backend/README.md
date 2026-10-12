@@ -162,7 +162,7 @@ is `404` on the by-id route and `[]` as a list filter. There are no write routes
 ## Recruitment: job postings
 
 `/api/job_postings` is tenant-scoped and open to any authenticated role. `GET` lists (filters `id`,
-`status`; `_limit`/`_offset`; any other parameter, including `_order`, is `400 validation_failed`),
+`status`; `_limit`/`_offset`; any other parameter, including `_order`, an empty or unknown `status` is `400 validation_failed`),
 `GET /{id}` returns one posting (another company's id is `404`), and `POST` creates one and returns a
 one-element array. Body fields: `title` (required, trimmed, at most 200 characters), `department`,
 `location`, `description`, `requirements`, `salary_min`, `salary_max` (null or a number from 0 to
@@ -204,7 +204,7 @@ but never blocked by a patch.
 
 `/api/applications` is tenant-scoped and open to any authenticated role. `GET` lists (filters `id`,
 `job_posting_id`, `candidate_id`, `stage`; `_limit`/`_offset`; any other parameter, a malformed uuid or
-an unknown stage is `400 validation_failed`), `GET /{id}` returns one application (another company's id
+an empty or unknown stage is `400 validation_failed` with `fields.stage`), `GET /{id}` returns one application (another company's id
 is `404`) and `POST` creates one and returns a one-element array. Body fields: `job_posting_id` and
 `candidate_id` (required uuids), `stage` (`applied` default, `screening`, `interview`, `offer`, `hired`,
 `rejected`), `notes` and `applied_at` (`YYYY-MM-DD`, today by default). `job_title` and `candidate_name`
