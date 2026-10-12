@@ -59,6 +59,12 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("PATCH /api/candidates/{id}", a.UpdateCandidate)
 	protected.HandleFunc("DELETE /api/candidates/{id}", a.DeleteCandidate) // 409 while applications exist
 
+	// applications: any authenticated role. The posting and the candidate must
+	// belong to the caller's company (404 otherwise).
+	protected.HandleFunc("GET /api/applications", a.ListApplications)
+	protected.HandleFunc("POST /api/applications", a.CreateApplication)
+	protected.HandleFunc("GET /api/applications/{id}", a.GetApplication)
+
 	// companies: read-only, the caller's own company (no write routes; the
 	// mux answers PATCH/POST/DELETE with 404 or 405).
 	protected.HandleFunc("GET /api/companies", a.ListCompanies)

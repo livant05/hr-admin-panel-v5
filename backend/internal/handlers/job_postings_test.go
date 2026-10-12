@@ -1007,14 +1007,28 @@ func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 // pid (for waitUntilBlockedBy) and an idempotent release; cleanup releases too.
 func parkPatchesInTrigger(t *testing.T, pool *pgxpool.Pool, table, column, marker string) (holderPID int, release func()) {
 	t.Helper()
+	return parkInTrigger(t, pool, "UPDATE", table, column, marker)
+}
+
+// parkInsertsInTrigger is parkPatchesInTrigger for INSERT: a row whose column is
+// marker stays in flight inside the BEFORE INSERT trigger, after the statement
+// has taken every lock its SELECT part acquired and before the foreign key
+// checks run.
+func parkInsertsInTrigger(t *testing.T, pool *pgxpool.Pool, table, column, marker string) (holderPID int, release func()) {
+	t.Helper()
+	return parkInTrigger(t, pool, "INSERT", table, column, marker)
+}
+
+func parkInTrigger(t *testing.T, pool *pgxpool.Pool, event, table, column, marker string) (holderPID int, release func()) {
+	t.Helper()
 	ctx := context.Background()
 	key := rand.Int63() // advisory locks are database-wide, so the key is random
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		CREATE FUNCTION hold_%[1]s_patch() RETURNS trigger LANGUAGE plpgsql AS $$
+		CREATE FUNCTION hold_%[1]s_%[5]s() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN PERFORM pg_advisory_xact_lock(%[4]d); RETURN NEW; END $$;
-		CREATE TRIGGER trg_hold_%[1]s_patch BEFORE UPDATE ON %[1]s
-		FOR EACH ROW WHEN (NEW.%[2]s = '%[3]s') EXECUTE FUNCTION hold_%[1]s_patch();`,
-		table, column, marker, key)); err != nil {
+		CREATE TRIGGER trg_hold_%[1]s_%[5]s BEFORE %[5]s ON %[1]s
+		FOR EACH ROW WHEN (NEW.%[2]s = '%[3]s') EXECUTE FUNCTION hold_%[1]s_%[5]s();`,
+		table, column, marker, key, event)); err != nil {
 		t.Fatalf("install hold trigger on %s: %v", table, err)
 	}
 

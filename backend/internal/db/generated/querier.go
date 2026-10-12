@@ -54,6 +54,14 @@ type Querier interface {
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
+	// The tenant check of both foreign keys IS the insert: the row is built from the
+	// posting and the candidate of the caller's company, so another company's id (or
+	// a nonexistent one) yields zero rows (pgx.ErrNoRows -> 404) and nothing is
+	// written. job_title and candidate_name are derived here, never taken from input.
+	// FOR KEY SHARE OF jp, c takes the locks the foreign key check would take later,
+	// up front: a guarded delete of either row (FOR UPDATE) then waits for this insert
+	// and counts it, or finishes first and leaves zero rows here instead of a 23503.
+	CreateApplication(ctx context.Context, arg CreateApplicationParams) (Application, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
 	CreateCandidate(ctx context.Context, arg CreateCandidateParams) (Candidate, error)
 	// Public register (design D14): one company plus its first admin, created in a
@@ -239,6 +247,7 @@ type Querier interface {
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
+	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCandidate(ctx context.Context, arg GetCandidateParams) (Candidate, error)
@@ -315,6 +324,7 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error)
 	GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error)
+	ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListCandidates(ctx context.Context, arg ListCandidatesParams) ([]Candidate, error)

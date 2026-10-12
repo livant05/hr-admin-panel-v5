@@ -200,6 +200,24 @@ candidate, the same rule and the same locks as job postings: `DELETE` takes `FOR
 counts, `PATCH` takes `FOR NO KEY UPDATE`, so a concurrent application insert is waited for by a delete
 but never blocked by a patch.
 
+## Recruitment: applications
+
+`/api/applications` is tenant-scoped and open to any authenticated role. `GET` lists (filters `id`,
+`job_posting_id`, `candidate_id`, `stage`; `_limit`/`_offset`; any other parameter, a malformed uuid or
+an unknown stage is `400 validation_failed`), `GET /{id}` returns one application (another company's id
+is `404`) and `POST` creates one and returns a one-element array. Body fields: `job_posting_id` and
+`candidate_id` (required uuids), `stage` (`applied` default, `screening`, `interview`, `offer`, `hired`,
+`rejected`), `notes` and `applied_at` (`YYYY-MM-DD`, today by default). `job_title` and `candidate_name`
+are accepted because the frontend sends them but are ignored: the server copies them from the posting's
+title and the candidate's name when the application is created. Unknown fields, including `id`,
+`company_id` and `created_at`, and bodies over 1 MiB are `400 bad_request`.
+
+The posting and the candidate must belong to the caller's company. The check is the insert itself
+(`INSERT ... SELECT` from both rows, scoped by company): a foreign or nonexistent id gives the same
+`404 not_found`, and nothing is written. The insert takes `FOR KEY SHARE` on both rows up front, so a
+guarded delete of either (`FOR UPDATE`) waits for it and then answers `409`, and an insert that loses to
+a delete answers `404` instead of a foreign key error.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens
