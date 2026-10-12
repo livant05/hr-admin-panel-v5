@@ -121,8 +121,10 @@ func (a *API) ListApplications(w http.ResponseWriter, r *http.Request) {
 		}
 		uuids[i] = id
 	}
-	if s := p.Filters["stage"]; s != "" && !applicationStageValid(s) {
-		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid stage")
+	// A present-but-empty ?stage= is rejected like any other bad value; only
+	// an absent parameter means "no stage filter".
+	if s, present := p.Filters["stage"]; present && !applicationStageValid(s) {
+		writeFieldErr(w, map[string]string{"stage": "must be one of applied, screening, interview, offer, hired, rejected"})
 		return
 	}
 

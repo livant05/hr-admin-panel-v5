@@ -137,6 +137,12 @@ func (a *API) ListJobPostings(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid id")
 		return
 	}
+	// Same rule as the applications stage filter: a present status must be a
+	// known value, so an empty ?status= is rejected instead of listing all.
+	if s, present := p.Filters["status"]; present && !jobStatusValid(s) {
+		writeFieldErr(w, map[string]string{"status": "must be one of open, paused, closed"})
+		return
+	}
 
 	rows, err := a.Queries.ListJobPostings(r.Context(), db.ListJobPostingsParams{
 		CompanyID: companyID, // $1 — from ctx, never from a query param
