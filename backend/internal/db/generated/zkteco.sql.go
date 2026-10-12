@@ -11,6 +11,86 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const claimZktecoDevice = `-- name: ClaimZktecoDevice :one
+UPDATE zkteco_devices SET company_id = $1
+WHERE id = $2 AND company_id IS NULL
+RETURNING id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at
+`
+
+type ClaimZktecoDeviceParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// Atomic claim: the ownership check and the write are ONE statement. Two
+// concurrent claims serialize on the row lock; the loser re-evaluates
+// company_id IS NULL against the winner's committed row and gets no row back
+// (pgx.ErrNoRows -> 404, the same answer as a missing or foreign device).
+func (q *Queries) ClaimZktecoDevice(ctx context.Context, arg ClaimZktecoDeviceParams) (ZktecoDevice, error) {
+	row := q.db.QueryRow(ctx, claimZktecoDevice, arg.CompanyID, arg.ID)
+	var i ZktecoDevice
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.SerialNumber,
+		&i.Name,
+		&i.Location,
+		&i.Status,
+		&i.LastSeen,
+		&i.FirmwareVersion,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listUnclaimedZktecoDevices = `-- name: ListUnclaimedZktecoDevices :many
+SELECT id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at
+FROM zkteco_devices
+WHERE company_id IS NULL
+ORDER BY last_seen DESC NULLS LAST, id DESC
+LIMIT $2 OFFSET $1
+`
+
+type ListUnclaimedZktecoDevicesParams struct {
+	Offset int32 `json:"offset"`
+	Limit  int32 `json:"limit"`
+}
+
+// The unclaimed pool: devices that heartbeated but belong to no company. The
+// caller must be gated by requireAdmin; the rows carry the serial number an
+// admin needs to recognize the physical device before claiming it.
+func (q *Queries) ListUnclaimedZktecoDevices(ctx context.Context, arg ListUnclaimedZktecoDevicesParams) ([]ZktecoDevice, error) {
+	rows, err := q.db.Query(ctx, listUnclaimedZktecoDevices, arg.Offset, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ZktecoDevice
+	for rows.Next() {
+		var i ZktecoDevice
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.SerialNumber,
+			&i.Name,
+			&i.Location,
+			&i.Status,
+			&i.LastSeen,
+			&i.FirmwareVersion,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listZktecoDevices = `-- name: ListZktecoDevices :many
 SELECT id, company_id, serial_number, name, location, status, last_seen,
   firmware_version, created_at

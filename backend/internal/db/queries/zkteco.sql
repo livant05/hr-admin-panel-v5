@@ -27,3 +27,24 @@ FROM zkteco_unknown_pins
 WHERE (sqlc.narg('resolved')::boolean IS NULL OR resolved = sqlc.narg('resolved'))
 ORDER BY last_seen DESC NULLS LAST, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: ListUnclaimedZktecoDevices :many
+-- The unclaimed pool: devices that heartbeated but belong to no company. The
+-- caller must be gated by requireAdmin; the rows carry the serial number an
+-- admin needs to recognize the physical device before claiming it.
+SELECT id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at
+FROM zkteco_devices
+WHERE company_id IS NULL
+ORDER BY last_seen DESC NULLS LAST, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: ClaimZktecoDevice :one
+-- Atomic claim: the ownership check and the write are ONE statement. Two
+-- concurrent claims serialize on the row lock; the loser re-evaluates
+-- company_id IS NULL against the winner's committed row and gets no row back
+-- (pgx.ErrNoRows -> 404, the same answer as a missing or foreign device).
+UPDATE zkteco_devices SET company_id = $1
+WHERE id = $2 AND company_id IS NULL
+RETURNING id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at;

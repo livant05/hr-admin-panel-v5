@@ -33,6 +33,11 @@ type Querier interface {
 	// guard makes a second DELETE on an already-cancelled row report 404
 	// (0 rows affected), consistent with that precedent.
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
+	// Atomic claim: the ownership check and the write are ONE statement. Two
+	// concurrent claims serialize on the row lock; the loser re-evaluates
+	// company_id IS NULL against the winner's committed row and gets no row back
+	// (pgx.ErrNoRows -> 404, the same answer as a missing or foreign device).
+	ClaimZktecoDevice(ctx context.Context, arg ClaimZktecoDeviceParams) (ZktecoDevice, error)
 	// Counts by candidate only: any referencing row, whoever owns it, blocks the delete.
 	CountApplicationsForCandidate(ctx context.Context, candidateID pgtype.UUID) (int64, error)
 	// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
@@ -377,6 +382,10 @@ type Querier interface {
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
+	// The unclaimed pool: devices that heartbeated but belong to no company. The
+	// caller must be gated by requireAdmin; the rows carry the serial number an
+	// admin needs to recognize the physical device before claiming it.
+	ListUnclaimedZktecoDevices(ctx context.Context, arg ListUnclaimedZktecoDevicesParams) ([]ZktecoDevice, error)
 	ListUniforms(ctx context.Context, arg ListUniformsParams) ([]Uniform, error)
 	// The users API selects explicit columns and never password_hash, so the
 	// generated row types cannot carry the hash (XC-2 holds structurally).

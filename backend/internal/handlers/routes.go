@@ -76,6 +76,10 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	// invisible). Any authenticated role; PATCH takes name and location ONLY.
 	protected.HandleFunc("GET /api/zkteco_devices", a.ListZktecoDevices)
 	protected.HandleFunc("PATCH /api/zkteco_devices/{id}", a.UpdateZktecoDevice)
+	// Admin only. The literal "/unclaimed" ranks above "/{id}" under Go 1.22
+	// ServeMux, like "/accrue" and "/bases" above.
+	protected.HandleFunc("GET /api/zkteco_devices/unclaimed", a.ListUnclaimedZktecoDevices)
+	protected.HandleFunc("POST /api/zkteco_devices/{id}/claim", a.ClaimZktecoDevice) // atomic: only while company_id IS NULL
 
 	// zkteco_unknown_pins: admin only (requireAdmin); the table has no company_id.
 	protected.HandleFunc("GET /api/zkteco_unknown_pins", a.ListZktecoUnknownPins)

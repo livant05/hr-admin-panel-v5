@@ -241,6 +241,15 @@ and must be 1 to 200 characters (`400 validation_failed` with `fields`). Any oth
 company, an unclaimed device and a missing id are all `404`. There is no `GET /{id}`; read one device
 with the `id` filter.
 
+`GET /api/zkteco_devices/unclaimed` (admin only, `403` otherwise) lists the pool of devices that
+heartbeated without a company, so an admin can recognize the serial number before claiming. It takes
+`_limit`/`_offset` only. `POST /api/zkteco_devices/{id}/claim` (admin only) assigns an unclaimed device
+to the caller's company and returns a one-element array. The company always comes from the token: the
+body is optional and must be an empty object, so a `company_id` (or any key) is `400 bad_request`. The
+claim is one `UPDATE ... WHERE id = $2 AND company_id IS NULL`, so two concurrent claims serialize on
+the row and exactly one gets `200`. A device that does not exist, belongs to another company or is
+already yours all answer `404` and the response never says who owns it.
+
 `GET /api/zkteco_unknown_pins` is admin only (`403` otherwise, checked before any query validation).
 The table has no `company_id`, because an unresolved PIN has no employee and therefore no company, so
 every admin sees the same global list. Filter `resolved` (`true` or `false`; an empty or other value is
