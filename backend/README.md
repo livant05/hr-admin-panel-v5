@@ -169,6 +169,8 @@ one-element array. Body fields: `title` (required, trimmed, at most 200 characte
 99999999.99, max not below min) and `status` (`open` default, `paused`, `closed`). Unknown fields,
 including `id`, `company_id` and `created_at`, are `400 bad_request`; invalid values are
 `400 validation_failed` with `fields`.
+A blank optional string is stored as `""` (not `NULL`; only an omitted or `null` field is `NULL`), and a
+request body over 1 MiB is `400 bad_request`.
 
 `PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, an explicit
 `null` clears an optional field (`title` and `status` cannot be null), and the result is validated as the

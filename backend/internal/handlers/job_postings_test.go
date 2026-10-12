@@ -238,6 +238,28 @@ func TestJobPostings_CreateReturnsArrayWithDefaults(t *testing.T) {
 		if row.SalaryMin != nil || row.SalaryMax != nil {
 			t.Fatalf("null salaries stored as %v/%v", row.SalaryMin, row.SalaryMax)
 		}
+		// Pinned (CO-S2a-1): a blank optional string is stored as "", not NULL,
+		// and reads back as "". The design does not ask for NULL normalization.
+		for name, got := range map[string]*string{
+			"department": row.Department, "location": row.Location,
+			"description": row.Description, "requirements": row.Requirements,
+		} {
+			if got == nil || *got != "" {
+				t.Fatalf("%s = %v, want the stored blank string %q", name, got, "")
+			}
+		}
+		stored, _ := getJobPosting(t, h, tok, row.ID)
+		if stored.Department == nil || *stored.Department != "" || stored.Requirements == nil || *stored.Requirements != "" {
+			t.Fatalf("blank strings did not survive a GET: %v/%v", stored.Department, stored.Requirements)
+		}
+	})
+
+	t.Run("an omitted optional string is NULL, distinct from a blank one", func(t *testing.T) {
+		row := createJobPosting(t, h, tok, map[string]any{"title": "Omitted"})
+		if row.Department != nil || row.Location != nil || row.Description != nil || row.Requirements != nil {
+			t.Fatalf("omitted optional strings = %v/%v/%v/%v, want all null",
+				row.Department, row.Location, row.Description, row.Requirements)
+		}
 	})
 
 	t.Run("every allowed status is accepted", func(t *testing.T) {
@@ -793,4 +815,68 @@ func TestJobPostings_DeleteWaitsForAnInFlightApplication(t *testing.T) {
 	if _, code := getJobPosting(t, h, tok, job.ID); code != http.StatusOK {
 		t.Fatalf("posting was deleted under an in-flight application: %d", code)
 	}
+}
+
+// TestJobPostings_BodyIsCappedAtOneMiB pins the 1 MiB cap of
+// decodeRecruitmentBody and decodeRecruitmentPatch (CO-S2a-2): a body over the
+// cap is a 400 bad_request and writes nothing, while one just under it passes.
+func TestJobPostings_BodyIsCappedAtOneMiB(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "JobBodyCapCo")
+	tok := c.Token(t, signer)
+
+	const oneMiB = 1 << 20
+	bodyOfSize := func(n int) string {
+		const prefix, suffix = `{"title":"big","description":"`, `"}`
+		return prefix + strings.Repeat("a", n-len(prefix)-len(suffix)) + suffix
+	}
+
+	t.Run("create over the cap is 400 and creates nothing", func(t *testing.T) {
+		before := countJobPostings(t, pool, c.CompanyID)
+		rec := doRawBody(t, h, http.MethodPost, jobPostingsPath, tok, bodyOfSize(oneMiB+1))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("got %d (%s), want 400", rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "bad_request" {
+			t.Fatalf("error.code = %q, want bad_request", code)
+		}
+		if after := countJobPostings(t, pool, c.CompanyID); after != before {
+			t.Fatalf("an oversized create left %d new row(s)", after-before)
+		}
+	})
+
+	t.Run("create at exactly the cap is accepted", func(t *testing.T) {
+		rec := doRawBody(t, h, http.MethodPost, jobPostingsPath, tok, bodyOfSize(oneMiB))
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("got %d, want 201 for a body of exactly 1 MiB", rec.Code)
+		}
+		row := testutil.DecodeRows[jobPostingRow](t, rec)[0]
+		if row.Description == nil || len(*row.Description) < oneMiB-100 {
+			t.Fatalf("stored description is %d bytes, want the whole padded value", len(deref0(row.Description)))
+		}
+	})
+
+	t.Run("patch over the cap is 400 and leaves the row unchanged", func(t *testing.T) {
+		job := createJobPosting(t, h, tok, map[string]any{"title": "Patch cap"})
+		path := jobPostingsPath + "/" + job.ID
+		before := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String()
+		rec := doRawBody(t, h, http.MethodPatch, path, tok, bodyOfSize(oneMiB+1))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("got %d (%s), want 400", rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "bad_request" {
+			t.Fatalf("error.code = %q, want bad_request", code)
+		}
+		if after := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String(); after != before {
+			t.Fatalf("an oversized PATCH changed the row:\nbefore %s\nafter  %s", before, after)
+		}
+	})
+}
+
+func deref0(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
