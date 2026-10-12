@@ -250,7 +250,8 @@ Local dev seed only; there is no code bridge. Supabase-only screens fail as expe
    ```
 
 4. If `localStorage.hr_go_tables` was ever set, it replaces the built-in table list: remove it
-   (`localStorage.removeItem('hr_go_tables')`) or make sure it includes `users`.
+   (`localStorage.removeItem('hr_go_tables')`) or make sure it includes `users`, `job_postings`,
+   `candidates` and `applications`.
 5. The token lasts 24 hours. To leave: `localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta'); location.reload();`.
 
 ### Manual checklist: Users screen (Configuracion > Usuarios)
@@ -276,6 +277,37 @@ test for the frontend slice.
 - [ ] Demo mode (`localStorage.setItem('hr_demo','1')`, no `hr_sess`, reload and enter demo): the
       Users tab behaves exactly as before, local-only add, edit and delete, and never shows the
       temporary password modal.
+
+### Manual checklist: Recruitment screen (Reclutamiento)
+
+Run after step 3 above as the seeded admin, with the browser Network tab open. Written before the
+code it tests (no JS harness: this checklist is the test for the frontend slice). Function names and
+element ids are in `hr_admin_panel.html`.
+
+- [ ] Real mode, list: the three tabs (Vacantes, Candidatos, Pipeline) load from
+      `GET /api/job_postings`, `/api/candidates` and `/api/applications`; no row comes from the demo
+      data and no id starts with `jp-`, `ca-` or `ap-`.
+- [ ] Real mode, create: Nueva Vacante, Nuevo Candidato and Nueva Postulación each send one POST
+      with the form fields only (no `company_id`, no `job_title`/`candidate_name`), close the modal
+      and show the new row after the list reloads, with the server-generated uuid as its id.
+- [ ] Real mode, edit: the pencil opens the modal populated from the server row; saving sends one
+      PATCH and the list reloads with the change. Re-pointing a postulación to another vacante or
+      candidate of the same company works.
+- [ ] Real mode, save buttons: a double click on Guardar (`#rj-save`, `#rc-save`, `#ra-save`) sends
+      exactly one request; the button is disabled during the request and enabled afterwards.
+- [ ] Real mode, delete: the trash button asks for confirmation, sends `DELETE` and the row
+      disappears after the reload. Deleting a vacante or a candidate that still has postulaciones is
+      refused with a red Spanish toast ("N postulación(es) siguen asociadas ...") and the row stays.
+- [ ] Real mode, hire: Contratar (only on rows in stage Oferta) sends `PATCH {"stage":"hired"}` and
+      nothing else; the row shows Contratado after the reload and no employee is created.
+- [ ] Real mode, errors: a salary maximum lower than the minimum shows "Datos inválidos: revisa
+      salario máximo" and keeps the modal open; a postulación whose vacante was deleted in another tab
+      shows a Spanish not-found toast; a server or network failure shows a red toast and never
+      fakes a local change.
+- [ ] Texts such as `<b>x</b>` or quotes in titles, names, notes and emails render as text, never as
+      markup (including inside the candidate and vacante select options).
+- [ ] Demo mode (`hr_demo`, no `hr_sess`): the three tabs behave exactly as before, local-only
+      create, edit, delete and hire, with zero network calls.
 
 ## Migrations
 
