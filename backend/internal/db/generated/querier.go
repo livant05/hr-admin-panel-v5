@@ -33,6 +33,8 @@ type Querier interface {
 	// guard makes a second DELETE on an already-cancelled row report 404
 	// (0 rows affected), consistent with that precedent.
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
+	// Counts by candidate only: any referencing row, whoever owns it, blocks the delete.
+	CountApplicationsForCandidate(ctx context.Context, candidateID pgtype.UUID) (int64, error)
 	// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
 	CountApplicationsForJobPosting(ctx context.Context, jobPostingID pgtype.UUID) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
@@ -198,6 +200,7 @@ type Querier interface {
 	// (rg 'REFERENCES attendance_logs' migrations/ -> zero matches).
 	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
+	DeleteCandidate(ctx context.Context, arg DeleteCandidateParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
 	DeleteDocumentTemplate(ctx context.Context, arg DeleteDocumentTemplateParams) (int64, error)
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
@@ -239,6 +242,14 @@ type Querier interface {
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
 	GetCandidate(ctx context.Context, arg GetCandidateParams) (Candidate, error)
+	// PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+	// PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+	// does not block application inserts: the PATCH never changes the key.
+	GetCandidateForMerge(ctx context.Context, arg GetCandidateForMergeParams) (Candidate, error)
+	// DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+	// insert takes on this row (FK check), so a delete waits for an in-flight insert
+	// and then counts it instead of cascading it away.
+	GetCandidateForUpdate(ctx context.Context, arg GetCandidateForUpdateParams) (Candidate, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
@@ -366,6 +377,7 @@ type Querier interface {
 	// the operationally-editable fields rather than a full-column replace.
 	UpdateAttendanceLog(ctx context.Context, arg UpdateAttendanceLogParams) (UpdateAttendanceLogRow, error)
 	UpdateBranch(ctx context.Context, arg UpdateBranchParams) (Branch, error)
+	UpdateCandidate(ctx context.Context, arg UpdateCandidateParams) (Candidate, error)
 	// PATCH is a full-column replace of every editable field -- deductions has
 	// no state-machine PATCH restriction like leave_requests' Q4 (the design's
 	// Interfaces/Contracts section states PATCH -> 200 [Deduction] with no

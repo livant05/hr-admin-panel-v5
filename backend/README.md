@@ -192,6 +192,14 @@ one-element array. Body fields: `full_name` (required, trimmed, at most 200 char
 and bodies over 1 MiB are `400 bad_request`; an invalid `full_name` is `400 validation_failed` with
 `fields`. A blank optional string is stored as `""`, not `NULL`.
 
+`PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, an explicit
+`null` clears an optional field (`full_name` cannot be null; a `null` nationality is stored as `NULL`,
+the default only applies on create) and the result is validated as the whole candidate. `DELETE /{id}`
+returns `204`, or `409 conflict` (message carries the count) while any application still references the
+candidate, the same rule and the same locks as job postings: `DELETE` takes `FOR UPDATE` on the row and
+counts, `PATCH` takes `FOR NO KEY UPDATE`, so a concurrent application insert is waited for by a delete
+but never blocked by a patch.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens
