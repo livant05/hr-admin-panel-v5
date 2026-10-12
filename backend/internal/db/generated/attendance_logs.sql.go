@@ -89,19 +89,21 @@ WHERE company_id = $1
   AND ($6::date IS NULL OR date = $6)
   AND ($7::date IS NULL OR date >= $7)
   AND ($8::date IS NULL OR date <= $8)
+  AND ($9::timestamptz IS NULL OR created_at > $9)
 ORDER BY date DESC
 LIMIT $3 OFFSET $4
 `
 
 type ListAttendanceLogsParams struct {
-	CompanyID  pgtype.UUID `json:"company_id"`
-	Column2    pgtype.UUID `json:"column_2"`
-	Limit      int32       `json:"limit"`
-	Offset     int32       `json:"offset"`
-	EmployeeID pgtype.UUID `json:"employee_id"`
-	Date       pgtype.Date `json:"date"`
-	DateFrom   pgtype.Date `json:"date_from"`
-	DateTo     pgtype.Date `json:"date_to"`
+	CompanyID    pgtype.UUID        `json:"company_id"`
+	Column2      pgtype.UUID        `json:"column_2"`
+	Limit        int32              `json:"limit"`
+	Offset       int32              `json:"offset"`
+	EmployeeID   pgtype.UUID        `json:"employee_id"`
+	Date         pgtype.Date        `json:"date"`
+	DateFrom     pgtype.Date        `json:"date_from"`
+	DateTo       pgtype.Date        `json:"date_to"`
+	CreatedAfter pgtype.Timestamptz `json:"created_after"`
 }
 
 type ListAttendanceLogsRow struct {
@@ -129,6 +131,7 @@ func (q *Queries) ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogs
 		arg.Date,
 		arg.DateFrom,
 		arg.DateTo,
+		arg.CreatedAfter,
 	)
 	if err != nil {
 		return nil, err
@@ -137,6 +140,94 @@ func (q *Queries) ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogs
 	var items []ListAttendanceLogsRow
 	for rows.Next() {
 		var i ListAttendanceLogsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.EmployeeID,
+			&i.EmployeeName,
+			&i.Department,
+			&i.Date,
+			&i.TimeIn,
+			&i.TimeOut,
+			&i.Status,
+			&i.WorkType,
+			&i.Notes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAttendanceLogsByCreated = `-- name: ListAttendanceLogsByCreated :many
+SELECT id, company_id, employee_id, employee_name, department, date, time_in,
+  time_out, status, work_type, notes, created_at
+FROM attendance_logs
+WHERE company_id = $1
+  AND ($2::uuid IS NULL OR id = $2)
+  AND ($3::uuid IS NULL OR employee_id = $3)
+  AND ($4::date IS NULL OR date = $4)
+  AND ($5::date IS NULL OR date >= $5)
+  AND ($6::date IS NULL OR date <= $6)
+  AND ($7::timestamptz IS NULL OR created_at > $7)
+ORDER BY created_at DESC, id DESC
+LIMIT $9 OFFSET $8
+`
+
+type ListAttendanceLogsByCreatedParams struct {
+	CompanyID    pgtype.UUID        `json:"company_id"`
+	ID           pgtype.UUID        `json:"id"`
+	EmployeeID   pgtype.UUID        `json:"employee_id"`
+	Date         pgtype.Date        `json:"date"`
+	DateFrom     pgtype.Date        `json:"date_from"`
+	DateTo       pgtype.Date        `json:"date_to"`
+	CreatedAfter pgtype.Timestamptz `json:"created_after"`
+	Offset       int32              `json:"offset"`
+	Limit        int32              `json:"limit"`
+}
+
+type ListAttendanceLogsByCreatedRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	CompanyID    pgtype.UUID        `json:"company_id"`
+	EmployeeID   pgtype.UUID        `json:"employee_id"`
+	EmployeeName pgtype.Text        `json:"employee_name"`
+	Department   pgtype.Text        `json:"department"`
+	Date         pgtype.Date        `json:"date"`
+	TimeIn       pgtype.Time        `json:"time_in"`
+	TimeOut      pgtype.Time        `json:"time_out"`
+	Status       pgtype.Text        `json:"status"`
+	WorkType     pgtype.Int4        `json:"work_type"`
+	Notes        pgtype.Text        `json:"notes"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+// The live feed's list (TT-1, design D9): same filters as ListAttendanceLogs,
+// newest insert first. created_after is strict (created_at > cutoff), and id
+// breaks ties so a page boundary can never repeat or skip a row.
+func (q *Queries) ListAttendanceLogsByCreated(ctx context.Context, arg ListAttendanceLogsByCreatedParams) ([]ListAttendanceLogsByCreatedRow, error) {
+	rows, err := q.db.Query(ctx, listAttendanceLogsByCreated,
+		arg.CompanyID,
+		arg.ID,
+		arg.EmployeeID,
+		arg.Date,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.CreatedAfter,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAttendanceLogsByCreatedRow
+	for rows.Next() {
+		var i ListAttendanceLogsByCreatedRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.CompanyID,

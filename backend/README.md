@@ -246,6 +246,16 @@ The table has no `company_id`, because an unresolved PIN has no employee and the
 every admin sees the same global list. Filter `resolved` (`true` or `false`; an empty or other value is
 `400 validation_failed`), `_limit`/`_offset`, newest `last_seen` first. It is read-only.
 
+## Attendance: created_after and ordering
+
+`GET /api/attendance_logs` also takes `created_after=<RFC 3339 timestamp>` and returns only rows whose
+`created_at` is strictly greater (tenant-scoped, combinable with the other filters and `_limit`/`_offset`).
+A malformed or empty value is `400 validation_failed` with `fields.created_after`. Encode a `+hh:mm`
+offset as `%2B` (or use `Z`), otherwise the `+` reaches the server as a space. This is the only endpoint
+that accepts `_order`, and only `_order=created_at.desc` (newest insert first, ties by id); any other value
+is `400 validation_failed`, and every other endpoint still rejects `_order`. Without `_order` the list keeps
+its `date DESC` order. The ZKTeco live feed polls with the newest `created_at` it has seen.
+
 ## Interim dev procedure
 
 Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens

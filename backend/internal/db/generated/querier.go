@@ -331,6 +331,10 @@ type Querier interface {
 	GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error)
 	ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
+	// The live feed's list (TT-1, design D9): same filters as ListAttendanceLogs,
+	// newest insert first. created_after is strict (created_at > cutoff), and id
+	// breaks ties so a page boundary can never repeat or skip a row.
+	ListAttendanceLogsByCreated(ctx context.Context, arg ListAttendanceLogsByCreatedParams) ([]ListAttendanceLogsByCreatedRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListCandidates(ctx context.Context, arg ListCandidatesParams) ([]Candidate, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
