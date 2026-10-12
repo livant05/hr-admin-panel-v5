@@ -217,19 +217,29 @@ func TestRegister_ConcurrentSameEmailCreatesExactlyOneTenant(t *testing.T) {
 	for i := range companies {
 		companies[i] = registerCompany(t, pool)
 	}
-	codes := make([]int, n)
+	// Requests and recorders are built on the test goroutine (the helpers take
+	// t); the goroutines only serve the request. Results are read after Wait.
+	reqs := make([]*http.Request, n)
+	recs := make([]*httptest.ResponseRecorder, n)
+	for i := range reqs {
+		reqs[i] = httptest.NewRequest(http.MethodPost, registerPath, strings.NewReader(
+			`{"company_name":"`+companies[i]+`","first_name":"Ana","email":"`+email+`","password":"correct-horse"}`))
+		reqs[i].Header.Set("Content-Type", "application/json")
+		recs[i] = httptest.NewRecorder()
+	}
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			// httptest recorders and requests are built per goroutine; the
-			// assertions run on the test goroutine after Wait.
-			codes[i] = postRaw(t, h, registerPath,
-				`{"company_name":"`+companies[i]+`","first_name":"Ana","email":"`+email+`","password":"correct-horse"}`).Code
+			h.ServeHTTP(recs[i], reqs[i])
 		}()
 	}
 	wg.Wait()
+	codes := make([]int, n)
+	for i, rec := range recs {
+		codes[i] = rec.Code
+	}
 
 	created, conflicts := 0, 0
 	for _, c := range codes {
