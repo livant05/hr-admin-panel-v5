@@ -5038,7 +5038,9 @@ async function loadRecruitment() {
     apps  = DS.applications.filter(function(a){ return a.company_id===A.companyId; });
   } else {
     // DS.* is only the read cache the modal openers use; the server is the source of truth.
-    var res = await Promise.all([Supa.selAll('job_postings'), Supa.selAll('candidates'), Supa.selAll('applications')]);
+    var res;
+    try { res = await Promise.all([Supa.selAll('job_postings'), Supa.selAll('candidates'), Supa.selAll('applications')]); }
+    catch (e) { res = [{error:{code:'network', message:String(e&&e.message||e)}}]; }
     var bad = res.find(function(x){ return !Array.isArray(x); });
     if (bad) {
       ['rec-jobs-tbody','rec-candidates-tbody','rec-pipeline-tbody'].forEach(function(id){ var e=document.getElementById(id); if(e) e.innerHTML=''; });
@@ -5148,6 +5150,7 @@ async function delJob(id){
 
 function openCandidateModal(id){
   ['rc-id','rc-name','rc-idnum','rc-email','rc-phone','rc-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
+  Array.prototype.slice.call(document.querySelectorAll('#rc-nationality option[data-dyn]')).forEach(function(o){ o.remove(); });
   document.getElementById('rc-nationality').value='Panameña';
   if(id){
     var c=DS.candidates.find(function(x){ return x.id===id; });
@@ -5157,7 +5160,14 @@ function openCandidateModal(id){
     document.getElementById('rc-idnum').value=c.id_number||'';
     document.getElementById('rc-email').value=c.email||'';
     document.getElementById('rc-phone').value=c.phone||'';
-    document.getElementById('rc-nationality').value=c.nationality||'Panameña';
+    // Imported values outside the fixed list must survive an edit, so add the current one as an option.
+    var natSel=document.getElementById('rc-nationality');
+    if(c.nationality && !Array.prototype.some.call(natSel.options,function(o){ return o.value===c.nationality; })){
+      var natOpt=document.createElement('option');
+      natOpt.value=c.nationality; natOpt.textContent=c.nationality; natOpt.setAttribute('data-dyn','1');
+      natSel.appendChild(natOpt);
+    }
+    natSel.value=c.nationality||'Panameña';
     document.getElementById('rc-notes').value=c.resume_notes||'';
   }
   $('#recruitCandidateModal').modal('show');
