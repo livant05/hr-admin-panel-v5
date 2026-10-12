@@ -142,6 +142,54 @@ the auth middleware is the follow-up if this window becomes unacceptable.
 `GET /api/companies/{id}` returns it by id; any authenticated role may read. Another company's id
 is `404` on the by-id route and `[]` as a list filter. There are no write routes.
 
+## Interim dev procedure
+
+Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens
+(`GO_TABLES` in `hr_admin_panel.html`) are exercised by seeding a Go token into the browser by hand.
+Local dev seed only; there is no code bridge. Supabase-only screens fail as expected.
+
+1. Start the stack: `docker compose up -d --build`.
+2. Get a token and the company id:
+   `curl -s -X POST localhost:8100/api/auth/login -H 'Content-Type: application/json' -d '{"email":"livan.05@hotmail.com","password":"Admin123"}'`
+   (use `access_token` and `user.company_id` from the response).
+3. Open `http://localhost:8100`, then in the browser console:
+
+   ```js
+   localStorage.removeItem('hr_demo');
+   localStorage.setItem('hr_sess', JSON.stringify({access_token: '<token>'}));
+   localStorage.setItem('hr_meta', JSON.stringify({role: 'admin', companyId: '<company_id>',
+     companyName: 'Ventatec', email: 'livan.05@hotmail.com', name: 'Dev'}));
+   location.reload();
+   ```
+
+4. If `localStorage.hr_go_tables` was ever set, it replaces the built-in table list: remove it
+   (`localStorage.removeItem('hr_go_tables')`) or make sure it includes `users`.
+5. The token lasts 24 hours. To leave: `localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta'); location.reload();`.
+
+### Manual checklist: Users screen (Configuracion > Usuarios)
+
+Run after step 3 above as the seeded admin. There is no JS test harness, so this checklist is the
+test for the frontend slice.
+
+- [ ] Real mode, list: the tab loads the company's users from `GET /api/users`; names, emails, role
+      and Activo/Inactivo badges match the database; no row comes from the demo data.
+- [ ] Real mode, edit: the pencil opens the modal populated with the name, email and role of that
+      row; changing the name and saving updates the row after the list reloads; saving does not
+      change the user's status.
+- [ ] Real mode, create: Nuevo Usuario sends only first name, last name, email and role. The
+      temporary password appears in its own modal exactly once, the copy button copies it, and after
+      closing that modal (button, X or backdrop) the password field is empty in the DOM and cannot be
+      shown again. The new user can log in with it through `POST /api/auth/login`.
+- [ ] Real mode, delete: the trash button asks for confirmation, then the row stays in the list as
+      Inactivo (soft delete) and that user can no longer log in.
+- [ ] Real mode, errors: creating a duplicate email, or deactivating or demoting the only active
+      admin, shows the server message as a red toast and changes nothing. A non-admin token gets
+      "Solo administradores" instead of a list.
+- [ ] Names or emails containing `<b>x</b>` or quotes render as text, never as markup.
+- [ ] Demo mode (`localStorage.setItem('hr_demo','1')`, no `hr_sess`, reload and enter demo): the
+      Users tab behaves exactly as before, local-only add, edit and delete, and never shows the
+      temporary password modal.
+
 ## Migrations
 
 Plain numbered SQL files in `migrations/`, applied automatically by Postgres's own
