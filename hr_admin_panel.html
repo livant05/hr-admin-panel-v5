@@ -2971,10 +2971,14 @@ async function saveLeaveReq() {
   var s=gv('vn-start'), e=gv('vn-end'); if(!s||!e){toast('Selecciona fechas','warning');return;}
   var emps=await Supa.sel('employees',{id:empId}), emp=Array.isArray(emps)?emps[0]:null;
   var days=parseInt(gv('vn-days'))||0;
-  await Supa.ins('leave_requests',{employee_id:empId,employee_name:emp?emp.first_name+' '+emp.last_name:'—',type:gv('vn-type')||'vacaciones',start_date:s,end_date:e,days:days,status:'pending',notes:gv('vn-notes')});
+  var body={employee_id:empId,employee_name:emp?emp.first_name+' '+emp.last_name:'—',type:gv('vn-type')||'vacaciones',start_date:s,end_date:e,days:days,notes:gv('vn-notes')};
+  // The Go handler rejects unknown fields and creates requests as pending itself; only the local demo store needs the status.
+  if(A.demo) body.status='pending';
+  var r=await Supa.ins('leave_requests',body);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo enviar la solicitud'),'danger'); return; }
   toast('✅ Solicitud enviada'); loadVacations();
 }
-async function approveLeave(id,approve) { await Supa.upd('leave_requests',id,{status:approve?'approved':'rejected'}); toast(approve?'✅ Aprobada':'❌ Rechazada',approve?'success':'danger'); loadVacations(); }
+async function approveLeave(id,approve) { var r=await Supa.upd('leave_requests',id,{status:approve?'approved':'rejected'}); if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo actualizar la solicitud'),'danger'); return; } toast(approve?'✅ Aprobada':'❌ Rechazada',approve?'success':'danger'); loadVacations(); }
 function fullCalcVac() { var s=gv('vc-sdate'), e=gv('vc-edate'), used=parseInt(gv('vc-used'))||0; if(!s||!e) return; var dw=Math.floor((new Date(e)-new Date(s))/86400000), earned=Math.floor(dw/11), rem=Math.max(0,earned-used); document.getElementById('vc-r1').textContent=dw; document.getElementById('vc-r2').textContent=earned; document.getElementById('vc-r3').textContent=rem; }
 function exportVacCSV() { var rows=DS.leave_balances.filter(function(b){ return b.company_id===A.companyId; }); var csv=[['Empleado','Año','Ganados','Usados','Saldo']].concat(rows.map(function(b){ return [b.employee_name,b.year,b.earned_days,b.used_days,b.remaining_days]; })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'vacaciones.csv'); toast('Exportado 📥'); }
 
