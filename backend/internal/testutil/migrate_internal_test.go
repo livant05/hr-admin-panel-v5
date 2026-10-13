@@ -3,6 +3,10 @@ package testutil
 import (
 	"context"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // TestApplyMigrations_SelfHealsLegacyDuplicateEmails pins the test-DB
@@ -14,9 +18,7 @@ func TestApplyMigrations_SelfHealsLegacyDuplicateEmails(t *testing.T) {
 	pool, _ := IsolatedSchema(t)
 	ctx := context.Background()
 
-	if _, err := pool.Exec(ctx, `DROP INDEX IF EXISTS idx_users_email_lower`); err != nil {
-		t.Fatalf("drop index: %v", err)
-	}
+	DropIndexInIsolatedSchema(t, pool, UsersEmailLowerIndex)
 	var companyID string
 	if err := pool.QueryRow(ctx, `INSERT INTO companies (name) VALUES ('SelfHealCo') RETURNING id`).Scan(&companyID); err != nil {
 		t.Fatalf("insert company: %v", err)
@@ -50,5 +52,84 @@ func TestApplyMigrations_SelfHealsLegacyDuplicateEmails(t *testing.T) {
 	// Idempotent: a second pass is a no-op.
 	if err := applyMigrations(ctx, pool); err != nil {
 		t.Fatalf("second applyMigrations: %v", err)
+	}
+}
+
+// TestApplyMigrations_ConcurrentFreshDatabaseAppliesLegacyFilesOnce pins the
+// sentinel/lock ordering: two callers that both arrive at a FRESH database
+// must not both decide "not initialized" and re-apply the non-idempotent
+// pre-0010 files. The test holds the migration advisory lock itself, starts
+// both callers, waits until both are blocked on the lock, then releases it, so
+// the interleaving is deterministic rather than timing-dependent.
+func TestApplyMigrations_ConcurrentFreshDatabaseAppliesLegacyFilesOnce(t *testing.T) {
+	admin := Pool(t)
+	ctx := context.Background()
+	_, isoURL := newSchemaURL(t)
+
+	appName := "migrate-race-" + uuid.NewString()[:8]
+	const callers = 2
+	pools := make([]*pgxpool.Pool, callers)
+	for i := range pools {
+		cfg, err := pgxpool.ParseConfig(isoURL)
+		if err != nil {
+			t.Fatalf("parse config: %v", err)
+		}
+		cfg.ConnConfig.RuntimeParams["application_name"] = appName
+		pools[i], err = pgxpool.NewWithConfig(ctx, cfg)
+		if err != nil {
+			t.Fatalf("connect caller %d: %v", i, err)
+		}
+		t.Cleanup(pools[i].Close)
+	}
+
+	holder, err := admin.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin holder tx: %v", err)
+	}
+	defer holder.Rollback(ctx)
+	if _, err := holder.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
+		t.Fatalf("hold migration lock: %v", err)
+	}
+
+	errs := make(chan error, callers)
+	for _, p := range pools {
+		go func(p *pgxpool.Pool) { errs <- applyMigrations(ctx, p) }(p)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var waiting int
+		if err := admin.QueryRow(ctx, `
+			SELECT count(*) FROM pg_locks l JOIN pg_stat_activity a USING (pid)
+			WHERE l.locktype = 'advisory' AND NOT l.granted AND a.application_name = $1`,
+			appName).Scan(&waiting); err != nil {
+			t.Fatalf("count lock waiters: %v", err)
+		}
+		if waiting == callers {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("expected %d callers blocked on the migration lock, saw %d", callers, waiting)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if err := holder.Commit(ctx); err != nil {
+		t.Fatalf("release migration lock: %v", err)
+	}
+
+	for i := 0; i < callers; i++ {
+		if err := <-errs; err != nil {
+			t.Errorf("concurrent applyMigrations on a fresh database failed: %v", err)
+
+		}
+	}
+
+	var usersTable, emailIndex bool
+	if err := pools[0].QueryRow(ctx, `SELECT to_regclass(current_schema() || '.users') IS NOT NULL, to_regclass(current_schema() || '.' || $1) IS NOT NULL`, UsersEmailLowerIndex).
+		Scan(&usersTable, &emailIndex); err != nil {
+		t.Fatalf("inspect fresh schema: %v", err)
+	}
+	if !usersTable || !emailIndex {
+		t.Fatalf("fresh schema must end fully migrated, users=%v %s=%v", usersTable, UsersEmailLowerIndex, emailIndex)
 	}
 }
