@@ -72,6 +72,18 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected.HandleFunc("GET /api/companies", a.ListCompanies)
 	protected.HandleFunc("GET /api/companies/{id}", a.GetCompany)
 
+	// zkteco_devices: the caller's devices only (unclaimed NULL-company rows are
+	// invisible). Any authenticated role; PATCH takes name and location ONLY.
+	protected.HandleFunc("GET /api/zkteco_devices", a.ListZktecoDevices)
+	protected.HandleFunc("PATCH /api/zkteco_devices/{id}", a.UpdateZktecoDevice)
+	// Admin only. The literal "/unclaimed" ranks above "/{id}" under Go 1.22
+	// ServeMux, like "/accrue" and "/bases" above.
+	protected.HandleFunc("GET /api/zkteco_devices/unclaimed", a.ListUnclaimedZktecoDevices)
+	protected.HandleFunc("POST /api/zkteco_devices/{id}/claim", a.ClaimZktecoDevice) // atomic: only while company_id IS NULL
+
+	// zkteco_unknown_pins: admin only (requireAdmin); the table has no company_id.
+	protected.HandleFunc("GET /api/zkteco_unknown_pins", a.ListZktecoUnknownPins)
+
 	protected.HandleFunc("GET /api/employees", a.ListEmployees)
 	protected.HandleFunc("POST /api/employees", a.CreateEmployee)
 	protected.HandleFunc("GET /api/employees/{id}", a.GetEmployee)
@@ -181,6 +193,9 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	// login (decision #911) there is no legitimate stream of successful registers
 	// behind a shared NAT, and each success creates a tenant, so success must cost.
 	mux.Handle("POST /api/auth/register", a.rateLimited(limiterAuth, a.AuthLimiter, http.HandlerFunc(a.Register)))
+	// ZKTeco ADMS device endpoints: public (devices carry no JWT), outside /api/
+	// and behind ADMSLimiter. PROVISIONAL wire format, see adms.go.
+	a.admsRoutes(mux)
 	mux.Handle("/api/", signer.Middleware(protected))
 	return mux
 }
