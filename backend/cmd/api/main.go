@@ -66,10 +66,11 @@ func main() {
 	}
 
 	// D12: production must not run while the seed admin (known password) is
-	// active. The runbook deletes it before the import; this is the backstop.
-	if err := checkSeedGuard(connCtx, os.Getenv("APP_ENV"), pool); err != nil {
-		if errors.Is(err, errSeedCredentialActive) {
-			log.Error("seed credential active: delete the seed admin user before starting with APP_ENV=production (docs/cutover-runbook.md)")
+	// in the users table. The runbook deletes it before the import; this is
+	// the backstop.
+	if err := checkSeedGuard(connCtx, log, os.Getenv("APP_ENV"), pool); err != nil {
+		if errors.Is(err, errSeedCredentialPresent) {
+			log.Error(err.Error())
 		} else {
 			log.Error("seed credential check failed", "err", err)
 		}

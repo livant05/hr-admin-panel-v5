@@ -467,9 +467,9 @@ The step-by-step Supabase cutover, rollback and end-to-end checklist live in
 `[USER-OPS]`: it is yours to run, not the build's.
 
 **Startup seed guard.** With `APP_ENV=production` the API checks, before serving, whether any
-active user still has the committed seed password hash (`Admin123`, from `migrations/0003_seed.sql`).
-If so it logs `seed credential active` and exits 1; a failed check also exits 1. Any other `APP_ENV`
-is not checked. Delete the seed admin first (runbook step 6).
+user row, active or inactive, still has the committed seed password hash (`Admin123`, from `migrations/0003_seed.sql`).
+If so it logs `seed credential present` and exits 1; a failed check also exits 1. Any other `APP_ENV`
+is not checked and logs one `seed guard skipped` line naming the value. Delete the seed admin first (runbook step 6).
 
 Environment variables for a production deployment (defaults in `env.example` and `docker-compose.yml`):
 

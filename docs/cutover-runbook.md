@@ -14,8 +14,8 @@ OPS-1 to OPS-10.
    are still open (see [Go-live blockers](#go-live-blockers-ops-1-real-device-entry-criteria)).
    Without a device you may rehearse every other step, but you may not repoint production devices.
 2. **The API refuses to start in production while the seed admin is active.** With
-   `APP_ENV=production`, `cmd/api` exits 1 and logs `seed credential active` if any active user has
-   the committed seed password hash. Step 6 removes it; the guard is the backstop.
+   `APP_ENV=production`, `cmd/api` exits 1 and logs `seed credential present` if any user row, active
+   **or inactive**, has the committed seed password hash. Step 6 removes it; the guard is the backstop.
 3. **Rollback stays possible for at least 14 days.** The Supabase project and the deployed Edge
    Function must stay live until the stabilization window ends (step 13).
 
@@ -33,7 +33,7 @@ OPS-1 to OPS-10.
 | 7 | Import: dry run, then real run | OPS-7 | Report has no invalid rows, CSV is mode 0600 |
 | 8 | Distribute temporary passwords | OPS-7 | Every user has received theirs, CSV deleted |
 | 9 | Claim imported devices | OPS-8 | `zkteco_devices` has no `NULL` company |
-| 10 | Deploy with `APP_ENV=production` | OPS-9 | API stays up, no `seed credential active` |
+| 10 | Deploy with `APP_ENV=production` | OPS-9 | API stays up, no `seed credential present` |
 | 11 | Repoint devices | OPS-8 | A real punch from a claimed device lands in attendance |
 | 12 | Run the E2E checklist | OPS-9 | Every item ticked, including demo mode |
 | 13 | Stabilization window, 14 days minimum | OPS-10 | Day 14 reached with no rollback |
@@ -318,7 +318,7 @@ Supabase export with a temporary password. This is why step 2 matters: if the ad
 the export, you would lock yourself out.
 
 ```sql
--- Preflight: lists the seed credential. Must show it before, and nothing after.
+-- Preflight: lists the seed credential (any status; inactive rows count). Must show it before, and nothing after.
 SELECT id, email, status FROM users
 WHERE password_hash = '$2a$10$d8UdlIbA4nESHywDqYk6h.L2W6qk9YEUiPqNnUm5qgQmKKGAwk9Q.';
 
@@ -339,7 +339,9 @@ SQL
 
 Run the `DELETE` the same way, then run the preflight again. No table references `users(id)`, so
 the delete is safe. **Cutover is not declared done until the preflight returns zero rows**; step 10 enforces
-it at startup.
+it at startup, and it also refuses an inactive row (setting `status='inactive'` is not a substitute
+for the delete). With any `APP_ENV` other than `production` the guard is skipped and the log has one
+`seed guard skipped` line with the value it saw; if you expected production, that line means a typo.
 
 ### 7. Import: dry run, then real run `[USER-OPS]` (OPS-7)
 
@@ -411,7 +413,7 @@ docker compose exec nginx nginx -s reload
 curl -s http://<host>/api/health
 ```
 
-3. Confirm the startup guard: the backend log must **not** contain `seed credential active`. If it
+3. Confirm the startup guard: the backend log must **not** contain `seed credential present`. If it
    does, the container exits 1; go back to step 6.
 
 ### 11. Repoint devices `[USER-OPS]` (OPS-8)
@@ -493,7 +495,7 @@ verified in the browser DevTools Network tab.
 - [ ] **Non-admin:** a non-admin user cannot manage users, edit roles or claim devices (the API answers
       403; the ZKTeco screen shows "Solo administradores").
 - [ ] **Tenant isolation:** two companies cannot see each other's rows.
-- [ ] **Startup guard:** the backend log has no `seed credential active`, and the seed login
+- [ ] **Startup guard:** the backend log has no `seed credential present`, and the seed login
       (`livan.05@hotmail.com` / `Admin123`) is rejected.
 
 ### Demo mode (regression)
