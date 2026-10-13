@@ -116,7 +116,7 @@ transaction then creates the company and its first user (always `admin`, `active
 in any case or company hits the unique `lower(email)` index, rolls the transaction back (no company
 remains) and answers `409 conflict`. On success the answer is `201` with exactly the login payload
 (`access_token`, `token_type`, `expires_in`, `company_name`, `user` with `user_metadata`), so the
-caller is logged in; it never contains `password_hash`. The frontend is not wired to it yet (S7).
+caller is logged in; it never contains `password_hash`. The login view's "Registrar nueva empresa" form calls it and logs the new admin in.
 
 ## Users and roles (admin only)
 
@@ -249,11 +249,66 @@ body is optional and must be an empty object, so a `company_id` (or any key), `n
 claim is one `UPDATE ... WHERE id = $2 AND company_id IS NULL`, so two concurrent claims serialize on
 the row and exactly one gets `200`. A device that does not exist, belongs to another company or is
 already yours all answer `404` and the response never says who owns it.
+A successful claim also deletes, in the same transaction, the ingestion rejection counters and unknown PINs
+that earlier punches left under that serial number, so the new owner never inherits data collected before
+the claim.
 
 `GET /api/zkteco_unknown_pins` is admin only (`403` otherwise, checked before any query validation).
 The table has no `company_id`, because an unresolved PIN has no employee and therefore no company, so
-every admin sees the same global list. Filter `resolved` (`true` or `false`; an empty or other value is
+tenancy comes from the device that punched it: the list joins `zkteco_devices` on `serial_number` and
+returns only pins of devices claimed by the caller's company (pins of other companies' devices and of
+unclaimed devices are never returned). Since migration `0012` a pin is unique per `(serial_number, pin)`,
+so the same PIN on two companies' devices is two rows. Filter `resolved` (`true` or `false`; an empty or other value is
 `400 validation_failed`), `_limit`/`_offset`, newest `last_seen` first. It is read-only.
+
+## ZKTeco ADMS device endpoints (PROVISIONAL, gated by OPS-1)
+
+> **Provisional.** The paths, response bodies, option text, the `/iclock/devicecmd` route and the
+> 600 requests/minute limit mirror the retired Supabase Edge Function and have not been checked against a
+> real device. They are gated by OPS-1 (real-device check): do not repoint production devices to the Go
+> server before it. What is binding is the behavior below, not the wire format.
+
+Devices push to `http://<host>/iclock/...` with no JWT. The routes live on the outer mux, outside `/api/`,
+so they do not change the auth of any `/api/*` route. nginx routes `/iclock/` to the backend
+(`client_max_body_size 2m`).
+
+| Request | Reply |
+|---|---|
+| `GET /iclock/cdata?SN=<serial>&options=all` | `200` option text (`GET OPTION ...`); heartbeat |
+| `GET /iclock/getrequest?SN=<serial>` | `200 OK`; heartbeat (no command is ever pending) |
+| `POST /iclock/cdata?SN=<serial>&table=ATTLOG` | `200 OK: <n>` with `n` = punches recorded |
+| `POST /iclock/cdata?SN=<serial>&table=<anything else>` | `200 OK`, nothing processed |
+| `POST /iclock/devicecmd?SN=<serial>` | `200 OK`, nothing written |
+
+- `SN` (or `sn`) must match `^[A-Za-z0-9_-]{1,64}$`, otherwise `400` and nothing is written. An unknown
+  serial self-registers as an unclaimed device (`company_id` NULL, online); a heartbeat never changes
+  `company_id`. An admin claims the device (`POST /api/zkteco_devices/{id}/claim`).
+- Attendance is written only for **claimed** devices, and the PIN is resolved against the employees of the
+  device's company only. A punch from an unclaimed device is counted `device_unclaimed` and answered
+  `OK: 0`, so the device does not retry it forever.
+- Check-in (codes 0/4) keeps the earliest time and never clears `time_out`; check-out (1/5) keeps the
+  latest time and needs an existing check-in (`no_checkin` otherwise). Check-ins of a batch are applied
+  before its check-outs, so line order does not matter, and re-pushing a batch is idempotent.
+- Rejected punches are counted per `(serial_number, reason)` in `zkteco_ingest_rejections` (operator SQL
+  only, no API yet). Reasons: `device_unclaimed`, `not_found`, `ambiguous`, `no_checkin`, `malformed`,
+  `unsupported_code`. A cedula that exists only in another company is stored exactly like `not_found`
+  (counter and unknown PIN), so nothing tenant-visible reveals that it exists elsewhere; only the
+  `adms_batch` server log line carries a `tenant_mismatch` count, never a PIN or cedula. This deviates
+  from the original spec text, which stored `tenant_mismatch` (decision CO-S5a-1).
+- Unresolved PINs are upserted per `(serial_number, pin)` with `attempts + 1`.
+- Limits (error replies use the JSON error envelope; devices read only the status): body over 2 MiB or
+  more than 10,000 non-empty lines is `413` with no writes at all (not even the heartbeat); the per-client
+  rate limit (`ADMS_RATE_PER_MIN`, default 600, keyed on the client IP behind a trusted proxy) answers `429`
+  with `Retry-After`. Devices behind one customer NAT share one bucket.
+- Every database write of one POST happens in one transaction; a database error rolls the whole request
+  back and answers `500`, so the device retries and idempotency makes the retry safe.
+- Existing volumes do not run new migrations: apply every migration the volume is missing (not only
+  `0011` and `0012`), in order, before using these endpoints. `UpsertUnknownPin` needs the constraint
+  from `0012` and fails the whole batch without it. See "Cutover and production" below.
+- **Go-live blockers (OPS-1):** the ATTLOG field order (the parser reads index 3, which published
+  documentation lists as the verify mode, not the in/out status), device authentication (devices are
+  identified only by serial number) and unclaimed-pool flooding are open until checked on a real device.
+  Details and sources: [`docs/cutover-runbook.md`](../docs/cutover-runbook.md).
 
 ## Attendance: created_after and ordering
 
@@ -274,34 +329,36 @@ that commits late with an older `created_at`, so the client keeps `maxSeenCreate
 already shown by `id` (a bounded seen-set). The first call, which only learns the starting point and
 shows nothing, is `_order=created_at.desc&_limit=1`.
 
-## Interim dev procedure
+## Dev procedure
 
-Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens
-(`GO_TABLES` in `hr_admin_panel.html`) are exercised by seeding a Go token into the browser by hand.
-Local dev seed only; there is no code bridge. Supabase-only screens fail as expected.
+The login screen talks to this backend, so there is nothing to seed by hand.
 
 1. Start the stack: `docker compose up -d --build`.
-2. Get a token and the company id:
-   `curl -s -X POST localhost:8100/api/auth/login -H 'Content-Type: application/json' -d '{"email":"livan.05@hotmail.com","password":"Admin123"}'`
-   (use `access_token` and `user.company_id` from the response).
-3. Open `http://localhost:8100`, then in the browser console:
+2. Open `http://localhost:8100` and log in normally. With the local dev seed that is
+   `livan.05@hotmail.com` / `Admin123` (see "Seeded login"), or use "Registrar nueva empresa".
+3. The token lasts 24 hours; after that, or on any 401, the app returns to the login view. To leave
+   earlier use "Cerrar sesión", or clear `hr_sess` and `hr_meta` from `localStorage`.
+4. After a `git checkout`, `git pull` or any change to `nginx/default.conf`, run
+   `docker compose restart nginx`. The page and the nginx config are single-file bind mounts: git
+   replaces the file with a new inode, the container keeps the old one and silently serves the
+   previous version (`docker compose up` does not recreate an unchanged container). Check with
+   `curl -s localhost:8100/ | cmp - ../hr_admin_panel.html`.
 
-   ```js
-   localStorage.removeItem('hr_demo');
-   localStorage.setItem('hr_sess', JSON.stringify({access_token: '<token>'}));
-   localStorage.setItem('hr_meta', JSON.stringify({role: 'admin', companyId: '<company_id>',
-     companyName: 'Ventatec', email: 'livan.05@hotmail.com', name: 'Dev'}));
-   location.reload();
-   ```
+**Dev override of the API base URL.** By default the page calls `/api/...` on its own origin (nginx
+proxies it). To point the page at a different backend, set `localStorage.hr_go_url` and reload. The
+backend sends no CORS headers, so a different origin only works behind a dev proxy that adds them:
 
-4. If `localStorage.hr_go_tables` was ever set, it replaces the built-in table list: remove it
-   (`localStorage.removeItem('hr_go_tables')`) or make sure it includes `users`, `job_postings`,
-   `candidates` and `applications`.
-5. The token lasts 24 hours. To leave: `localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta'); location.reload();`.
+```js
+localStorage.setItem('hr_go_url', 'http://localhost:8080'); location.reload();
+// back to the same origin:
+localStorage.removeItem('hr_go_url'); location.reload();
+```
+
+Demo mode ("Modo Demo" on the login view) never calls the API.
 
 ### Manual checklist: Users screen (Configuracion > Usuarios)
 
-Run after step 3 above as the seeded admin. There is no JS test harness, so this checklist is the
+Run after logging in as the seeded admin (see "Dev procedure"). There is no JS test harness, so this checklist is the
 test for the frontend slice.
 
 - [ ] Real mode, list: the tab loads the company's users from `GET /api/users`; names, emails, role
@@ -325,7 +382,7 @@ test for the frontend slice.
 
 ### Manual checklist: Recruitment screen (Reclutamiento)
 
-Run after step 3 above as the seeded admin, with the browser Network tab open. Written before the
+Run after logging in as the seeded admin (see "Dev procedure"), with the browser Network tab open. Written before the
 code it tests (no JS harness: this checklist is the test for the frontend slice). Function names and
 element ids are in `hr_admin_panel.html`.
 
@@ -356,7 +413,7 @@ element ids are in `hr_admin_panel.html`.
 
 ### Manual checklist: ZKTeco screen (Configuracion > ZKTeco) and live feed
 
-Run after step 3 above as the seeded admin, with the Network tab open. Written before the code it
+Run after logging in as the seeded admin (see "Dev procedure"), with the Network tab open. Written before the code it
 tests (no JS harness for the screen; the cursor logic is covered by `node tools/zk-feed/harness.mjs`, which drives the real feed code against a fake endpoint). Seed devices and
 unknown PINs with SQL or the ADMS endpoint, and check the dev database has every migration first.
 
@@ -404,6 +461,32 @@ To re-apply after changing a migration file: `docker compose down -v && docker c
 (`IF NOT EXISTS`, guarded `DO` blocks, ...). The test harness (`internal/testutil`) re-applies
 them on every run against an already-initialized test database; files below `0010` only run
 on a fresh one.
+
+## Cutover and production
+
+The step-by-step Supabase cutover, rollback and end-to-end checklist live in
+[`docs/cutover-runbook.md`](../docs/cutover-runbook.md). Every operational step there is marked
+`[USER-OPS]`: it is yours to run, not the build's.
+
+**Startup seed guard.** With `APP_ENV=production` the API checks, before serving, whether any
+user row, active or inactive, still has the committed seed password hash (`Admin123`, from `migrations/0003_seed.sql`).
+If so it logs `seed credential present` and exits 1; a failed check also exits 1. Any other `APP_ENV`
+is not checked and logs one `seed guard skipped` line naming the value. Delete the seed admin first (runbook step 6).
+
+Environment variables for a production deployment (defaults in `env.example` and `docker-compose.yml`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `APP_ENV` | `development` | `production` turns on the seed guard above (case-insensitive). |
+| `AUTH_RATE_PER_MIN` | `10` | Failed logins and register requests per client IP per minute. |
+| `AUTH_ATTEMPT_RATE_PER_MIN` | `60` | All login attempts per client IP per minute. |
+| `ADMS_RATE_PER_MIN` | `600` | Device ingestion per client IP per minute. Provisional until OPS-1. |
+| `TRUSTED_PROXY_CIDRS` | `172.29.77.0/24` (compose) | Proxies whose `X-Real-IP` is trusted. See "Multi-tenancy". |
+
+**Existing volumes and migrations.** Postgres runs `migrations/` only on a fresh volume. On a volume that
+predates a migration, apply every missing file in order with `psql -v ON_ERROR_STOP=1 -f`, then run the
+verification query from runbook step 4. After editing `nginx/default.conf`, run `nginx -s reload`
+(`docker compose exec nginx nginx -s reload`): the bind-mounted file is not re-read by `docker compose up`.
 
 ## Regenerating sqlc code
 
