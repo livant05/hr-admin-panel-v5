@@ -252,6 +252,95 @@ func (q *Queries) ListAttendanceLogsByCreated(ctx context.Context, arg ListAtten
 	return items, nil
 }
 
+const listAttendanceLogsByCreatedAsc = `-- name: ListAttendanceLogsByCreatedAsc :many
+SELECT id, company_id, employee_id, employee_name, department, date, time_in,
+  time_out, status, work_type, notes, created_at
+FROM attendance_logs
+WHERE company_id = $1
+  AND ($2::uuid IS NULL OR id = $2)
+  AND ($3::uuid IS NULL OR employee_id = $3)
+  AND ($4::date IS NULL OR date = $4)
+  AND ($5::date IS NULL OR date >= $5)
+  AND ($6::date IS NULL OR date <= $6)
+  AND ($7::timestamptz IS NULL OR created_at > $7)
+ORDER BY created_at ASC, id ASC
+LIMIT $9 OFFSET $8
+`
+
+type ListAttendanceLogsByCreatedAscParams struct {
+	CompanyID    pgtype.UUID        `json:"company_id"`
+	ID           pgtype.UUID        `json:"id"`
+	EmployeeID   pgtype.UUID        `json:"employee_id"`
+	Date         pgtype.Date        `json:"date"`
+	DateFrom     pgtype.Date        `json:"date_from"`
+	DateTo       pgtype.Date        `json:"date_to"`
+	CreatedAfter pgtype.Timestamptz `json:"created_after"`
+	Offset       int32              `json:"offset"`
+	Limit        int32              `json:"limit"`
+}
+
+type ListAttendanceLogsByCreatedAscRow struct {
+	ID           pgtype.UUID        `json:"id"`
+	CompanyID    pgtype.UUID        `json:"company_id"`
+	EmployeeID   pgtype.UUID        `json:"employee_id"`
+	EmployeeName pgtype.Text        `json:"employee_name"`
+	Department   pgtype.Text        `json:"department"`
+	Date         pgtype.Date        `json:"date"`
+	TimeIn       pgtype.Time        `json:"time_in"`
+	TimeOut      pgtype.Time        `json:"time_out"`
+	Status       pgtype.Text        `json:"status"`
+	WorkType     pgtype.Int4        `json:"work_type"`
+	Notes        pgtype.Text        `json:"notes"`
+	CreatedAt    pgtype.Timestamptz `json:"created_at"`
+}
+
+// The live feed's cursor list (CO-S4b-1/2): same filters as
+// ListAttendanceLogsByCreated but oldest first, so a poll that finds more rows
+// than its page can walk forward with _offset and never skip the older ones.
+// id breaks ties in the same direction as created_at.
+func (q *Queries) ListAttendanceLogsByCreatedAsc(ctx context.Context, arg ListAttendanceLogsByCreatedAscParams) ([]ListAttendanceLogsByCreatedAscRow, error) {
+	rows, err := q.db.Query(ctx, listAttendanceLogsByCreatedAsc,
+		arg.CompanyID,
+		arg.ID,
+		arg.EmployeeID,
+		arg.Date,
+		arg.DateFrom,
+		arg.DateTo,
+		arg.CreatedAfter,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListAttendanceLogsByCreatedAscRow
+	for rows.Next() {
+		var i ListAttendanceLogsByCreatedAscRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.EmployeeID,
+			&i.EmployeeName,
+			&i.Department,
+			&i.Date,
+			&i.TimeIn,
+			&i.TimeOut,
+			&i.Status,
+			&i.WorkType,
+			&i.Notes,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const updateAttendanceLog = `-- name: UpdateAttendanceLog :one
 UPDATE attendance_logs
 SET time_in = $3, time_out = $4, status = $5, work_type = $6, notes = $7

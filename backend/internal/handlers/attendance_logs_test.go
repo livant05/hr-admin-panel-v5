@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -546,8 +547,8 @@ func TestAttendanceLogs_CreatedAfter(t *testing.T) {
 		}
 	})
 
-	t.Run("only created_at.desc is an accepted _order", func(t *testing.T) {
-		for _, v := range []string{"created_at.asc", "date.desc", "created_at", "id.desc", ""} {
+	t.Run("only created_at.asc and created_at.desc are accepted _order values", func(t *testing.T) {
+		for _, v := range []string{"date.desc", "date.asc", "created_at", "id.desc", "id.asc", "created_at.up", ""} {
 			rec := testutil.Do(t, h, http.MethodGet, "/api/attendance_logs?_order="+url.QueryEscape(v), ta, nil)
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("_order=%q: got %d (%s), want 400", v, rec.Code, rec.Body.String())
@@ -578,5 +579,105 @@ func TestAttendanceLogs_CreatedAfter(t *testing.T) {
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("got %d, want 400", rec.Code)
 		}
+	})
+}
+
+// TestAttendanceLogs_CreatedAscCursor covers the live feed's ascending cursor
+// (CO-S4b-1/2): oldest first after the cutoff, a deterministic id tiebreaker
+// in the same direction as created_at, and _limit/_offset paging that returns
+// every row exactly once across a page boundary, including a boundary that
+// falls inside a run of rows sharing one created_at.
+func TestAttendanceLogs_CreatedAscCursor(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "AttAscA")
+	b := testutil.Company(t, pool, "AttAscB")
+	ta := a.Token(t, signer)
+	eb := testutil.Employee(t, pool, b, testutil.EmployeeName("Bea", "Ajena"))
+
+	// Seven rows: two older, then a run of four sharing one instant, then one
+	// newer. Each row is its own (employee, date) pair.
+	const (
+		tOld1 = "2026-04-01T10:00:00Z"
+		tOld2 = "2026-04-01T10:00:05Z"
+		tTie  = "2026-04-01T10:00:10Z"
+		tNew  = "2026-04-01T10:00:20Z"
+	)
+	seed := func(createdAt string) string {
+		emp := testutil.Employee(t, pool, a, testutil.EmployeeName("Emp", createdAt))
+		return seedAttendanceAt(t, pool, a, emp.ID, "Emp "+createdAt, createdAt)
+	}
+	idOld1, idOld2 := seed(tOld1), seed(tOld2)
+	tie := []string{seed(tTie), seed(tTie), seed(tTie), seed(tTie)}
+	idNew := seed(tNew)
+	seedAttendanceAt(t, pool, b, eb.ID, "Bea Ajena", tNew)
+
+	sortedTie := append([]string(nil), tie...)
+	sort.Strings(sortedTie)
+	wantAsc := append(append([]string{idOld1, idOld2}, sortedTie...), idNew)
+	wantDesc := make([]string, len(wantAsc))
+	for i, id := range wantAsc {
+		wantDesc[len(wantAsc)-1-i] = id
+	}
+
+	list := func(t *testing.T, query string) []string {
+		t.Helper()
+		rec := testutil.Do(t, h, http.MethodGet, "/api/attendance_logs"+query, ta, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: got %d (%s)", query, rec.Code, rec.Body.String())
+		}
+		return attendanceIDs(testutil.DecodeRows[attendanceLogRow](t, rec))
+	}
+	same := func(t *testing.T, label string, got, want []string) {
+		t.Helper()
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s = %v, want %v", label, got, want)
+		}
+	}
+	const scope = "?created_after=2026-04-01T09:59:59Z"
+
+	t.Run("ascending is oldest first with id ascending on ties", func(t *testing.T) {
+		same(t, "asc", list(t, scope+"&_order=created_at.asc"), wantAsc)
+	})
+
+	t.Run("descending ties break by id descending", func(t *testing.T) {
+		same(t, "desc", list(t, scope+"&_order=created_at.desc"), wantDesc)
+	})
+
+	t.Run("the cutoff stays strict and tenant scoped in ascending order", func(t *testing.T) {
+		same(t, "after tTie", list(t, "?created_after="+tTie+"&_order=created_at.asc"), []string{idNew})
+		same(t, "after tNew", list(t, "?created_after="+tNew+"&_order=created_at.asc"), []string{})
+	})
+
+	pageAll := func(t *testing.T, order string, limit int) []string {
+		t.Helper()
+		var got []string
+		for offset := 0; offset <= 100; offset += limit {
+			page := list(t, fmt.Sprintf("%s&_order=%s&_limit=%d&_offset=%d", scope, order, limit, offset))
+			got = append(got, page...)
+			if len(page) < limit {
+				return got
+			}
+		}
+		t.Fatalf("paging %s never ended", order)
+		return nil
+	}
+
+	t.Run("paging returns every row exactly once, ascending", func(t *testing.T) {
+		for _, limit := range []int{1, 2, 3, 4} {
+			same(t, fmt.Sprintf("asc limit=%d", limit), pageAll(t, "created_at.asc", limit), wantAsc)
+		}
+	})
+
+	t.Run("paging returns every row exactly once, descending", func(t *testing.T) {
+		for _, limit := range []int{1, 3} {
+			same(t, fmt.Sprintf("desc limit=%d", limit), pageAll(t, "created_at.desc", limit), wantDesc)
+		}
+	})
+
+	t.Run("an offset past the end is an empty page", func(t *testing.T) {
+		same(t, "offset 7", list(t, scope+"&_order=created_at.asc&_limit=5&_offset=7"), []string{})
+		same(t, "offset 6", list(t, scope+"&_order=created_at.asc&_limit=5&_offset=6"), []string{idNew})
 	})
 }

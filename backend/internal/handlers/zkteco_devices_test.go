@@ -2,8 +2,10 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -473,6 +475,63 @@ func TestZktecoDevices_UnclaimedPool(t *testing.T) {
 	})
 }
 
+// TestZktecoDevices_UnclaimedPoolPaging pins the pool's order and paging. The
+// pool is global, so the seeded rows carry last_seen values in the year 2999:
+// they always sort to the top regardless of what else the database holds, and
+// the assertions never depend on the size of the rest of the pool.
+func TestZktecoDevices_UnclaimedPoolPaging(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "ZkPoolPaging")
+	ta := a.Token(t, signer)
+
+	base := time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC)
+	at := func(h int) *time.Time { v := base.Add(time.Duration(h) * time.Hour); return &v }
+	newest := seedZkDevice(t, pool, zkSeed{lastSeen: at(3)})
+	second := seedZkDevice(t, pool, zkSeed{lastSeen: at(2)})
+	tieX := seedZkDevice(t, pool, zkSeed{lastSeen: at(1)})
+	tieY := seedZkDevice(t, pool, zkSeed{lastSeen: at(1)})
+	tied := []string{tieX.ID, tieY.ID}
+	sort.Sort(sort.Reverse(sort.StringSlice(tied)))
+	want := append([]string{newest.ID, second.ID}, tied...)
+
+	page := func(t *testing.T, query string) []string {
+		t.Helper()
+		rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath+query, ta, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: got %d (%s)", query, rec.Code, rec.Body.String())
+		}
+		return zkIDs(testutil.DecodeRows[zkDeviceRow](t, rec))
+	}
+	same := func(t *testing.T, label string, got, want []string) {
+		t.Helper()
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s = %v, want %v", label, got, want)
+		}
+	}
+
+	t.Run("newest last_seen first, ties by id descending", func(t *testing.T) {
+		same(t, "top 4", page(t, "?_limit=4"), want)
+	})
+
+	t.Run("limit takes the head of the order", func(t *testing.T) {
+		same(t, "limit 1", page(t, "?_limit=1"), want[:1])
+		same(t, "limit 3", page(t, "?_limit=3"), want[:3])
+	})
+
+	t.Run("offset skips from the head and pages are contiguous", func(t *testing.T) {
+		same(t, "offset 1 limit 2", page(t, "?_limit=2&_offset=1"), want[1:3])
+		same(t, "offset 2 limit 2", page(t, "?_limit=2&_offset=2"), want[2:4])
+		same(t, "offset 3 limit 1", page(t, "?_limit=1&_offset=3"), want[3:4])
+		var walked []string
+		for off := 0; off < 4; off++ {
+			walked = append(walked, page(t, fmt.Sprintf("?_limit=1&_offset=%d", off))...)
+		}
+		same(t, "walked one by one", walked, want)
+	})
+}
+
 func TestZktecoDevices_Claim(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
@@ -536,6 +595,8 @@ func TestZktecoDevices_Claim(t *testing.T) {
 			`{"company_id":"` + a.CompanyID + `"}`,
 			`{"serial_number":"x"}`,
 			`[]`,
+			`null`,
+			` null `,
 			`not json`,
 		} {
 			rec := doRawBody(t, h, http.MethodPost, claimPath(dev.ID), ta, body)
@@ -545,6 +606,32 @@ func TestZktecoDevices_Claim(t *testing.T) {
 		}
 		if after := readZkDevice(t, pool, dev.ID); after.CompanyID != nil {
 			t.Fatalf("a rejected claim assigned company %q", strVal(after.CompanyID))
+		}
+	})
+
+	t.Run("the body is capped at 1 KiB: over is 400 bad_request with no claim, at the cap is accepted", func(t *testing.T) {
+		const capBytes = 1 << 10
+		over := seedZkDevice(t, pool, zkSeed{})
+		for name, body := range map[string]string{
+			"padded object": "{}" + strings.Repeat(" ", capBytes),
+			"long key":      `{"` + strings.Repeat("k", capBytes) + `":1}`,
+		} {
+			rec := doRawBody(t, h, http.MethodPost, claimPath(over.ID), ta, body)
+			if rec.Code != http.StatusBadRequest || testutil.ErrCode(t, rec) != "bad_request" {
+				t.Fatalf("%s: got %d (%s), want 400 bad_request", name, rec.Code, rec.Body.String())
+			}
+		}
+		if after := readZkDevice(t, pool, over.ID); after.CompanyID != nil {
+			t.Fatalf("an oversized body assigned company %q", strVal(after.CompanyID))
+		}
+
+		atCap := seedZkDevice(t, pool, zkSeed{})
+		rec := doRawBody(t, h, http.MethodPost, claimPath(atCap.ID), ta, "{}"+strings.Repeat(" ", capBytes-2))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("a body of exactly 1 KiB: got %d (%s), want 200", rec.Code, rec.Body.String())
+		}
+		if got := strVal(readZkDevice(t, pool, atCap.ID).CompanyID); got != a.CompanyID {
+			t.Fatalf("company = %q, want A", got)
 		}
 	})
 
