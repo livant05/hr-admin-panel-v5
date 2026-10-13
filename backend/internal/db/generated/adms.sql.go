@@ -75,7 +75,10 @@ const deleteUnknownPinsBySerial = `-- name: DeleteUnknownPinsBySerial :exec
 DELETE FROM zkteco_unknown_pins WHERE serial_number = $1
 `
 
-// Same as above for the unknown PINs punched on the device before the claim.
+// Run in the claim transaction: PINs that were rejected on this serial before
+// the claim belong to the previous (unclaimed or foreign) context, so the new
+// owner starts with a clean unknown-PIN list instead of inheriting someone
+// else's punches.
 func (q *Queries) DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error {
 	_, err := q.db.Exec(ctx, deleteUnknownPinsBySerial, serialNumber)
 	return err
@@ -183,12 +186,6 @@ func (q *Queries) ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmplo
 }
 
 const upsertDeviceHeartbeat = `-- name: UpsertDeviceHeartbeat :one
-/*
- * ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
- * idempotency guarantees below are binding). These queries are deliberately
- * separate from UpsertAttendanceLog, which overwrites time_out.
- */
-
 INSERT INTO zkteco_devices (serial_number, status, last_seen)
 VALUES ($1, 'online', now())
 ON CONFLICT (serial_number) DO UPDATE
@@ -201,6 +198,10 @@ type UpsertDeviceHeartbeatRow struct {
 	CompanyID pgtype.UUID `json:"company_id"`
 }
 
+// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+// idempotency guarantees of this file are binding). These queries are
+// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+//
 // Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 // and refreshes a known one. company_id is NEVER part of the SET list, so a
 // heartbeat can not change ownership.
