@@ -338,6 +338,11 @@ The login screen talks to this backend, so there is nothing to seed by hand.
    `livan.05@hotmail.com` / `Admin123` (see "Seeded login"), or use "Registrar nueva empresa".
 3. The token lasts 24 hours; after that, or on any 401, the app returns to the login view. To leave
    earlier use "Cerrar sesión", or clear `hr_sess` and `hr_meta` from `localStorage`.
+4. After a `git checkout`, `git pull` or any change to `nginx/default.conf`, run
+   `docker compose restart nginx`. The page and the nginx config are single-file bind mounts: git
+   replaces the file with a new inode, the container keeps the old one and silently serves the
+   previous version (`docker compose up` does not recreate an unchanged container). Check with
+   `curl -s localhost:8100/ | cmp - ../hr_admin_panel.html`.
 
 **Dev override of the API base URL.** By default the page calls `/api/...` on its own origin (nginx
 proxies it). To point the page at a different backend, set `localStorage.hr_go_url` and reload. The
