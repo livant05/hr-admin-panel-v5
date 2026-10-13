@@ -116,7 +116,7 @@ transaction then creates the company and its first user (always `admin`, `active
 in any case or company hits the unique `lower(email)` index, rolls the transaction back (no company
 remains) and answers `409 conflict`. On success the answer is `201` with exactly the login payload
 (`access_token`, `token_type`, `expires_in`, `company_name`, `user` with `user_metadata`), so the
-caller is logged in; it never contains `password_hash`. The frontend is not wired to it yet (S7).
+caller is logged in; it never contains `password_hash`. The login view's "Registrar nueva empresa" form calls it and logs the new admin in.
 
 ## Users and roles (admin only)
 
@@ -329,34 +329,36 @@ that commits late with an older `created_at`, so the client keeps `maxSeenCreate
 already shown by `id` (a bounded seen-set). The first call, which only learns the starting point and
 shows nothing, is `_order=created_at.desc&_limit=1`.
 
-## Interim dev procedure
+## Dev procedure
 
-Until the session flip (S7) the login screen still talks to Supabase, so the Go-routed screens
-(`GO_TABLES` in `hr_admin_panel.html`) are exercised by seeding a Go token into the browser by hand.
-Local dev seed only; there is no code bridge. Supabase-only screens fail as expected.
+The login screen talks to this backend, so there is nothing to seed by hand.
 
 1. Start the stack: `docker compose up -d --build`.
-2. Get a token and the company id:
-   `curl -s -X POST localhost:8100/api/auth/login -H 'Content-Type: application/json' -d '{"email":"livan.05@hotmail.com","password":"Admin123"}'`
-   (use `access_token` and `user.company_id` from the response).
-3. Open `http://localhost:8100`, then in the browser console:
+2. Open `http://localhost:8100` and log in normally. With the local dev seed that is
+   `livan.05@hotmail.com` / `Admin123` (see "Seeded login"), or use "Registrar nueva empresa".
+3. The token lasts 24 hours; after that, or on any 401, the app returns to the login view. To leave
+   earlier use "Cerrar sesión", or clear `hr_sess` and `hr_meta` from `localStorage`.
+4. After a `git checkout`, `git pull` or any change to `nginx/default.conf`, run
+   `docker compose restart nginx`. The page and the nginx config are single-file bind mounts: git
+   replaces the file with a new inode, the container keeps the old one and silently serves the
+   previous version (`docker compose up` does not recreate an unchanged container). Check with
+   `curl -s localhost:8100/ | cmp - ../hr_admin_panel.html`.
 
-   ```js
-   localStorage.removeItem('hr_demo');
-   localStorage.setItem('hr_sess', JSON.stringify({access_token: '<token>'}));
-   localStorage.setItem('hr_meta', JSON.stringify({role: 'admin', companyId: '<company_id>',
-     companyName: 'Ventatec', email: 'livan.05@hotmail.com', name: 'Dev'}));
-   location.reload();
-   ```
+**Dev override of the API base URL.** By default the page calls `/api/...` on its own origin (nginx
+proxies it). To point the page at a different backend, set `localStorage.hr_go_url` and reload. The
+backend sends no CORS headers, so a different origin only works behind a dev proxy that adds them:
 
-4. If `localStorage.hr_go_tables` was ever set, it replaces the built-in table list: remove it
-   (`localStorage.removeItem('hr_go_tables')`) or make sure it includes `users`, `job_postings`,
-   `candidates` and `applications`.
-5. The token lasts 24 hours. To leave: `localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta'); location.reload();`.
+```js
+localStorage.setItem('hr_go_url', 'http://localhost:8080'); location.reload();
+// back to the same origin:
+localStorage.removeItem('hr_go_url'); location.reload();
+```
+
+Demo mode ("Modo Demo" on the login view) never calls the API.
 
 ### Manual checklist: Users screen (Configuracion > Usuarios)
 
-Run after step 3 above as the seeded admin. There is no JS test harness, so this checklist is the
+Run after logging in as the seeded admin (see "Dev procedure"). There is no JS test harness, so this checklist is the
 test for the frontend slice.
 
 - [ ] Real mode, list: the tab loads the company's users from `GET /api/users`; names, emails, role
@@ -380,7 +382,7 @@ test for the frontend slice.
 
 ### Manual checklist: Recruitment screen (Reclutamiento)
 
-Run after step 3 above as the seeded admin, with the browser Network tab open. Written before the
+Run after logging in as the seeded admin (see "Dev procedure"), with the browser Network tab open. Written before the
 code it tests (no JS harness: this checklist is the test for the frontend slice). Function names and
 element ids are in `hr_admin_panel.html`.
 
@@ -411,7 +413,7 @@ element ids are in `hr_admin_panel.html`.
 
 ### Manual checklist: ZKTeco screen (Configuracion > ZKTeco) and live feed
 
-Run after step 3 above as the seeded admin, with the Network tab open. Written before the code it
+Run after logging in as the seeded admin (see "Dev procedure"), with the Network tab open. Written before the code it
 tests (no JS harness for the screen; the cursor logic is covered by `node tools/zk-feed/harness.mjs`, which drives the real feed code against a fake endpoint). Seed devices and
 unknown PINs with SQL or the ADMS endpoint, and check the dev database has every migration first.
 

@@ -30,7 +30,6 @@ body.dark-mode .input-group-text{background:#16213e;border-color:var(--border);c
 .page-section{display:none}.page-section.active{display:block}
 .stat-card{transition:transform .2s,box-shadow .2s}.stat-card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,.15)}
 .toast-container{position:fixed;top:70px;right:20px;z-index:9999}
-.setup-wrap{min-height:100vh;background:linear-gradient(135deg,#1a1a2e,#0f3460);display:flex;align-items:center;justify-content:center}
 .tpl-card{border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all .2s}
 .tpl-card:hover,.tpl-card.selected{border-color:#007bff;background:rgba(0,123,255,.05)}
 .var-chip{display:inline-block;background:#e8f4f8;color:#0c5460;border:1px solid #bee5eb;border-radius:4px;padding:2px 7px;font-size:.72rem;margin:2px;cursor:pointer;font-family:monospace}
@@ -67,22 +66,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 <body class="hold-transition login-page">
 <div class="toast-container" id="toastCont"></div>
 
-<!-- SETUP -->
-<div id="v-setup" style="display:none" class="setup-wrap">
-  <div style="max-width:500px;width:100%;padding:16px"><div class="card shadow-lg">
-    <div class="card-header text-center" style="background:linear-gradient(135deg,#007bff,#6610f2)">
-      <h5 class="text-white mb-0"><i class="fas fa-database mr-2"></i>Configurar Supabase</h5></div>
-    <div class="card-body p-4">
-      <div class="alert alert-info py-2 small"><i class="fas fa-info-circle mr-1"></i>Ir a <strong>supabase.com → Proyecto → Settings → API</strong></div>
-      <div class="form-group"><label>Project URL</label><input type="url" id="s-url" class="form-control" placeholder="https://xxxxx.supabase.co"></div>
-      <div class="form-group"><label>Anon Key</label>
-        <div class="input-group"><input type="password" id="s-key" class="form-control" placeholder="eyJhbGci...">
-        <div class="input-group-append"><button class="btn btn-outline-secondary" onclick="togglePwd('s-key')"><i class="fas fa-eye"></i></button></div></div></div>
-      <button class="btn btn-primary btn-block" onclick="saveConfig()"><i class="fas fa-save mr-1"></i>Guardar y Continuar</button>
-      <hr><button class="btn btn-outline-secondary btn-block btn-sm" onclick="demoMode()"><i class="fas fa-flask mr-1"></i>Modo Demo (sin Supabase)</button>
-    </div></div></div>
-</div>
-
 <!-- LOGIN -->
 <div id="v-login" style="display:none">
   <div class="login-box" style="width:400px;margin:auto">
@@ -105,7 +88,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       <a href="#" onclick="showV('register')" class="btn btn-outline-secondary btn-block btn-sm">Registrar nueva empresa</a>
       <button type="button" id="btn-demo-enter" class="btn btn-outline-secondary btn-block btn-sm mt-2" onclick="demoMode()"><i class="fas fa-flask mr-1"></i>Modo Demo</button>
       <button type="button" id="btn-demo-exit" class="btn btn-outline-warning btn-block btn-sm mt-2 d-none" onclick="exitDemo()"><i class="fas fa-door-open mr-1"></i>Salir del modo demo</button>
-      <a href="#" onclick="showV('setup')" class="text-muted mt-2 d-block text-center" style="font-size:.75rem"><i class="fas fa-cog mr-1"></i>Configurar Supabase</a>
     </div></div>
   </div>
 </div>
@@ -1373,7 +1355,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
               <h6><i class="fas fa-download mr-1"></i>Exportar Datos</h6>
               <button class="btn btn-success btn-block" onclick="exportBackup()"><i class="fas fa-file-archive mr-1"></i>Backup JSON</button>
               <button class="btn btn-outline-secondary btn-block mt-2" onclick="exportAllCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar CSV Completo</button>
-              <button class="btn btn-outline-primary btn-block mt-2" onclick="showSQLSchema()"><i class="fas fa-code mr-1"></i>Ver SQL Schema Supabase</button>
             </div>
             <div class="col-md-6">
               <h6><i class="fas fa-upload mr-1"></i>Restaurar Backup</h6>
@@ -1478,7 +1459,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 </div><!-- content-wrapper -->
 <footer class="main-footer">
   <div class="float-right d-none d-sm-block"><b>Versión Final</b> · Todas las fases completadas</div>
-  <strong>HR Admin Panel</strong> &copy; 2025 · AdminLTE + Supabase · Panamá
+  <strong>HR Admin Panel</strong> &copy; 2025 · AdminLTE · Panamá
 </footer>
 </div><!-- wrapper -->
 
@@ -1783,19 +1764,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
 </div></div></div>
 
-<div class="modal fade" id="sqlModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
-  <div class="modal-header bg-dark text-white"><h5 class="modal-title"><i class="fas fa-code mr-2"></i>SQL Schema — Supabase (PostgreSQL)</h5><button type="button" class="close text-white" data-dismiss="modal"><span>×</span></button></div>
-  <div class="modal-body p-0">
-    <div class="alert alert-info m-3 mb-0 py-2 small"><i class="fas fa-info-circle mr-1"></i>Ejecuta este SQL en <strong>Supabase → SQL Editor</strong> para crear todas las tablas.</div>
-    <pre id="sql-schema-pre" style="background:#1e1e1e;color:#d4d4d4;padding:20px;margin:12px;border-radius:8px;font-size:.72rem;max-height:500px;overflow-y:auto;white-space:pre"></pre>
-  </div>
-  <div class="modal-footer">
-    <button type="button" class="btn btn-success btn-sm" onclick="copySQLSchema()"><i class="fas fa-copy mr-1"></i>Copiar SQL</button>
-    <button type="button" class="btn btn-primary btn-sm" onclick="downloadSQLSchema()"><i class="fas fa-download mr-1"></i>Descargar .sql</button>
-    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cerrar</button>
-  </div>
-</div></div></div>
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.0/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/admin-lte/3.2.0/js/adminlte.min.js"></script>
@@ -1994,27 +1962,19 @@ var VARS = {
   '{{SALARIO_HORA}}': function(e){ return ((e.salary||0) / ((e.weekly_hours||44)*52/12)).toFixed(2); }
 };
 
-// ════════════════ RRHH-GO ROUTING ═════════════════════════════
-// Phase-by-phase cutover from Supabase to the Go backend: a table is moved
-// to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
-// localStorage['hr_go_tables'] instantly reverts any subset to Supabase
-// with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms', 'users', 'job_postings', 'candidates', 'applications', 'zkteco_devices'];
-var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
-try {
-  var _goOv = localStorage.getItem('hr_go_tables');
-  if (_goOv !== null) GO_TABLES = _goOv ? _goOv.split(',').map(function(s){ return s.trim(); }) : [];
-  A_goUrl = localStorage.getItem('hr_go_url') || '';
-} catch(e) {}
+// ════════════════ RRHH-GO BASE URL ════════════════════════════
+// Every table lives on the Go backend. '' => /api/... on the current origin
+// (nginx proxies /api/). localStorage['hr_go_url'] is a dev-only override that
+// points the page at another backend, e.g. http://localhost:8080.
+var A_goUrl = '';
+try { A_goUrl = localStorage.getItem('hr_go_url') || ''; } catch(e) {}
 
-// ════════════════ SUPABASE CLIENT ════════════════════════════
+// ════════════════ API CLIENT ═════════════════════════════════
+// The facade keeps the name `Supa` (many call sites); it talks to Go only.
 var Supa = {
   goUrl: A_goUrl,
-  goTables: GO_TABLES.reduce(function(m,t){ m[t]=true; return m; }, {}),
 
-  route: function(tbl){ return this.goTables[tbl] ? 'go' : 'supa'; },
-
-  // No apikey header on the Go path — Go authenticates on the Bearer JWT alone.
+  // Go authenticates on the Bearer JWT alone.
   ghdr: function() {
     var h = {'Content-Type':'application/json'};
     if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
@@ -2031,10 +1991,9 @@ var Supa = {
 
   // Normalizes the Go A2 envelope ({"error":{"code","message"}}) into the
   // {error:{message}} shape the existing call sites already read (e.g.
-  // saveEmp's `res.error.message`). Also tolerates a raw PostgREST-shaped
-  // error body ({code,message}, no `.error` key) so the same `r && r.error`
-  // call-site guard still catches it if this path is ever reused against a
-  // Supabase-shaped error response.
+  // saveEmp's `res.error.message`). Also tolerates a bare {code,message} body
+  // (no `.error` key) so the same `r && r.error` call-site guard still
+  // catches it.
   gres: async function(r) {
     // A 401 on an authenticated Go call means the token is no longer accepted
     // (expired, signed with another secret, user removed). Public auth calls
@@ -2050,11 +2009,6 @@ var Supa = {
     return body;
   },
 
-  hdr: function() {
-    var h = {'Content-Type':'application/json', apikey:A.key};
-    if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
-    return h;
-  },
   // ── Go auth (AUTH-1, AUTH-6, AUTH-9) ─────────────────────────────────────
   // sessionExpired makes onUnauthorized re-entrancy safe: several requests in
   // flight can all come back 401, but the user sees one toast and one reset.
@@ -2138,20 +2092,15 @@ var Supa = {
       Object.keys(flt).forEach(function(k){ rows = rows.filter(function(r){ return r[k] === flt[k]; }); });
       return rows;
     }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl+this.gq(flt), {headers:this.ghdr()}));
-    var url = A.url+'/rest/v1/'+tbl+'?select=*&company_id=eq.'+A.companyId;
-    Object.keys(flt).forEach(function(k){ url += '&'+k+'=eq.'+flt[k]; });
-    var r = await fetch(url, {headers:this.hdr()});
-    return r.json();
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl+this.gq(flt), {headers:this.ghdr()}));
   },
   // Whole-list read for screens that compute stats/inventory over every row.
-  // A4's default page (200 rows) would silently truncate a bare `sel`. On the
-  // Go route, page _limit=1000&_offset= until a short page; on demo/supa
-  // routes delegate to `sel` WITHOUT _limit/_offset (demo `sel` filters rows by
-  // strict equality on every flt key, so a _limit key would drop every row).
+  // A4's default page (200 rows) would silently truncate a bare `sel`. In real
+  // mode, page _limit=1000&_offset= until a short page; in demo mode delegate
+  // to `sel` WITHOUT _limit/_offset (demo `sel` filters rows by strict
+  // equality on every flt key, so a _limit key would drop every row).
   selAll: async function(tbl, flt) {
-    if (A.demo || this.route(tbl) !== 'go') return this.sel(tbl, flt);
+    if (A.demo) return this.sel(tbl, flt);
     var all = [], offset = 0, pageSize = 1000;
     while (true) {
       var q = Object.assign({}, flt || {}, {_limit:pageSize, _offset:offset});
@@ -2170,11 +2119,8 @@ var Supa = {
       DS[tbl].push(row);
       return [row];
     }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl,
-        {method:'POST', headers:this.ghdr(), body:JSON.stringify(data)})); // company_id is NOT injected — the Go handler binds it from the JWT
-    var r = await fetch(A.url+'/rest/v1/'+tbl,{method:'POST',headers:Object.assign({'Prefer':'return=representation'},this.hdr()),body:JSON.stringify(Object.assign({company_id:A.companyId},data))});
-    return r.json();
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl,
+      {method:'POST', headers:this.ghdr(), body:JSON.stringify(data)})); // company_id is NOT injected — the Go handler binds it from the JWT
   },
   upd: async function(tbl, id, data) {
     if (A.demo) {
@@ -2182,17 +2128,12 @@ var Supa = {
       if (idx > -1) DS[tbl][idx] = Object.assign({}, DS[tbl][idx], data);
       return [DS[tbl] ? DS[tbl][idx] : null];
     }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id,
-        {method:'PATCH', headers:this.ghdr(), body:JSON.stringify(data)}));
-    var r = await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'PATCH',headers:Object.assign({'Prefer':'return=representation'},this.hdr()),body:JSON.stringify(data)});
-    return r.json();
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id,
+      {method:'PATCH', headers:this.ghdr(), body:JSON.stringify(data)}));
   },
   del: async function(tbl, id) {
     if (A.demo) { if (DS[tbl]) DS[tbl] = DS[tbl].filter(function(r){ return r.id !== id; }); return; }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id, {method:'DELETE', headers:this.ghdr()}));
-    await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'DELETE',headers:this.hdr()});
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id, {method:'DELETE', headers:this.ghdr()}));
   },
   // Direct fetch against a literal Go path that isn't a plain table CRUD
   // route (e.g. /payroll_history/calculate, /liquidation_history/calculate,
@@ -2295,7 +2236,7 @@ var MENU_MAP = {
   'recruitment':   'm-recruitment'
 };
 function showV(vv) {
-  ['setup','login','register','app'].forEach(function(x){ var e=document.getElementById('v-'+x); if(e) e.style.display='none'; });
+  ['login','register','app'].forEach(function(x){ var e=document.getElementById('v-'+x); if(e) e.style.display='none'; });
   var t=document.getElementById('v-'+vv); if(t) t.style.display='';
   document.body.className='hold-transition';
   if(vv==='login'||vv==='register') document.body.classList.add('login-page');
@@ -2349,7 +2290,7 @@ function go(pg) {
     'notifications': loadNotifications,
     'settings': function(){
       var u = document.getElementById('st-url');
-      if(u) u.textContent = A.demo ? 'Modo Demo activo' : A.url;
+      if(u) u.textContent = A.demo ? 'Modo Demo activo' : 'Servidor: este sitio';
       var n = document.getElementById('st-coname');
       if(n) n.value = A.companyName;
     }
@@ -2532,14 +2473,6 @@ async function loadRolePerms(){
   var roles=await Supa.sel('roles'); if(!Array.isArray(roles)) return;
   var role=roles.find(function(r){ return r.name===A.role; });
   if(role&&role.permissions){ A.perms=role.permissions; applyPermissions(role.permissions); }
-}
-
-function saveConfig() {
-  var url=gv('s-url'), key=gv('s-key');
-  if(!url||!key){ toast('Completa ambos campos','warning'); return; }
-  A.url=url; A.key=key; A.demo=false;
-  try{localStorage.setItem('hr_url',url); localStorage.setItem('hr_key',key); localStorage.removeItem('hr_demo');}catch(e){}
-  syncDemoUI(); toast('¡Configuración guardada!'); showV('login');
 }
 
 // ════════════════ DASHBOARD ══════════════════════════════════
@@ -3187,11 +3120,9 @@ async function seedTestAttendance() {
     var e=emps[i], pat=pats[i];
     for(var j=0;j<days.length;j++){
       var p=pat[j];
-      // Route through Supa.ins instead of a raw Supabase fetch (which would
-      // keep writing to the retired store post-cutover): the Go handler's
-      // POST /api/attendance_logs is already an upsert on (employee_id,date)
-      // (design Q2), so the on_conflict query param this raw fetch used to
-      // need is no longer necessary.
+      // Route through Supa.ins: the Go handler's POST /api/attendance_logs is
+      // already an upsert on (employee_id,date) (design Q2), so no on_conflict
+      // query param is needed.
       await Supa.ins('attendance_logs',{employee_id:e.id,employee_name:e.first_name+' '+e.last_name,department:e.department||'',date:days[j],time_in:p[1],time_out:p[2],status:p[0]}).catch(function(){});
       done++;
     }
@@ -3861,7 +3792,7 @@ async function calcLiq() {
   // Cached so saveLiqHistory() can resend the exact inputs this breakdown
   // was computed from -- saveLiqHistory's own POST body structurally needs
   // all of them (the server recomputes server-side; it cannot be handed
-  // only the 5 fields the old Supabase-era call site sent).
+  // only the 5 fields an older call site sent).
   A._liqCalc={empId:empId,reason:reason,exitDate:exitDate,salPend:salPend,otros:otros,vacDays:vacDays,decMonths:decMonths,acumVac:acumVac,acumDec:acumDec,acumPrima:acumPrima,acum6m:acum6m,sal30Raw:sal30Raw,deductionIds:deductionIds,deductionQuotaTotal:deductionQuotaTotal};
 
   // ── Show result card ──────────────────────────────────────────
@@ -4205,7 +4136,7 @@ async function loadNotifications(){
 }
 
 // ════════════════ ZKTECO ══════════════════════════════════════
-// Real mode talks to the Go backend (zkteco_devices is in GO_TABLES). Demo mode
+// Real mode talks to the Go backend (zkteco_devices lives on Go). Demo mode
 // has no server: the screen shows its empty states and makes no request.
 var ZK_POLL_INTERVAL = null;
 var ZK_DEV_CACHE = {};
@@ -4699,14 +4630,6 @@ function importBackup(evt){
   };
   reader.readAsText(file,'UTF-8');
 }
-function showSQLSchema(){
-  var sql='-- ============================================================\n-- HR Admin Panel — SQL Schema para Supabase (PostgreSQL)\n-- Generado: '+new Date().toLocaleDateString('es-PA')+'\n-- ============================================================\n\nCREATE EXTENSION IF NOT EXISTS "uuid-ossp";\n\n-- 1. EMPRESAS\nCREATE TABLE IF NOT EXISTS companies (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  name TEXT NOT NULL, ruc TEXT, address TEXT, phone TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 2. DEPARTAMENTOS\nCREATE TABLE IF NOT EXISTS departments (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  name TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 3. CARGOS\nCREATE TABLE IF NOT EXISTS positions (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  name TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 4. EMPLEADOS\nCREATE TABLE IF NOT EXISTS employees (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  first_name TEXT NOT NULL, last_name TEXT NOT NULL,\n  cedula TEXT, ss_number TEXT, dv TEXT, birth_date DATE, age INT,\n  sex CHAR(1), marital_status TEXT, blood_type TEXT, nationality TEXT,\n  address TEXT, phone TEXT, email TEXT,\n  license_number TEXT, license_type TEXT, license_expiry DATE,\n  position TEXT, department TEXT, branch TEXT,\n  salary NUMERIC(12,2) DEFAULT 0,\n  weekly_hours NUMERIC(5,1) DEFAULT 44,\n  monthly_hours NUMERIC(7,1), hourly_rate NUMERIC(10,4),\n  contract_type TEXT DEFAULT \'indefinido\',\n  start_date DATE, status TEXT DEFAULT \'active\',\n  contract_expiry DATE, work_permit_expiry DATE,\n  emergency_contact TEXT, emergency_phone TEXT, emergency_relation TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()\n);\nCREATE INDEX IF NOT EXISTS idx_emp_co ON employees(company_id);\nCREATE INDEX IF NOT EXISTS idx_emp_st ON employees(status);\n\n-- 5. ASISTENCIA\nCREATE TABLE IF NOT EXISTS attendance_logs (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, department TEXT,\n  date DATE NOT NULL, time_in TIME, time_out TIME,\n  status TEXT DEFAULT \'present\', notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS idx_att_emp_date ON attendance_logs(employee_id, date);\n\n-- 6. SALDOS DE VACACIONES\nCREATE TABLE IF NOT EXISTS leave_balances (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, year INT NOT NULL,\n  earned_days NUMERIC(6,1) DEFAULT 0,\n  used_days NUMERIC(6,1) DEFAULT 0,\n  remaining_days NUMERIC(6,1) GENERATED ALWAYS AS (earned_days - used_days) STORED,\n  UNIQUE(employee_id, year)\n);\n\n-- 7. SOLICITUDES DE VACACIONES\nCREATE TABLE IF NOT EXISTS leave_requests (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, type TEXT DEFAULT \'vacaciones\',\n  start_date DATE NOT NULL, end_date DATE NOT NULL, days INT,\n  status TEXT DEFAULT \'pending\', notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 8. HORAS EXTRAS\nCREATE TABLE IF NOT EXISTS overtime_logs (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, date DATE NOT NULL,\n  hours NUMERIC(5,1) NOT NULL, type TEXT DEFAULT \'regular\',\n  hourly_rate NUMERIC(10,4), amount NUMERIC(12,2), notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 9. DEDUCCIONES\nCREATE TABLE IF NOT EXISTS deductions (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, type TEXT DEFAULT \'prestamo\', description TEXT,\n  total_amount NUMERIC(12,2) DEFAULT 0, quota NUMERIC(12,2) NOT NULL,\n  remaining NUMERIC(12,2) DEFAULT 0, start_date DATE,\n  status TEXT DEFAULT \'active\', created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 10. HISTORIAL DE PLANILLAS\nCREATE TABLE IF NOT EXISTS payroll_history (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  period TEXT NOT NULL, month INT NOT NULL, year INT NOT NULL,\n  month_name TEXT, employee_count INT DEFAULT 0,\n  total_bruto NUMERIC(14,2) DEFAULT 0,\n  total_neto NUMERIC(14,2) DEFAULT 0,\n  total_empresa NUMERIC(14,2) DEFAULT 0,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 11. HISTORIAL DE LIQUIDACIONES\nCREATE TABLE IF NOT EXISTS liquidation_history (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID REFERENCES employees(id),\n  employee_name TEXT, reason TEXT, exit_date DATE,\n  total_amount NUMERIC(14,2) DEFAULT 0, notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 12. PLANTILLAS DE DOCUMENTOS\nCREATE TABLE IF NOT EXISTS document_templates (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  name TEXT NOT NULL, type TEXT DEFAULT \'contract\',\n  content TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 13. DOCUMENTOS GENERADOS\nCREATE TABLE IF NOT EXISTS generated_documents (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID REFERENCES employees(id),\n  employee_name TEXT, template_id UUID REFERENCES document_templates(id),\n  template_name TEXT, document_name TEXT, content TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- ROW LEVEL SECURITY (Multiempresa)\nCREATE OR REPLACE FUNCTION get_company_id() RETURNS UUID AS $\n  SELECT (auth.jwt() -> \'user_metadata\' ->> \'company_id\')::UUID;\n$ LANGUAGE SQL STABLE;\n\nDO $ DECLARE t TEXT;\nBEGIN FOR t IN SELECT unnest(ARRAY[\'departments\',\'positions\',\'employees\',\n  \'attendance_logs\',\'leave_balances\',\'leave_requests\',\'overtime_logs\',\n  \'deductions\',\'payroll_history\',\'liquidation_history\',\'document_templates\',\'generated_documents\'\n]) LOOP\n  EXECUTE format(\'ALTER TABLE %I ENABLE ROW LEVEL SECURITY\', t);\n  EXECUTE format(\'CREATE POLICY "tenant_isolation" ON %I FOR ALL USING (company_id = get_company_id())\', t);\nEND LOOP; END $;\n\n-- Función de acumulación de vacaciones (Panamá: 1 día cada 11 trabajados)\nCREATE OR REPLACE FUNCTION accrue_vacation_days() RETURNS void AS $\nDECLARE emp RECORD; days_worked INT; earned NUMERIC;\nBEGIN\n  FOR emp IN SELECT * FROM employees WHERE status = \'active\' LOOP\n    SELECT COUNT(*) INTO days_worked FROM attendance_logs\n    WHERE employee_id = emp.id AND status IN (\'present\',\'late\')\n    AND EXTRACT(YEAR FROM date) = EXTRACT(YEAR FROM NOW());\n    earned := FLOOR(days_worked / 11.0);\n    INSERT INTO leave_balances(company_id,employee_id,employee_name,year,earned_days,used_days)\n    VALUES(emp.company_id,emp.id,emp.first_name||\' \'||emp.last_name,\n      EXTRACT(YEAR FROM NOW())::INT,earned,0)\n    ON CONFLICT (employee_id,year) DO UPDATE SET earned_days = EXCLUDED.earned_days;\n  END LOOP;\nEND;\n$ LANGUAGE plpgsql;\n\n-- Trigger updated_at\nCREATE OR REPLACE FUNCTION update_timestamp() RETURNS TRIGGER AS $\nBEGIN NEW.updated_at = NOW(); RETURN NEW; END;\n$ LANGUAGE plpgsql;\nCREATE TRIGGER trg_employees_updated BEFORE UPDATE ON employees\n  FOR EACH ROW EXECUTE FUNCTION update_timestamp();\n\n-- FIN DEL SCHEMA — HR Admin Panel · '+A.companyName+'\n-- Total tablas: 13 | RLS: Habilitado';
-  var pre=document.getElementById('sql-schema-pre'); if(pre) pre.textContent=sql;
-  window._sqlSchema=sql;
-  $('#sqlModal').modal('show');
-}
-function copySQLSchema(){ if(window._sqlSchema){ navigator.clipboard.writeText(window._sqlSchema).then(function(){ toast('✅ SQL copiado al portapapeles'); }).catch(function(){ toast('Usa el botón Descargar','warning'); }); } }
-function downloadSQLSchema(){ if(window._sqlSchema){ var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([window._sqlSchema],{type:'text/sql'})); a.download='hr_admin_schema_'+TS+'.sql'; a.click(); toast('Schema SQL descargado 📥'); } }
 
 // ════════════════ CSV IMPORT ══════════════════════════════════
 function triggerImportCSV(){ document.getElementById('csv-input').click(); }
@@ -5243,10 +5166,8 @@ async function saveAnnouncement(){
 function archiveAnnouncement(id){ var a=DS.announcements.find(function(x){ return x.id===id; }); if(a){ a.status='archivado'; loadAnnouncements(); toast('Archivado','info'); } }
 function delAnnouncement(id){ if(!confirm('¿Eliminar comunicado?')) return; DS.announcements=DS.announcements.filter(function(a){ return a.id!==id; }); loadAnnouncements(); toast('Eliminado','info'); }
 async function init(){
-  var DEFAULT_URL='https://swciybuhetkfrtpyjvgb.supabase.co';
-  var DEFAULT_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNTAxOTIsImV4cCI6MjA5NTgyNjE5Mn0.5uJ70QPSTkTjVE5_tqTHwVPPhnYyzqdI2RFsYHTHC74';
-  A.theme='light'; A.url=DEFAULT_URL; A.key=DEFAULT_KEY; A.demo=false;
-  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||DEFAULT_URL; A.key=localStorage.getItem('hr_key')||DEFAULT_KEY; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
+  A.theme='light'; A.demo=false;
+  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
   if(A.theme==='dark') document.body.classList.add('dark-mode');
   syncDemoUI();
   var sess=null, meta=null;
@@ -5266,8 +5187,7 @@ async function init(){
       loadUI(meta); showV('app'); go('dashboard'); loadRolePerms(); setTimeout(loadNotifications,1500); return;
     }catch(e){}
   }
-  if(A.demo||A.url) showV('login'); else showV('setup');
-  if(A.url){ document.getElementById('s-url').value=A.url; document.getElementById('s-key').value=A.key; }
+  showV('login');
 }
 
 // ════════════════ RECRUITMENT ════════════════════════════════
