@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -201,13 +202,38 @@ func (a *API) ClaimZktecoDevice(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	row, err := a.Queries.ClaimZktecoDevice(r.Context(), db.ClaimZktecoDeviceParams{
-		CompanyID: companyID, // $1 — from ctx, never from req
-		ID:        id,
-	})
+	row, err := a.claimDevice(r.Context(), companyID, id)
 	if err != nil {
 		a.writeDBErr(w, err, "claim zkteco device")
 		return
 	}
 	writeRows(w, http.StatusOK, []db.ZktecoDevice{row})
+}
+
+// claimDevice claims the device and, in the same transaction, deletes the
+// rejection counters and unknown PINs earlier punches left under its serial,
+// so the new owner never inherits data collected before the claim (CO-S5a-2).
+// A claim that matches no row (pgx.ErrNoRows) rolls back and deletes nothing.
+func (a *API) claimDevice(ctx context.Context, companyID, id pgtype.UUID) (db.ZktecoDevice, error) {
+	tx, err := a.Pool.Begin(ctx)
+	if err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	defer tx.Rollback(ctx) // no-op after Commit
+	q := a.Queries.WithTx(tx)
+
+	row, err := q.ClaimZktecoDevice(ctx, db.ClaimZktecoDeviceParams{
+		CompanyID: companyID, // $1 — from ctx, never from req
+		ID:        id,
+	})
+	if err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	if err := q.DeleteIngestRejectionsBySerial(ctx, row.SerialNumber); err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	if err := q.DeleteUnknownPinsBySerial(ctx, pgtype.Text{String: row.SerialNumber, Valid: true}); err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	return row, tx.Commit(ctx)
 }

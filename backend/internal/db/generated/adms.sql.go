@@ -60,6 +60,27 @@ func (q *Queries) CedulaExistsElsewhere(ctx context.Context, arg CedulaExistsEls
 	return exists_elsewhere, err
 }
 
+const deleteIngestRejectionsBySerial = `-- name: DeleteIngestRejectionsBySerial :exec
+DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1
+`
+
+// Run in the claim transaction: counters collected while a device was
+// unclaimed (or owned by someone else) must not pass to its new owner.
+func (q *Queries) DeleteIngestRejectionsBySerial(ctx context.Context, serialNumber string) error {
+	_, err := q.db.Exec(ctx, deleteIngestRejectionsBySerial, serialNumber)
+	return err
+}
+
+const deleteUnknownPinsBySerial = `-- name: DeleteUnknownPinsBySerial :exec
+DELETE FROM zkteco_unknown_pins WHERE serial_number = $1
+`
+
+// Same as above for the unknown PINs punched on the device before the claim.
+func (q *Queries) DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error {
+	_, err := q.db.Exec(ctx, deleteUnknownPinsBySerial, serialNumber)
+	return err
+}
+
 const ingestCheckIn = `-- name: IngestCheckIn :execrows
 INSERT INTO attendance_logs (company_id, employee_id, employee_name, department, date, time_in, status)
 SELECT $1, e.id, e.first_name || ' ' || e.last_name, e.department,

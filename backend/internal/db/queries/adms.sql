@@ -69,3 +69,12 @@ ON CONFLICT (serial_number, reason) DO UPDATE
 SET count = zkteco_ingest_rejections.count + EXCLUDED.count,
     last_pin = COALESCE(EXCLUDED.last_pin, zkteco_ingest_rejections.last_pin),
     last_seen = now();
+
+-- name: DeleteIngestRejectionsBySerial :exec
+-- Run in the claim transaction: counters collected while a device was
+-- unclaimed (or owned by someone else) must not pass to its new owner.
+DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1;
+
+-- name: DeleteUnknownPinsBySerial :exec
+-- Same as above for the unknown PINs punched on the device before the claim.
+DELETE FROM zkteco_unknown_pins WHERE serial_number = $1;

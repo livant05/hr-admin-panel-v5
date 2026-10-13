@@ -249,6 +249,9 @@ body is optional and must be an empty object, so a `company_id` (or any key), `n
 claim is one `UPDATE ... WHERE id = $2 AND company_id IS NULL`, so two concurrent claims serialize on
 the row and exactly one gets `200`. A device that does not exist, belongs to another company or is
 already yours all answer `404` and the response never says who owns it.
+A successful claim also deletes, in the same transaction, the ingestion rejection counters and unknown PINs
+that earlier punches left under that serial number, so the new owner never inherits data collected before
+the claim.
 
 `GET /api/zkteco_unknown_pins` is admin only (`403` otherwise, checked before any query validation).
 The table has no `company_id`, because an unresolved PIN has no employee and therefore no company, so

@@ -228,6 +228,9 @@ type Querier interface {
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
 	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
+	// Run in the claim transaction: counters collected while a device was
+	// unclaimed (or owned by someone else) must not pass to its new owner.
+	DeleteIngestRejectionsBySerial(ctx context.Context, serialNumber string) error
 	DeleteJobPosting(ctx context.Context, arg DeleteJobPostingParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
@@ -259,6 +262,8 @@ type Querier interface {
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
+	// Same as above for the unknown PINs punched on the device before the claim.
+	DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error
 	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
 	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
 	// against DELETE, and keeps a concurrent committed write from being overwritten
