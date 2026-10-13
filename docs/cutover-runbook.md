@@ -498,7 +498,7 @@ cannot see (real DOM, nginx headers, timers, layout).
       again and the app works; no loop of toasts.
 - [ ] **Login view layout (browser-only):** the login view shows "Modo Demo" under "Registrar nueva
       empresa"; there is no way to reach a blank screen (no setup screen on first load once S7c is
-      deployed). The error line under the password field is visible for a wrong password and the
+      deployed). The red error alert above the email field is visible for a wrong password and the
       "Entrar" button returns from its spinner.
 - [ ] **Persistence per screen:** on each screen below, create or edit a record, reload the page, and
       confirm it comes back from the server with its server id:
