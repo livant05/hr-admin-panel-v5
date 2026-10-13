@@ -302,8 +302,13 @@ so they do not change the auth of any `/api/*` route. nginx routes `/iclock/` to
   with `Retry-After`. Devices behind one customer NAT share one bucket.
 - Every database write of one POST happens in one transaction; a database error rolls the whole request
   back and answers `500`, so the device retries and idempotency makes the retry safe.
-- Existing volumes do not run new migrations: apply `0011` and `0012` by hand with
-  `psql -v ON_ERROR_STOP=1 -f migrations/<file>` before using these endpoints.
+- Existing volumes do not run new migrations: apply every migration the volume is missing (not only
+  `0011` and `0012`), in order, before using these endpoints. `UpsertUnknownPin` needs the constraint
+  from `0012` and fails the whole batch without it. See "Cutover and production" below.
+- **Go-live blockers (OPS-1):** the ATTLOG field order (the parser reads index 3, which published
+  documentation lists as the verify mode, not the in/out status), device authentication (devices are
+  identified only by serial number) and unclaimed-pool flooding are open until checked on a real device.
+  Details and sources: [`docs/cutover-runbook.md`](../docs/cutover-runbook.md).
 
 ## Attendance: created_after and ordering
 
@@ -454,6 +459,32 @@ To re-apply after changing a migration file: `docker compose down -v && docker c
 (`IF NOT EXISTS`, guarded `DO` blocks, ...). The test harness (`internal/testutil`) re-applies
 them on every run against an already-initialized test database; files below `0010` only run
 on a fresh one.
+
+## Cutover and production
+
+The step-by-step Supabase cutover, rollback and end-to-end checklist live in
+[`docs/cutover-runbook.md`](../docs/cutover-runbook.md). Every operational step there is marked
+`[USER-OPS]`: it is yours to run, not the build's.
+
+**Startup seed guard.** With `APP_ENV=production` the API checks, before serving, whether any
+active user still has the committed seed password hash (`Admin123`, from `migrations/0003_seed.sql`).
+If so it logs `seed credential active` and exits 1; a failed check also exits 1. Any other `APP_ENV`
+is not checked. Delete the seed admin first (runbook step 6).
+
+Environment variables for a production deployment (defaults in `env.example` and `docker-compose.yml`):
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `APP_ENV` | `development` | `production` turns on the seed guard above (case-insensitive). |
+| `AUTH_RATE_PER_MIN` | `10` | Failed logins and register requests per client IP per minute. |
+| `AUTH_ATTEMPT_RATE_PER_MIN` | `60` | All login attempts per client IP per minute. |
+| `ADMS_RATE_PER_MIN` | `600` | Device ingestion per client IP per minute. Provisional until OPS-1. |
+| `TRUSTED_PROXY_CIDRS` | `172.29.77.0/24` (compose) | Proxies whose `X-Real-IP` is trusted. See "Multi-tenancy". |
+
+**Existing volumes and migrations.** Postgres runs `migrations/` only on a fresh volume. On a volume that
+predates a migration, apply every missing file in order with `psql -v ON_ERROR_STOP=1 -f`, then run the
+verification query from runbook step 4. After editing `nginx/default.conf`, run `nginx -s reload`
+(`docker compose exec nginx nginx -s reload`): the bind-mounted file is not re-read by `docker compose up`.
 
 ## Regenerating sqlc code
 
