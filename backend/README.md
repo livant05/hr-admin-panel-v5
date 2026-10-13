@@ -357,7 +357,7 @@ element ids are in `hr_admin_panel.html`.
 ### Manual checklist: ZKTeco screen (Configuracion > ZKTeco) and live feed
 
 Run after step 3 above as the seeded admin, with the Network tab open. Written before the code it
-tests (no JS harness for the screen; the cursor logic also has a node harness). Seed devices and
+tests (no JS harness for the screen; the cursor logic is covered by `node tools/zk-feed/harness.mjs`, which drives the real feed code against a fake endpoint). Seed devices and
 unknown PINs with SQL or the ADMS endpoint, and check the dev database has every migration first.
 
 - [ ] Real mode, devices: the table loads from `GET /api/zkteco_devices` (no `/rest/v1/` call), shows

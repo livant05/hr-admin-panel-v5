@@ -1397,16 +1397,15 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                   En el dispositivo → <em>Menú → Configuración → Comunicación → Servidor ADMS</em> (o similar según modelo):
                   <ol class="mb-0 mt-1">
                     <li>Activar <strong>Push Protocol / ADMS</strong></li>
-                    <li>Copiar la URL del servidor (abajo)</li>
-                    <li>Puerto: <strong>443</strong> · HTTPS: <strong>Sí</strong></li>
-                    <li>El dispositivo empezará a enviar marcadas automáticamente</li>
+                    <li>Copiar la dirección del servidor (abajo)</li>
+                    <li>Puerto y HTTPS (<strong>provisional</strong>, confirmar con el modelo del reloj): por defecto el servidor atiende HTTP en el puerto indicado en la dirección (80 si no aparece) y HTTPS: <strong>No</strong>; si se publica con TLS, usar 443 y HTTPS: <strong>Sí</strong></li>
+                    <li>El reloj aparecerá en <em>Relojes sin asignar</em> hasta que un administrador lo reclame</li>
                   </ol>
                 </div>
                 <div class="form-group">
-                  <label><strong>URL del Servidor ADMS</strong></label>
+                  <label><strong>Dirección del Servidor ADMS</strong> <small class="text-muted">(provisional)</small></label>
                   <div class="input-group input-group-sm">
-                    <input type="text" id="zk-server-url" class="form-control form-control-sm font-weight-bold" readonly
-                      value="https://swciybuhetkfrtpyjvgb.supabase.co/functions/v1/zkteco-adms">
+                    <input type="text" id="zk-server-url" class="form-control form-control-sm font-weight-bold" readonly value="">
                     <div class="input-group-append">
                       <button class="btn btn-outline-secondary btn-sm" onclick="copyZKUrl()"><i class="fas fa-copy"></i></button>
                     </div>
@@ -1420,7 +1419,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                     Asegurate de que el PIN configurado en el reloj coincida con la cédula registrada en el empleado.
                   </div>
                 </div>
-                <button class="btn btn-outline-success btn-sm btn-block" onclick="testZKConnection()"><i class="fas fa-plug mr-1"></i>Probar conexión Edge Function</button>
+                <button class="btn btn-outline-success btn-sm btn-block" id="zk-test-btn" onclick="testZKConnection()"><i class="fas fa-plug mr-1"></i>Probar conexión con el servidor</button>
               </div>
             </div>
 
@@ -1451,16 +1450,20 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
             </div>
 
             <div class="card mt-3">
-              <div class="card-header bg-dark"><h3 class="card-title text-white text-sm"><i class="fas fa-code mr-1"></i>Despliegue de la Edge Function</h3></div>
+              <div class="card-header"><h3 class="card-title"><i class="fas fa-inbox mr-1"></i>Relojes sin asignar</h3></div>
+              <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                  <thead class="thead-light"><tr><th>Número de Serie</th><th>Último contacto</th><th>Firmware</th><th></th></tr></thead>
+                  <tbody id="zk-unclaimed-tbody"><tr><td colspan="4" class="text-center text-muted p-3">Sin relojes pendientes de asignar</td></tr></tbody>
+                </table>
+              </div>
+              <div class="card-footer small text-muted">Un reloj nuevo se registra solo al contactar el servidor. Reclamarlo lo asigna a tu empresa.</div>
+            </div>
+
+            <div class="card mt-3">
+              <div class="card-header bg-dark"><h3 class="card-title text-white text-sm"><i class="fas fa-server mr-1"></i>Recepción de marcadas</h3></div>
               <div class="card-body small">
-                <ol class="mb-1">
-                  <li>Ir a <a href="https://supabase.com/dashboard/project/swciybuhetkfrtpyjvgb/functions" target="_blank">Supabase → Edge Functions</a></li>
-                  <li>Crear nueva función: <strong>zkteco-adms</strong></li>
-                  <li>Pegar el contenido de <code>supabase/functions/zkteco-adms/index.ts</code></li>
-                  <li>Hacer clic en <strong>Deploy</strong></li>
-                  <li>Ejecutar el SQL de <code>zkteco_tables.sql</code> en el SQL Editor</li>
-                </ol>
-                <div class="alert alert-secondary py-1 mb-0"><small>La función ya está en el repo: <code>supabase/functions/zkteco-adms/index.ts</code></small></div>
+                Los relojes envían las marcadas al servidor de la aplicación (ruta <code>/iclock/</code>, protocolo ADMS). La recepción se activa en la puesta en marcha del servidor; los detalles del protocolo y el puerto son provisionales hasta probarlos con un reloj real. Ver <code>backend/README.md</code>.
               </div>
             </div>
           </div>
@@ -1994,7 +1997,7 @@ var VARS = {
 // to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
 // localStorage['hr_go_tables'] instantly reverts any subset to Supabase
 // with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms', 'users', 'job_postings', 'candidates', 'applications'];
+var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms', 'users', 'job_postings', 'candidates', 'applications', 'zkteco_devices'];
 var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
 try {
   var _goOv = localStorage.getItem('hr_go_tables');
@@ -2337,7 +2340,7 @@ async function doReg() {
 }
 
 async function doLogout() {
-  await Supa.signOut(); A.session=null;
+  await Supa.signOut(); A.session=null; stopZKPolling();
   try{localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta');}catch(e){}
   ['employees','departments','positions','attendance_logs','leave_balances','leave_requests',
    'overtime_logs','deductions','payroll_history','liquidation_history','document_templates',
@@ -4103,64 +4106,103 @@ async function loadNotifications(){
 }
 
 // ════════════════ ZKTECO ══════════════════════════════════════
+// Real mode talks to the Go backend (zkteco_devices is in GO_TABLES). Demo mode
+// has no server: the screen shows its empty states and makes no request.
 var ZK_POLL_INTERVAL = null;
-var ZK_LAST_POLL = null;
+var ZK_DEV_CACHE = {};
 
+function zkSetServerUrl() {
+  var el = document.getElementById('zk-server-url');
+  if (el) el.value = location.host + '/iclock/';
+}
 
-async function loadZKTeco() {
-  // Load devices
-  var surl=A.url+'/rest/v1/zkteco_devices?select=*&order=last_seen.desc';
-  var res=await fetch(surl,{headers:Supa.hdr()});
-  var devices=await res.json();
-  var tb=document.getElementById('zk-devices-tbody');
-  if(tb){
-    if(Array.isArray(devices)&&devices.length){
-      var now=new Date();
-      tb.innerHTML=devices.map(function(d){
-        var last=d.last_seen?new Date(d.last_seen):null;
-        var diffMin=last?Math.floor((now-last)/60000):null;
-        var online=diffMin!==null&&diffMin<5;
-        var badge='<span class="badge badge-'+(online?'success':'secondary')+'">'+(online?'En línea':'Offline')+'</span>';
-        var ago=last?(diffMin<1?'Ahora':diffMin+'m atrás'):'—';
-        return '<tr id="zkrow-'+d.id+'">'
-          +'<td><code>'+escHtml(d.serial_number)+'</code></td>'
-          +'<td id="zk-name-'+d.id+'">'+(d.name?escHtml(d.name):'<small class="text-muted">Sin nombre</small>')+'</td>'
-          +'<td id="zk-loc-'+d.id+'">'+escHtml(d.location||'—')+'</td>'
-          +'<td><small>'+ago+'</small></td>'
-          +'<td>'+badge+'</td>'
-          +'<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\''+d.id+'\',\''+encodeURIComponent(d.name||'').replace(/'/g,'%27')+'\',\''+encodeURIComponent(d.location||'').replace(/'/g,'%27')+'\')"><i class="fas fa-pencil-alt"></i></button></td>'
-          +'</tr>';
-      }).join('');
-    } else {
-      tb.innerHTML='<tr><td colspan="5" class="text-center text-muted p-3">Sin relojes conectados aún.</td></tr>';
-    }
+function zkIsoShort(v) { return v ? new Date(v).toLocaleString('es-PA') : '—'; }
+
+function zkRenderDevices(devices) {
+  var tb = document.getElementById('zk-devices-tbody'); if (!tb) return;
+  ZK_DEV_CACHE = {};
+  if (!devices.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted p-3">Sin relojes conectados aún.</td></tr>';
+    return;
   }
-  // Load unknown PINs
-  var purl=A.url+'/rest/v1/zkteco_unknown_pins?select=*&resolved=eq.false&order=last_seen.desc&limit=20';
-  var pres=await fetch(purl,{headers:Supa.hdr()});
-  var pins=await pres.json();
-  var ptb=document.getElementById('zk-unknown-tbody');
-  if(ptb){
-    if(Array.isArray(pins)&&pins.length){
-      ptb.innerHTML=pins.map(function(p){
-        return '<tr><td><strong>'+escHtml(p.pin)+'</strong></td><td><small>'+escHtml(p.serial_number||'—')+'</small></td>'
-          +'<td><small>'+(p.last_seen?new Date(p.last_seen).toLocaleString('es-PA'):'—')+'</small></td>'
-          +'<td><span class="badge badge-warning">'+escHtml(p.attempts)+'</span></td></tr>';
-      }).join('');
-    } else {
-      ptb.innerHTML='<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
-    }
+  var now = new Date();
+  tb.innerHTML = devices.map(function(d){
+    ZK_DEV_CACHE[d.id] = d;
+    var last = d.last_seen ? new Date(d.last_seen) : null;
+    var diffMin = last ? Math.floor((now - last) / 60000) : null;
+    var online = diffMin !== null && diffMin < 5;
+    var badge = '<span class="badge badge-' + (online ? 'success' : 'secondary') + '">' + (online ? 'En línea' : 'Offline') + '</span>';
+    var ago = last ? (diffMin < 1 ? 'Ahora' : diffMin + 'm atrás') : '—';
+    var eid = escHtml(d.id);
+    return '<tr id="zkrow-' + eid + '">'
+      + '<td><code>' + escHtml(d.serial_number) + '</code></td>'
+      + '<td id="zk-name-' + eid + '">' + (d.name ? escHtml(d.name) : '<small class="text-muted">Sin nombre</small>') + '</td>'
+      + '<td id="zk-loc-' + eid + '">' + escHtml(d.location || '—') + '</td>'
+      + '<td><small>' + ago + '</small></td>'
+      + '<td>' + badge + '</td>'
+      + '<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\'' + eid + '\')"><i class="fas fa-pencil-alt"></i></button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// Admin-only lists: a 403 shows the role message in place of the table.
+function zkRenderPins(pins, err) {
+  var ptb = document.getElementById('zk-unknown-tbody'); if (!ptb) return;
+  if (err) {
+    ptb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">' + escHtml(apiErrMsg(err, 'No se pudieron cargar los PINs', {forbidden:'Solo administradores'})) + '</td></tr>';
+  } else if (pins.length) {
+    ptb.innerHTML = pins.map(function(p){
+      return '<tr><td><strong>' + escHtml(p.pin) + '</strong></td><td><small>' + escHtml(p.serial_number || '—') + '</small></td>'
+        + '<td><small>' + escHtml(zkIsoShort(p.last_seen)) + '</small></td>'
+        + '<td><span class="badge badge-warning">' + escHtml(p.attempts) + '</span></td></tr>';
+    }).join('');
+  } else {
+    ptb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
   }
 }
 
-function editZKDevice(id, encName, encLoc) {
-  var name = decodeURIComponent(encName);
-  var loc = decodeURIComponent(encLoc);
-  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+escHtml(name)+'" style="min-width:100px">';
-  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+escHtml(loc)+'" style="min-width:100px">';
+function zkRenderUnclaimed(rows, err) {
+  var tb = document.getElementById('zk-unclaimed-tbody'); if (!tb) return;
+  if (err) {
+    tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">' + escHtml(apiErrMsg(err, 'No se pudieron cargar los relojes sin asignar', {forbidden:'Solo administradores'})) + '</td></tr>';
+  } else if (rows.length) {
+    tb.innerHTML = rows.map(function(d){
+      var eid = escHtml(d.id);
+      return '<tr><td><code>' + escHtml(d.serial_number) + '</code></td>'
+        + '<td><small>' + escHtml(zkIsoShort(d.last_seen)) + '</small></td>'
+        + '<td><small>' + escHtml(d.firmware_version || '—') + '</small></td>'
+        + '<td><button class="btn btn-xs btn-success" id="zk-claim-' + eid + '" onclick="claimZKDevice(\'' + eid + '\')"><i class="fas fa-hand-pointer mr-1"></i>Reclamar</button></td></tr>';
+    }).join('');
+  } else {
+    tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">Sin relojes pendientes de asignar</td></tr>';
+  }
+}
+
+async function loadZKTeco() {
+  zkSetServerUrl();
+  if (A.demo) { zkRenderDevices([]); zkRenderPins([], null); zkRenderUnclaimed([], null); return; }
+  var res = await recRequest('zk:load', null, function(){
+    return Promise.all([
+      Supa.selAll('zkteco_devices'),
+      Supa.goFetch('/api/zkteco_unknown_pins' + Supa.gq({resolved:false, _limit:20})),
+      Supa.goFetch('/api/zkteco_devices/unclaimed' + Supa.gq({_limit:50}))
+    ]);
+  });
+  if (!res) return; // a load is already in flight
+  if (!Array.isArray(res)) { toast(apiErrMsg(res.error, 'No se pudieron cargar los relojes'), 'danger'); return; }
+  if (Array.isArray(res[0])) zkRenderDevices(res[0]);
+  else toast(apiErrMsg(res[0] && res[0].error, 'No se pudieron cargar los relojes'), 'danger');
+  zkRenderPins(Array.isArray(res[1]) ? res[1] : [], Array.isArray(res[1]) ? null : (res[1] && res[1].error) || {});
+  zkRenderUnclaimed(Array.isArray(res[2]) ? res[2] : [], Array.isArray(res[2]) ? null : (res[2] && res[2].error) || {});
+}
+
+function editZKDevice(id) {
+  var d = ZK_DEV_CACHE[id] || {};
+  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+escHtml(d.name||'')+'" style="min-width:100px">';
+  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+escHtml(d.location||'')+'" style="min-width:100px">';
   var row = document.getElementById('zkrow-'+id);
   var lastTd = row.querySelector('td:last-child');
-  lastTd.innerHTML = '<button class="btn btn-xs btn-success mr-1" onclick="saveZKDevice(\''+id+'\')"><i class="fas fa-check"></i></button>'
+  lastTd.innerHTML = '<button class="btn btn-xs btn-success mr-1" id="zk-save-'+id+'" onclick="saveZKDevice(\''+id+'\')"><i class="fas fa-check"></i></button>'
     +'<button class="btn btn-xs btn-secondary" onclick="loadZKTeco()"><i class="fas fa-times"></i></button>';
 }
 
@@ -4169,63 +4211,171 @@ async function saveZKDevice(id) {
   var locEl = document.getElementById('zk-loc-input-'+id);
   if (!nameEl) return;
   var body = { name: nameEl.value.trim() || null, location: locEl ? (locEl.value.trim() || null) : null };
-  var res = await fetch(A.url+'/rest/v1/zkteco_devices?id=eq.'+id, {
-    method: 'PATCH',
-    headers: Object.assign({'Prefer': 'return=minimal'}, Supa.hdr()),
-    body: JSON.stringify(body)
+  var r = await recRequest('zk:save:'+id, 'zk-save-'+id, function(){ return Supa.upd('zkteco_devices', id, body); });
+  if (!r) return;
+  if (r.error) { toast(apiErrMsg(r.error, 'No se pudo guardar el reloj', {notFound:'El reloj ya no existe'}), 'danger'); return; }
+  toast('Reloj actualizado'); loadZKTeco();
+}
+
+async function claimZKDevice(id) {
+  if (!confirm('¿Reclamar este reloj para tu empresa?')) return;
+  var r = await recRequest('zk:claim:'+id, 'zk-claim-'+id, function(){
+    return Supa.goFetch('/api/zkteco_devices/'+encodeURIComponent(id)+'/claim', {method:'POST'});
   });
-  if (res.ok) { toast('Reloj actualizado'); loadZKTeco(); }
-  else { toast('Error al guardar', 'danger'); }
+  if (!r) return;
+  if (r.error) {
+    toast(apiErrMsg(r.error, 'No se pudo reclamar el reloj', {forbidden:'Solo administradores', notFound:'El reloj ya fue reclamado o no existe'}), 'danger');
+    if (r.error.code === 'not_found') loadZKTeco();
+    return;
+  }
+  toast('Reloj reclamado'); loadZKTeco();
 }
 
 function copyZKUrl() {
   var el=document.getElementById('zk-server-url');
-  if(el){ navigator.clipboard.writeText(el.value).then(function(){ toast('URL copiada al portapapeles'); }); }
+  if(el){ navigator.clipboard.writeText(el.value).then(function(){ toast('Dirección copiada al portapapeles'); }); }
 }
 
+// Read-only reachability check: one GET to the public health route, no writes.
 async function testZKConnection() {
-  var url='https://swciybuhetkfrtpyjvgb.supabase.co/functions/v1/zkteco-adms';
+  if (A.demo) { toast('La prueba de conexión no está disponible en modo demo', 'info'); return; }
+  var r = await recRequest('zk:test', 'zk-test-btn', function(){ return Supa.goFetch('/api/health'); });
+  if (!r) return;
+  if (r.error) { toast(apiErrMsg(r.error, 'No se pudo conectar con el servidor'), 'danger'); return; }
+  if (r.status === 'ok') toast('El servidor responde correctamente');
+  else toast('Respuesta inesperada del servidor', 'warning');
+}
+
+// ── Live feed ─────────────────────────────────────────────────────────────
+// Cursor over attendance_logs (README "Attendance: created_after and ordering").
+// Each poll asks for created_at > maxSeen - OVERLAP, oldest first, in pages of
+// ZK_FEED_PAGE until a short page. The overlap re-reads rows that committed late
+// with an older created_at; the seen-set (by id) keeps them from showing twice.
+// The pure functions take their dependencies as arguments so a node harness can
+// drive them without a browser.
+var ZK_FEED_OVERLAP_MS = 120000;
+var ZK_FEED_PAGE = 200;
+var ZK_FEED_MAX_PAGES = 50;
+var ZK_FEED_SEEN_CAP = 5000;
+var ZK_FEED_TOAST_MAX = 5;
+
+function zkFeedNew() { return {maxSeen:0, seen:{}, ready:false, busy:false}; }
+var ZK_FEED = zkFeedNew();
+
+function zkFeedCutoff(st) { return new Date(st.maxSeen - ZK_FEED_OVERLAP_MS).toISOString(); }
+
+// Returns the rows not seen before and advances maxSeen from every row.
+function zkFeedAccept(st, rows) {
+  var fresh = [];
+  rows.forEach(function(r){
+    if (!r || !r.id) return;
+    var ms = Date.parse(r.created_at);
+    if (isNaN(ms)) ms = st.maxSeen;
+    if (ms > st.maxSeen) st.maxSeen = ms;
+    if (Object.prototype.hasOwnProperty.call(st.seen, r.id)) return;
+    st.seen[r.id] = ms;
+    fresh.push(r);
+  });
+  return fresh;
+}
+
+// Drops ids the next poll can no longer return (created_at <= its cutoff), then
+// enforces the hard cap by discarding the oldest.
+function zkFeedPrune(st) {
+  var floor = st.maxSeen - ZK_FEED_OVERLAP_MS;
+  var ids = Object.keys(st.seen);
+  ids.forEach(function(id){ if (st.seen[id] <= floor) delete st.seen[id]; });
+  ids = Object.keys(st.seen);
+  if (ids.length > ZK_FEED_SEEN_CAP) {
+    ids.sort(function(a, b){ return st.seen[a] - st.seen[b]; });
+    ids.slice(0, ids.length - ZK_FEED_SEEN_CAP).forEach(function(id){ delete st.seen[id]; });
+  }
+}
+
+// fetchPage(cutoffIso, offset) resolves to an array of rows or an {error}.
+async function zkFeedRun(st, fetchPage) {
+  var cutoff = zkFeedCutoff(st), fresh = [], offset = 0;
+  for (var i = 0; i < ZK_FEED_MAX_PAGES; i++) {
+    var page = await fetchPage(cutoff, offset);
+    if (!Array.isArray(page)) return {error: (page && page.error) || {}, fresh: fresh};
+    fresh = fresh.concat(zkFeedAccept(st, page));
+    if (page.length < ZK_FEED_PAGE) break;
+    offset += ZK_FEED_PAGE;
+  }
+  zkFeedPrune(st);
+  return {fresh: fresh};
+}
+
+// Learns the starting point from the newest row; nothing is shown for it. An
+// empty table starts at the epoch, so the first real row is always newer.
+async function zkFeedSeed(st, fetchNewest) {
+  var rows = await fetchNewest();
+  if (!Array.isArray(rows)) return {error: (rows && rows.error) || {}};
+  st.maxSeen = 0;
+  zkFeedAccept(st, rows.slice(0, 1));
+  return {};
+}
+
+function zkFeedFetchNewest() {
+  return Supa.goFetch('/api/attendance_logs' + Supa.gq({_order:'created_at.desc', _limit:1}));
+}
+function zkFeedFetchPage(cutoff, offset) {
+  return Supa.goFetch('/api/attendance_logs' + Supa.gq({created_after:cutoff, _order:'created_at.asc', _limit:ZK_FEED_PAGE, _offset:offset}));
+}
+
+function zkFeedNotify(rows) {
+  if (!rows.length) return;
+  var shown = rows.slice(-ZK_FEED_TOAST_MAX);
+  if (rows.length > shown.length) toast('+' + (rows.length - shown.length) + ' marcadas anteriores', 'info');
+  shown.forEach(function(r){
+    toast('<i class="fas fa-fingerprint mr-1"></i>'+escHtml(r.employee_name)+' — '+escHtml(r.time_in||'marcó'),'success',true);
+  });
+  loadAttendance(); // refresh today's list
+}
+
+// One tick: seed (and silently read the overlap window, so rows already in it do
+// not toast) until ready, then poll. Failures are silent and retried next tick.
+async function zkFeedTick(visibleOnly) {
+  if (A.demo) return;
+  var st = ZK_FEED;
+  if (st.busy) return;
+  if (st.ready && visibleOnly) {
+    var attPage = document.getElementById('pg-attendance');
+    if (!attPage || !attPage.classList.contains('active')) return;
+  }
+  st.busy = true;
   try {
-    var res=await fetch(url+'?SN=TEST&options=all');
-    if(res.ok){
-      var text=await res.text();
-      if(text.includes('GET OPTION')||text.includes('OK')) toast('Edge Function responde correctamente');
-      else toast('Respuesta inesperada: '+text.slice(0,50),'warning');
-    } else {
-      toast('Error HTTP '+res.status+' — ¿desplegaste la Edge Function?','warning');
+    if (!st.ready) {
+      var seeded = await zkFeedSeed(st, zkFeedFetchNewest);
+      if (seeded.error) return;
+      var primed = await zkFeedRun(st, zkFeedFetchPage);
+      if (primed.error) return;
+      st.ready = true;
+      return;
     }
-  } catch(err) {
-    toast('No se pudo conectar: '+err.message,'danger');
+    var r = await zkFeedRun(st, zkFeedFetchPage);
+    // Rows of the pages read before a failure are already in the seen-set, so
+    // they are shown now; the failed remainder is re-read on the next tick.
+    if (ZK_FEED === st) zkFeedNotify(r.fresh);
+  } catch (e) {
+    /* network error: keep the cursor, retry on the next tick */
+  } finally {
+    st.busy = false;
   }
 }
 
 // Realtime polling for attendance (ZKTeco live updates)
 function startZKPolling() {
   if(ZK_POLL_INTERVAL) return; // already running
-  ZK_LAST_POLL=new Date();
   var badge=document.getElementById('zk-live-badge'); if(badge) badge.style.display='';
-  ZK_POLL_INTERVAL=setInterval(async function(){
-    // Only poll when attendance page is visible
-    var attPage=document.getElementById('pg-attendance');
-    if(!attPage||attPage.style.display==='none') return;
-    // Fetch attendance records created after last poll
-    var since=ZK_LAST_POLL.toISOString();
-    ZK_LAST_POLL=new Date();
-    var url=A.url+'/rest/v1/attendance_logs?select=employee_name,time_in,time_out,status&created_at=gt.'+encodeURIComponent(since)+'&order=created_at.desc&limit=5';
-    var res=await fetch(url,{headers:Supa.hdr()}).catch(function(){return null;});
-    if(!res) return;
-    var rows=await res.json().catch(function(){return [];});
-    if(Array.isArray(rows)&&rows.length){
-      rows.forEach(function(r){
-        toast('<i class="fas fa-fingerprint mr-1"></i>'+escHtml(r.employee_name)+' — '+escHtml(r.time_in||'marcó'),'success',true);
-      });
-      loadAttendance(); // refresh today's list
-    }
-  }, 30000); // every 30 seconds
+  zkFeedTick(false);
+  ZK_POLL_INTERVAL=setInterval(function(){ zkFeedTick(true); }, 30000); // every 30 seconds
 }
 
 function stopZKPolling() {
   if(ZK_POLL_INTERVAL){ clearInterval(ZK_POLL_INTERVAL); ZK_POLL_INTERVAL=null; }
+  ZK_FEED = zkFeedNew(); // a new session starts from a fresh cursor and seen-set
+  var badge=document.getElementById('zk-live-badge'); if(badge) badge.style.display='none';
 }
 
 // ════════════════ SETTINGS ═══════════════════════════════════
