@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -134,6 +135,12 @@ func (a *API) ListJobPostings(w http.ResponseWriter, r *http.Request) {
 	id, err := optionalUUIDFilter(p.Filters["id"])
 	if err != nil {
 		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid id")
+		return
+	}
+	// Same rule as the applications stage filter: a present status must be a
+	// known value, so an empty ?status= is rejected instead of listing all.
+	if s, present := p.Filters["status"]; present && !jobStatusValid(s) {
+		writeFieldErr(w, map[string]string{"status": "must be one of open, paused, closed"})
 		return
 	}
 
@@ -287,16 +294,13 @@ func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tx, err := a.Pool.Begin(r.Context())
-	if err != nil {
-		a.Log.Error("update job posting begin tx", "err", err)
-		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+	tx, q, ok := a.beginRecruitmentTx(w, r, "update job posting")
+	if !ok {
 		return
 	}
 	defer tx.Rollback(r.Context())
-	q := a.Queries.WithTx(tx)
 
-	cur, err := q.GetJobPostingForUpdate(r.Context(), db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id})
+	cur, err := q.GetJobPostingForMerge(r.Context(), db.GetJobPostingForMergeParams{CompanyID: companyID, ID: id})
 	if err != nil {
 		a.writeDBErr(w, err, "update job posting")
 		return
@@ -324,69 +328,29 @@ func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update job posting")
 		return
 	}
-	if err := tx.Commit(r.Context()); err != nil {
-		a.Log.Error("update job posting commit tx", "err", err)
-		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+	if !a.commitRecruitmentTx(w, r, tx, "update job posting") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.JobPosting{row})
 }
 
-// DELETE /api/job_postings/{id} — RESTRICT that the schema cannot express:
-// applications reference the posting with ON DELETE CASCADE, which would
-// silently destroy pipeline history, so the delete is 409 while any application
-// still points at it (REC-4). The posting row is locked first: an application
-// insert in flight holds a key-share lock on it, so the delete waits for that
-// insert and then sees (and counts) it instead of cascading it away.
+// DELETE /api/job_postings/{id} — 409 while any application still references
+// the posting (REC-4); see guardedDelete for the lock discipline.
 func (a *API) DeleteJobPosting(w http.ResponseWriter, r *http.Request) {
-	companyID, ok := a.tenant(w, r)
-	if !ok {
-		return
-	}
-
-	id, err := stringToUUID(r.PathValue("id"))
-	if err != nil {
-		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
-		return
-	}
-
-	tx, err := a.Pool.Begin(r.Context())
-	if err != nil {
-		a.Log.Error("delete job posting begin tx", "err", err)
-		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
-		return
-	}
-	defer tx.Rollback(r.Context())
-	q := a.Queries.WithTx(tx)
-
-	if _, err := q.GetJobPostingForUpdate(r.Context(), db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id}); err != nil {
-		a.writeDBErr(w, err, "delete job posting")
-		return
-	}
-	n, err := q.CountApplicationsForJobPosting(r.Context(), id)
-	if err != nil {
-		a.writeDBErr(w, err, "delete job posting")
-		return
-	}
-	if n > 0 {
-		writeErrCode(w, http.StatusConflict, codeConflict,
-			fmt.Sprintf("%d postulación(es) siguen asociadas a esta vacante", n))
-		return
-	}
-
-	affected, err := q.DeleteJobPosting(r.Context(), db.DeleteJobPostingParams{CompanyID: companyID, ID: id})
-	if err != nil {
-		a.writeDBErr(w, err, "delete job posting")
-		return
-	}
-	if affected == 0 {
-		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
-		return
-	}
-	if err := tx.Commit(r.Context()); err != nil {
-		a.Log.Error("delete job posting commit tx", "err", err)
-		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	a.deleteGuarded(w, r, guardedDelete{
+		op: "delete job posting",
+		lock: func(ctx context.Context, q *db.Queries, companyID, id pgtype.UUID) error {
+			_, err := q.GetJobPostingForUpdate(ctx, db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id})
+			return err
+		},
+		count: func(ctx context.Context, q *db.Queries, id pgtype.UUID) (int64, error) {
+			return q.CountApplicationsForJobPosting(ctx, id)
+		},
+		remove: func(ctx context.Context, q *db.Queries, companyID, id pgtype.UUID) (int64, error) {
+			return q.DeleteJobPosting(ctx, db.DeleteJobPostingParams{CompanyID: companyID, ID: id})
+		},
+		conflict: func(n int64) string {
+			return fmt.Sprintf("%d postulación(es) siguen asociadas a esta vacante", n)
+		},
+	})
 }

@@ -122,6 +122,41 @@ func (q *Queries) GetJobPosting(ctx context.Context, arg GetJobPostingParams) (J
 	return i, err
 }
 
+const getJobPostingForMerge = `-- name: GetJobPostingForMerge :one
+SELECT id, company_id, title, department, location, description, requirements,
+  salary_min, salary_max, status, created_at
+FROM job_postings
+WHERE id = $2 AND company_id = $1
+FOR NO KEY UPDATE
+`
+
+type GetJobPostingForMergeParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+// PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+// does not block application inserts: the PATCH never changes the key.
+func (q *Queries) GetJobPostingForMerge(ctx context.Context, arg GetJobPostingForMergeParams) (JobPosting, error) {
+	row := q.db.QueryRow(ctx, getJobPostingForMerge, arg.CompanyID, arg.ID)
+	var i JobPosting
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Title,
+		&i.Department,
+		&i.Location,
+		&i.Description,
+		&i.Requirements,
+		&i.SalaryMin,
+		&i.SalaryMax,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getJobPostingForUpdate = `-- name: GetJobPostingForUpdate :one
 SELECT id, company_id, title, department, location, description, requirements,
   salary_min, salary_max, status, created_at
@@ -135,8 +170,9 @@ type GetJobPostingForUpdateParams struct {
 	ID        pgtype.UUID `json:"id"`
 }
 
-// Row lock: serializes PATCH merges, and DELETE against concurrent application
-// inserts (their FK check takes FOR KEY SHARE on this row, which this lock blocks).
+// DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+// insert takes on this row (FK check), so a delete waits for an in-flight insert
+// and then counts it instead of cascading it away.
 func (q *Queries) GetJobPostingForUpdate(ctx context.Context, arg GetJobPostingForUpdateParams) (JobPosting, error) {
 	row := q.db.QueryRow(ctx, getJobPostingForUpdate, arg.CompanyID, arg.ID)
 	var i JobPosting

@@ -23,13 +23,24 @@ RETURNING id, company_id, title, department, location, description, requirements
   salary_min, salary_max, status, created_at;
 
 -- name: GetJobPostingForUpdate :one
--- Row lock: serializes PATCH merges, and DELETE against concurrent application
--- inserts (their FK check takes FOR KEY SHARE on this row, which this lock blocks).
+-- DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+-- insert takes on this row (FK check), so a delete waits for an in-flight insert
+-- and then counts it instead of cascading it away.
 SELECT id, company_id, title, department, location, description, requirements,
   salary_min, salary_max, status, created_at
 FROM job_postings
 WHERE id = $2 AND company_id = $1
 FOR UPDATE;
+
+-- name: GetJobPostingForMerge :one
+-- PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+-- PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+-- does not block application inserts: the PATCH never changes the key.
+SELECT id, company_id, title, department, location, description, requirements,
+  salary_min, salary_max, status, created_at
+FROM job_postings
+WHERE id = $2 AND company_id = $1
+FOR NO KEY UPDATE;
 
 -- name: UpdateJobPosting :one
 UPDATE job_postings SET

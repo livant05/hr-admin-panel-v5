@@ -423,6 +423,14 @@ type ZktecoDevice struct {
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
+type ZktecoIngestRejection struct {
+	SerialNumber string             `json:"serial_number"`
+	Reason       string             `json:"reason"`
+	Count        int64              `json:"count"`
+	LastPin      pgtype.Text        `json:"last_pin"`
+	LastSeen     pgtype.Timestamptz `json:"last_seen"`
+}
+
 type ZktecoUnknownPin struct {
 	ID           pgtype.UUID        `json:"id"`
 	Pin          string             `json:"pin"`
