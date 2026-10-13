@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -135,6 +137,12 @@ func (a *API) ListJobPostings(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid id")
 		return
 	}
+	// Same rule as the applications stage filter: a present status must be a
+	// known value, so an empty ?status= is rejected instead of listing all.
+	if s, present := p.Filters["status"]; present && !jobStatusValid(s) {
+		writeFieldErr(w, map[string]string{"status": "must be one of open, paused, closed"})
+		return
+	}
 
 	rows, err := a.Queries.ListJobPostings(r.Context(), db.ListJobPostingsParams{
 		CompanyID: companyID, // $1 — from ctx, never from a query param
@@ -195,4 +203,154 @@ func (a *API) CreateJobPosting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeRows(w, http.StatusCreated, []db.JobPosting{row})
+}
+
+// decodeRecruitmentPatch is decodeRecruitmentBody plus the set of keys the
+// client actually sent, so an absent field (keep) can be told from an explicit
+// null (clear). Unknown fields are still a 400.
+func decodeRecruitmentPatch(w http.ResponseWriter, r *http.Request, dst any) (map[string]json.RawMessage, bool) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRecruitmentBody))
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return nil, false
+	}
+	var sent map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &sent); err != nil || sent == nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return nil, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(dst); err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return nil, false
+	}
+	return sent, true
+}
+
+// mergeJobPosting overlays the sent fields on the stored row, so a PATCH is
+// validated as the full posting it will become (the salary ordering rule
+// holds against a stored salary the body did not repeat).
+func mergeJobPosting(cur db.JobPosting, req jobPostingFields, sent map[string]json.RawMessage) jobPostingFields {
+	merged := jobPostingFields{
+		Title:        cur.Title,
+		Department:   cur.Department,
+		Location:     cur.Location,
+		Description:  cur.Description,
+		Requirements: cur.Requirements,
+		Status:       cur.Status,
+	}
+	merged.SalaryMin, _ = json.Marshal(cur.SalaryMin)
+	merged.SalaryMax, _ = json.Marshal(cur.SalaryMax)
+
+	has := func(k string) bool { _, ok := sent[k]; return ok }
+	if has("title") {
+		merged.Title = req.Title
+	}
+	if has("department") {
+		merged.Department = req.Department
+	}
+	if has("location") {
+		merged.Location = req.Location
+	}
+	if has("description") {
+		merged.Description = req.Description
+	}
+	if has("requirements") {
+		merged.Requirements = req.Requirements
+	}
+	if has("salary_min") {
+		merged.SalaryMin = req.SalaryMin
+	}
+	if has("salary_max") {
+		merged.SalaryMax = req.SalaryMax
+	}
+	if has("status") {
+		merged.Status = req.Status
+		if !req.Status.Valid {
+			// An explicit null must not silently fall back to the create default.
+			merged.Status = pgtype.Text{Valid: true}
+		}
+	}
+	return merged
+}
+
+// PATCH /api/job_postings/{id} — partial update; returns a one-element array.
+func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	var req jobPostingFields
+	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	if !ok {
+		return
+	}
+
+	tx, q, ok := a.beginRecruitmentTx(w, r, "update job posting")
+	if !ok {
+		return
+	}
+	defer tx.Rollback(r.Context())
+
+	cur, err := q.GetJobPostingForMerge(r.Context(), db.GetJobPostingForMergeParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		a.writeDBErr(w, err, "update job posting")
+		return
+	}
+
+	v, fields := validateJobPosting(mergeJobPosting(cur, req, sent))
+	if len(fields) > 0 {
+		writeFieldErr(w, fields)
+		return
+	}
+
+	row, err := q.UpdateJobPosting(r.Context(), db.UpdateJobPostingParams{
+		CompanyID:    companyID,
+		ID:           id,
+		Title:        v.Title,
+		Department:   v.Department,
+		Location:     v.Location,
+		Description:  v.Description,
+		Requirements: v.Requirements,
+		SalaryMin:    v.SalaryMin,
+		SalaryMax:    v.SalaryMax,
+		Status:       v.Status,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "update job posting")
+		return
+	}
+	if !a.commitRecruitmentTx(w, r, tx, "update job posting") {
+		return
+	}
+	writeRows(w, http.StatusOK, []db.JobPosting{row})
+}
+
+// DELETE /api/job_postings/{id} — 409 while any application still references
+// the posting (REC-4); see guardedDelete for the lock discipline.
+func (a *API) DeleteJobPosting(w http.ResponseWriter, r *http.Request) {
+	a.deleteGuarded(w, r, guardedDelete{
+		op: "delete job posting",
+		lock: func(ctx context.Context, q *db.Queries, companyID, id pgtype.UUID) error {
+			_, err := q.GetJobPostingForUpdate(ctx, db.GetJobPostingForUpdateParams{CompanyID: companyID, ID: id})
+			return err
+		},
+		count: func(ctx context.Context, q *db.Queries, id pgtype.UUID) (int64, error) {
+			return q.CountApplicationsForJobPosting(ctx, id)
+		},
+		remove: func(ctx context.Context, q *db.Queries, companyID, id pgtype.UUID) (int64, error) {
+			return q.DeleteJobPosting(ctx, db.DeleteJobPostingParams{CompanyID: companyID, ID: id})
+		},
+		conflict: func(n int64) string {
+			return fmt.Sprintf("%d postulación(es) siguen asociadas a esta vacante", n)
+		},
+	})
 }
