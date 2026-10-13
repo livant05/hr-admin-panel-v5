@@ -65,6 +65,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// D12: production must not run while the seed admin (known password) is
+	// active. The runbook deletes it before the import; this is the backstop.
+	if err := checkSeedGuard(connCtx, os.Getenv("APP_ENV"), pool); err != nil {
+		if errors.Is(err, errSeedCredentialActive) {
+			log.Error("seed credential active: delete the seed admin user before starting with APP_ENV=production (docs/cutover-runbook.md)")
+		} else {
+			log.Error("seed credential check failed", "err", err)
+		}
+		os.Exit(1)
+	}
+
 	signer := auth.NewSigner(jwtSecret, 24*time.Hour)
 	api := handlers.New(pool, signer, log)
 	api.AuthLimiter = ratelimit.New(rates.AuthPerMin, rates.AuthPerMin)
