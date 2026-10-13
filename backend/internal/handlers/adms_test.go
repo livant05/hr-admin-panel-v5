@@ -3,16 +3,19 @@ package handlers_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/auth"
@@ -134,8 +137,13 @@ func unknownPinAttempts(t *testing.T, pool *pgxpool.Pool, sn, pin string) (attem
 	t.Helper()
 	err := pool.QueryRow(context.Background(),
 		`SELECT attempts FROM zkteco_unknown_pins WHERE serial_number = $1 AND pin = $2`, sn, pin).Scan(&attempts)
-	if err != nil {
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
 		return 0, false
+	case err != nil:
+		// Any other failure (dropped column, closed pool, bad schema) must not
+		// read as "no such pin", or every absence assertion passes vacuously.
+		t.Fatalf("read unknown pin attempts for %s/%s: %v", sn, pin, err)
 	}
 	return attempts, true
 }
@@ -238,14 +246,20 @@ func TestADMS_HeartbeatSelfRegistersAndNeverChangesOwner(t *testing.T) {
 			"unicode":   "S%C3%91N",
 		}
 		for name, sn := range bad {
+			// The serial as the server decodes it: the no-write check below
+			// must look for exactly this value, whatever characters it holds.
+			decoded, err := url.QueryUnescape(sn)
+			if err != nil {
+				t.Fatalf("%s: bad fixture %q: %v", name, sn, err)
+			}
 			for _, target := range []string{admsPath, admsGetPath} {
-				url := target
+				u := target
 				if name != "missing" {
-					url += "?SN=" + sn
+					u += "?SN=" + sn
 				}
-				rec := env.do(http.MethodGet, url, "")
+				rec := env.do(http.MethodGet, u, "")
 				if rec.Code != http.StatusBadRequest {
-					t.Fatalf("%s GET %s got %d, want 400", name, url, rec.Code)
+					t.Fatalf("%s GET %s got %d, want 400", name, u, rec.Code)
 				}
 				if code := testutil.ErrCode(t, rec); code != "bad_request" {
 					t.Fatalf("%s: error.code = %q, want bad_request", name, code)
@@ -255,6 +269,11 @@ func TestADMS_HeartbeatSelfRegistersAndNeverChangesOwner(t *testing.T) {
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("%s POST got %d, want 400", name, rec.Code)
 			}
+			if name != "missing" {
+				if n := deviceCount(t, pool, decoded); n != 0 {
+					t.Fatalf("%s: rejected serial %q created %d device rows", name, decoded, n)
+				}
+			}
 		}
 		// The longest valid serial (64) is accepted, so the boundary is exact.
 		long := "S" + strings.Repeat("9", 63)
@@ -263,11 +282,6 @@ func TestADMS_HeartbeatSelfRegistersAndNeverChangesOwner(t *testing.T) {
 		})
 		if env.do(http.MethodGet, admsPath+"?SN="+long, "").Code != http.StatusOK || deviceCount(t, pool, long) != 1 {
 			t.Fatal("a 64 character serial must be accepted")
-		}
-		var junk int
-		if err := pool.QueryRow(context.Background(),
-			`SELECT count(*) FROM zkteco_devices WHERE serial_number LIKE 'AB%' AND created_at > now() - interval '1 minute' AND serial_number ~ '[ ;/]'`).Scan(&junk); err != nil || junk != 0 {
-			t.Fatalf("a malformed serial created %d rows (err=%v)", junk, err)
 		}
 	})
 }
@@ -330,8 +344,10 @@ func TestADMS_TenantScopedCedulaResolution(t *testing.T) {
 			t.Fatalf("unknown pin attempts = %d exists=%v, want 1 / true", n, ok)
 		}
 		logs := env.logs.String()
-		if !strings.Contains(logs, "tenant_mismatch") {
-			t.Fatalf("the distinction must appear in the server log, got %s", logs)
+		// The key is logged on every batch (with 0 when nothing crossed a
+		// tenant), so only the exact count proves the lookup detected it.
+		if !strings.Contains(logs, `"tenant_mismatch":1`) {
+			t.Fatalf("the distinction must appear in the server log as tenant_mismatch=1, got %s", logs)
 		}
 		if strings.Contains(logs, pin) {
 			t.Fatalf("the log line leaks the cedula: %s", logs)
@@ -347,8 +363,8 @@ func TestADMS_TenantScopedCedulaResolution(t *testing.T) {
 		if n, ok := unknownPinAttempts(t, pool, sn, pin); !ok || n != 1 {
 			t.Fatalf("unknown pin attempts = %d exists=%v", n, ok)
 		}
-		if strings.Contains(env.logs.String(), `"tenant_mismatch":1`) {
-			t.Fatalf("nothing crossed a tenant here: %s", env.logs.String())
+		if !strings.Contains(env.logs.String(), `"tenant_mismatch":0`) {
+			t.Fatalf("nothing crossed a tenant here, want tenant_mismatch=0 in %s", env.logs.String())
 		}
 	})
 

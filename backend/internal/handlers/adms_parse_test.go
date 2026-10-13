@@ -2,8 +2,8 @@ package handlers
 
 import (
 	"fmt"
+	"iter"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -182,26 +182,63 @@ func TestParseATTLOG_LineCap(t *testing.T) {
 	}
 }
 
-// TestParseATTLOG_StopsScanningAtTheCap pins CO-S5a-6: a body far beyond the
-// cap is abandoned as soon as the cap is exceeded, instead of being split
-// into one string per line first. The body is 1,000,000 short lines; splitting
-// it would allocate a 16 MB slice of line headers alone, while the early stop
-// stays within the first 10,001 lines.
-func TestParseATTLOG_StopsScanningAtTheCap(t *testing.T) {
-	body := strings.Repeat("x\n", 1_000_000)
-
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	punches, rejects, tooMany := parseATTLOG(body)
-	runtime.ReadMemStats(&after)
-
-	if !tooMany || punches != nil || rejects != nil {
-		t.Fatalf("tooMany=%v punches=%d rejects=%d, want tooMany and nothing to process", tooMany, len(punches), len(rejects))
+// countingLines is an endless source of garbage lines that records how many
+// of them the parser pulled. It makes the cap observable without sampling
+// process-wide allocation counters: a parser that materialized or kept
+// scanning past the cap would pull far more than maxATTLOGLines+1 lines.
+func countingLines(total int, pulled *int) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for i := 0; i < total; i++ {
+			*pulled++
+			if !yield("x") {
+				return
+			}
+		}
 	}
-	const budget = 4 << 20
-	if got := after.TotalAlloc - before.TotalAlloc; got > budget {
-		t.Fatalf("parsing allocated %d bytes, want under %d: the body is being split before the cap applies", got, budget)
+}
+
+// TestParseATTLOGLines_StopsScanningAtTheCap pins CO-S5a-6 deterministically:
+// a source far beyond the cap is abandoned as soon as the cap is exceeded
+// (line maxATTLOGLines+1), never read to the end.
+func TestParseATTLOGLines_StopsScanningAtTheCap(t *testing.T) {
+	t.Run("a source of a million lines is abandoned right after the cap", func(t *testing.T) {
+		var pulled int
+		punches, rejects, tooMany := parseATTLOGLines(countingLines(1_000_000, &pulled))
+		if !tooMany || punches != nil || rejects != nil {
+			t.Fatalf("tooMany=%v punches=%d rejects=%d, want tooMany and nothing to process", tooMany, len(punches), len(rejects))
+		}
+		if pulled != maxATTLOGLines+1 {
+			t.Fatalf("pulled %d lines, want exactly %d: scanning must stop at the first line over the cap", pulled, maxATTLOGLines+1)
+		}
+	})
+
+	t.Run("a source exactly at the cap is read to the end and not refused", func(t *testing.T) {
+		var pulled int
+		_, rejects, tooMany := parseATTLOGLines(countingLines(maxATTLOGLines, &pulled))
+		if tooMany || pulled != maxATTLOGLines || len(rejects) != maxATTLOGLines {
+			t.Fatalf("tooMany=%v pulled=%d rejects=%d, want false / %d / %d", tooMany, pulled, len(rejects), maxATTLOGLines, maxATTLOGLines)
+		}
+	})
+}
+
+// TestATTLOGLines_SkipsBlankLinesAndStripsCR keeps the body walker honest:
+// the cap counts only lines that carry content.
+func TestATTLOGLines_SkipsBlankLinesAndStripsCR(t *testing.T) {
+	var got []string
+	for l := range attlogLines("a\r\n\n  \r\nb\n\nc") {
+		got = append(got, l)
+	}
+	if want := []string{"a", "b", "c"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("lines = %q, want %q", got, want)
+	}
+
+	var first []string
+	for l := range attlogLines(strings.Repeat("x\n", 1_000_000)) {
+		first = append(first, l)
+		break
+	}
+	if len(first) != 1 {
+		t.Fatalf("breaking after the first line must work, got %d", len(first))
 	}
 }
 
