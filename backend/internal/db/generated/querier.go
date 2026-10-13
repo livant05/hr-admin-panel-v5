@@ -349,8 +349,10 @@ type Querier interface {
 	// earliest check-in of the day wins; time_out, work_type and notes are never
 	// touched, so re-pushing a batch is idempotent.
 	IngestCheckIn(ctx context.Context, arg IngestCheckInParams) (int64, error)
-	// Sets time_out only on an existing row; zero rows affected means there was no
-	// check-in (the caller counts no_checkin). Latest check-out wins.
+	// Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+	// absent or manually created row without time_in is not a punched day. Zero
+	// rows affected means there was no check-in (the caller counts no_checkin).
+	// Latest check-out wins.
 	IngestCheckOut(ctx context.Context, arg IngestCheckOutParams) (int64, error)
 	ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)

@@ -52,13 +52,16 @@ SET time_in = LEAST(attendance_logs.time_in, EXCLUDED.time_in),
     status = CASE WHEN attendance_logs.status = 'absent' THEN 'present' ELSE attendance_logs.status END;
 
 -- name: IngestCheckOut :execrows
--- Sets time_out only on an existing row; zero rows affected means there was no
--- check-in (the caller counts no_checkin). Latest check-out wins.
+-- Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+-- absent or manually created row without time_in is not a punched day. Zero
+-- rows affected means there was no check-in (the caller counts no_checkin).
+-- Latest check-out wins.
 UPDATE attendance_logs
 SET time_out = GREATEST(time_out, sqlc.arg('time_out')::time)
 WHERE company_id = sqlc.arg('company_id')
   AND employee_id = sqlc.arg('employee_id')
-  AND date = sqlc.arg('date')::date;
+  AND date = sqlc.arg('date')::date
+  AND time_in IS NOT NULL;
 
 -- name: AddIngestRejections :exec
 -- One call per (serial, reason) per batch. A NULL last_pin keeps the previous

@@ -381,6 +381,48 @@ func TestIngestCheckOut_LatestWinsAndRequiresCheckIn(t *testing.T) {
 	}
 }
 
+// CO-S5a-4: a row without time_in (absent or manually created) is not a
+// check-in; a check-out must not turn it into a punched day.
+func TestIngestCheckOut_RequiresTimeIn(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	a := testutil.Company(t, pool, "AdmsOutNoIn")
+	emp := admsEmployee(t, pool, a, "NI-"+uuid.NewString()[:8])
+	const day = "2026-03-03"
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO attendance_logs (company_id, employee_id, employee_name, date, status)
+		 VALUES ($1, $2, $3, $4, 'absent')`, a.CompanyID, emp.ID, emp.Name, day); err != nil {
+		t.Fatalf("seed row without time_in: %v", err)
+	}
+	checkOut := func(clock string) int64 {
+		n, err := q.IngestCheckOut(ctx, db.IngestCheckOutParams{
+			CompanyID: admsUUID(t, a.CompanyID), EmployeeID: admsUUID(t, emp.ID),
+			Date: admsDate(t, day), TimeOut: admsTime(t, clock),
+		})
+		if err != nil {
+			t.Fatalf("IngestCheckOut: %v", err)
+		}
+		return n
+	}
+
+	if n := checkOut("17:00:00"); n != 0 {
+		t.Fatalf("check-out on a row without time_in updated %d rows, want 0 (no_checkin)", n)
+	}
+	if cnt, in, out, st, _, _ := attendanceRow(t, pool, emp.ID, day); cnt != 1 || in != nil || out != nil || str(st) != "absent" {
+		t.Fatalf("row changed: count=%d in=%s out=%s status=%s", cnt, str(in), str(out), str(st))
+	}
+
+	// Triangulation: once a check-in exists the same check-out is accepted.
+	if _, err := pool.Exec(ctx, `UPDATE attendance_logs SET time_in = '08:00:00' WHERE employee_id = $1 AND date = $2`, emp.ID, day); err != nil {
+		t.Fatal(err)
+	}
+	if n := checkOut("17:00:00"); n != 1 {
+		t.Fatalf("check-out after a check-in updated %d rows, want 1", n)
+	}
+}
+
 func TestAddIngestRejections_AccumulatesPerSerialAndReason(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()

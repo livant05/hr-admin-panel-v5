@@ -121,6 +121,7 @@ SET time_out = GREATEST(time_out, $1::time)
 WHERE company_id = $2
   AND employee_id = $3
   AND date = $4::date
+  AND time_in IS NOT NULL
 `
 
 type IngestCheckOutParams struct {
@@ -130,8 +131,10 @@ type IngestCheckOutParams struct {
 	Date       pgtype.Date `json:"date"`
 }
 
-// Sets time_out only on an existing row; zero rows affected means there was no
-// check-in (the caller counts no_checkin). Latest check-out wins.
+// Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+// absent or manually created row without time_in is not a punched day. Zero
+// rows affected means there was no check-in (the caller counts no_checkin).
+// Latest check-out wins.
 func (q *Queries) IngestCheckOut(ctx context.Context, arg IngestCheckOutParams) (int64, error) {
 	result, err := q.db.Exec(ctx, ingestCheckOut,
 		arg.TimeOut,
