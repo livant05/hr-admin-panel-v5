@@ -494,7 +494,7 @@ test('demo login, register and logout make zero network requests', async () => {
   await e.run('doLogin()');
   assert.ok(e.A.session.access_token.startsWith('demo-'));
   assert.equal(e.lastView(), 'app');
-  assert.equal(e.A.companyName, 'Mi Empresa');
+  assert.equal(e.A.companyName, 'Empresa Demo S.A.');
   // logout
   await e.run('doLogout()');
   assert.equal(e.lastView(), 'login');

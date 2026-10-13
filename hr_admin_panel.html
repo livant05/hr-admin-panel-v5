@@ -2107,7 +2107,10 @@ var Supa = {
     if (A.demo) {
       var u = DS.users.find(function(x){ return x.email === em; });
       if (!u || pw.length < 4) return {error:{message:'Credenciales inválidas'}};
-      return {access_token:'demo-'+Date.now(), user:{id:u.id, email:u.email, user_metadata:Object.assign({},u)}};
+      // Mirrors the Go login payload, which carries company_name at the top level.
+      var co = DS.companies.find(function(c){ return c.id === u.company_id; });
+      return {access_token:'demo-'+Date.now(), company_name:co ? co.name : undefined,
+              user:{id:u.id, email:u.email, user_metadata:Object.assign({},u)}};
     }
     return this.authCall('/api/auth/login', {email:em, password:pw}, 'No se pudo iniciar sesión');
   },
