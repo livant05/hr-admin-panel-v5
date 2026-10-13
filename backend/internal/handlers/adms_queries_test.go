@@ -60,30 +60,42 @@ func admsSerial(t *testing.T, pool *pgxpool.Pool) string {
 		ctx := context.Background()
 		_, _ = pool.Exec(ctx, `DELETE FROM zkteco_devices WHERE serial_number = $1`, sn)
 		_, _ = pool.Exec(ctx, `DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1`, sn)
+		_, _ = pool.Exec(ctx, `DELETE FROM zkteco_unknown_pins WHERE serial_number = $1`, sn)
 	})
 	return sn
 }
 
-func attendanceRow(t *testing.T, pool *pgxpool.Pool, empID, date string) (count int, timeIn, timeOut, status, name, dept *string) {
+// attendanceSnapshot is one attendance_logs row as read straight from the
+// table (never through the code under test). Count is the number of rows for
+// the employee and date; the other fields are nil when Count is 0 or the
+// column is NULL.
+type attendanceSnapshot struct {
+	Count                                     int
+	TimeIn, TimeOut, Status, Name, Department *string
+}
+
+func readAttendance(t *testing.T, pool *pgxpool.Pool, empID, date string) attendanceSnapshot {
 	t.Helper()
+	var snap attendanceSnapshot
 	ctx := context.Background()
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM attendance_logs WHERE employee_id = $1 AND date = $2`, empID, date).Scan(&count); err != nil {
+		`SELECT count(*) FROM attendance_logs WHERE employee_id = $1 AND date = $2`, empID, date).Scan(&snap.Count); err != nil {
 		t.Fatalf("count attendance: %v", err)
 	}
-	if count == 0 {
-		return
+	if snap.Count == 0 {
+		return snap
 	}
 	if err := pool.QueryRow(ctx,
 		`SELECT time_in::text, time_out::text, status, employee_name, department
 		 FROM attendance_logs WHERE employee_id = $1 AND date = $2`, empID, date,
-	).Scan(&timeIn, &timeOut, &status, &name, &dept); err != nil {
+	).Scan(&snap.TimeIn, &snap.TimeOut, &snap.Status, &snap.Name, &snap.Department); err != nil {
 		t.Fatalf("read attendance: %v", err)
 	}
-	return
+	return snap
 }
 
-func str(p *string) string {
+// orNil renders an optional column for comparisons and failure messages.
+func orNil(p *string) string {
 	if p == nil {
 		return "<nil>"
 	}
@@ -204,34 +216,39 @@ func TestCedulaExistsElsewhere(t *testing.T) {
 	}
 }
 
-func TestUpsertUnknownPin_IncrementsAttempts(t *testing.T) {
+func TestUpsertUnknownPin_IncrementsAttemptsPerDevice(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
 	q := db.New(pool)
 	pin := "UP-" + uuid.NewString()[:10]
+	snA, snB := "SN-A-"+uuid.NewString()[:8], "SN-B-"+uuid.NewString()[:8]
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM zkteco_unknown_pins WHERE pin = $1`, pin) })
 
-	for i, sn := range []string{"SN-A", "SN-B", "SN-C"} {
+	upsert := func(sn string) {
+		t.Helper()
 		if err := q.UpsertUnknownPin(ctx, db.UpsertUnknownPinParams{Pin: pin, SerialNumber: pgtype.Text{String: sn, Valid: true}}); err != nil {
-			t.Fatalf("upsert %d: %v", i, err)
+			t.Fatalf("upsert %s: %v", sn, err)
 		}
 	}
-	var attempts int
-	var serial *string
-	var seen bool
-	if err := pool.QueryRow(ctx,
-		`SELECT attempts, serial_number, last_seen > now() - interval '1 minute' FROM zkteco_unknown_pins WHERE pin = $1`, pin,
-	).Scan(&attempts, &serial, &seen); err != nil {
-		t.Fatalf("read pin: %v", err)
+	for i := 0; i < 3; i++ {
+		upsert(snA)
 	}
-	if attempts != 3 {
-		t.Errorf("attempts = %d, want 3 (the literal-1 bug)", attempts)
+	upsert(snB)
+
+	attemptsOf := func(sn string) (attempts int, seen bool) {
+		t.Helper()
+		if err := pool.QueryRow(ctx,
+			`SELECT attempts, last_seen > now() - interval '1 minute' FROM zkteco_unknown_pins WHERE pin = $1 AND serial_number = $2`,
+			pin, sn).Scan(&attempts, &seen); err != nil {
+			t.Fatalf("read pin on %s: %v", sn, err)
+		}
+		return attempts, seen
 	}
-	if str(serial) != "SN-C" {
-		t.Errorf("serial_number = %s, want latest SN-C", str(serial))
+	if n, seen := attemptsOf(snA); n != 3 || !seen {
+		t.Errorf("device A: attempts = %d seen = %v, want 3 and a fresh last_seen (the literal-1 bug)", n, seen)
 	}
-	if !seen {
-		t.Error("last_seen was not refreshed")
+	if n, _ := attemptsOf(snB); n != 1 {
+		t.Errorf("device B: attempts = %d, want 1: another device's counter must not be shared", n)
 	}
 }
 
@@ -258,22 +275,22 @@ func TestIngestCheckIn_EarliestWinsNeverClearsTimeOut(t *testing.T) {
 	if n := checkIn(a, "08:00:00"); n != 1 {
 		t.Fatalf("first check-in rows = %d, want 1", n)
 	}
-	cnt, in, out, status, name, dept := attendanceRow(t, pool, emp.ID, day)
-	if cnt != 1 || str(in) != "08:00:00" || out != nil || str(status) != "present" {
-		t.Fatalf("after first: count=%d in=%s out=%s status=%s", cnt, str(in), str(out), str(status))
+	got := readAttendance(t, pool, emp.ID, day)
+	if got.Count != 1 || orNil(got.TimeIn) != "08:00:00" || got.TimeOut != nil || orNil(got.Status) != "present" {
+		t.Fatalf("after first: count=%d in=%s out=%s status=%s", got.Count, orNil(got.TimeIn), orNil(got.TimeOut), orNil(got.Status))
 	}
-	if str(name) != emp.Name || str(dept) != "Ventas" {
-		t.Fatalf("denormalized fields: name=%s dept=%s, want %s / Ventas", str(name), str(dept), emp.Name)
+	if orNil(got.Name) != emp.Name || orNil(got.Department) != "Ventas" {
+		t.Fatalf("denormalized fields: name=%s dept=%s, want %s / Ventas", orNil(got.Name), orNil(got.Department), emp.Name)
 	}
 
 	// Earliest check-in wins in both directions.
 	checkIn(a, "09:30:00")
-	if _, in, _, _, _, _ := attendanceRow(t, pool, emp.ID, day); str(in) != "08:00:00" {
-		t.Fatalf("later check-in overwrote time_in: %s", str(in))
+	if got := readAttendance(t, pool, emp.ID, day); orNil(got.TimeIn) != "08:00:00" {
+		t.Fatalf("later check-in overwrote time_in: %s", orNil(got.TimeIn))
 	}
 	checkIn(a, "07:45:00")
-	if _, in, _, _, _, _ := attendanceRow(t, pool, emp.ID, day); str(in) != "07:45:00" {
-		t.Fatalf("earlier check-in did not win: %s", str(in))
+	if got := readAttendance(t, pool, emp.ID, day); orNil(got.TimeIn) != "07:45:00" {
+		t.Fatalf("earlier check-in did not win: %s", orNil(got.TimeIn))
 	}
 
 	// A re-pushed check-in after the check-out keeps time_out and one row.
@@ -281,9 +298,9 @@ func TestIngestCheckIn_EarliestWinsNeverClearsTimeOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkIn(a, "07:45:00")
-	cnt, in, out, _, _, _ = attendanceRow(t, pool, emp.ID, day)
-	if cnt != 1 || str(in) != "07:45:00" || str(out) != "17:00:00" {
-		t.Fatalf("re-push: count=%d in=%s out=%s, want 1 / 07:45:00 / 17:00:00", cnt, str(in), str(out))
+	got = readAttendance(t, pool, emp.ID, day)
+	if got.Count != 1 || orNil(got.TimeIn) != "07:45:00" || orNil(got.TimeOut) != "17:00:00" {
+		t.Fatalf("re-push: count=%d in=%s out=%s, want 1 / 07:45:00 / 17:00:00", got.Count, orNil(got.TimeIn), orNil(got.TimeOut))
 	}
 	var notes string
 	var wt int
@@ -297,8 +314,8 @@ func TestIngestCheckIn_EarliestWinsNeverClearsTimeOut(t *testing.T) {
 			t.Fatal(err)
 		}
 		checkIn(a, "07:45:00")
-		if _, _, _, st, _, _ := attendanceRow(t, pool, emp.ID, day); str(st) != tc.want {
-			t.Errorf("status %s after check-in = %s, want %s", tc.from, str(st), tc.want)
+		if got := readAttendance(t, pool, emp.ID, day); orNil(got.Status) != tc.want {
+			t.Errorf("status %s after check-in = %s, want %s", tc.from, orNil(got.Status), tc.want)
 		}
 	}
 
@@ -311,8 +328,8 @@ func TestIngestCheckIn_EarliestWinsNeverClearsTimeOut(t *testing.T) {
 	if err != nil || n != 0 {
 		t.Fatalf("cross-company check-in: rows=%d err=%v, want 0", n, err)
 	}
-	if cnt, _, _, _, _, _ := attendanceRow(t, pool, other.ID, day); cnt != 0 {
-		t.Fatalf("cross-company check-in wrote %d rows", cnt)
+	if got := readAttendance(t, pool, other.ID, day); got.Count != 0 {
+		t.Fatalf("cross-company check-in wrote %d rows", got.Count)
 	}
 }
 
@@ -339,8 +356,8 @@ func TestIngestCheckOut_LatestWinsAndRequiresCheckIn(t *testing.T) {
 	if n := checkOut(a, "17:00:00"); n != 0 {
 		t.Fatalf("check-out without check-in updated %d rows, want 0", n)
 	}
-	if cnt, _, _, _, _, _ := attendanceRow(t, pool, emp.ID, day); cnt != 0 {
-		t.Fatalf("check-out without check-in created %d rows", cnt)
+	if got := readAttendance(t, pool, emp.ID, day); got.Count != 0 {
+		t.Fatalf("check-out without check-in created %d rows", got.Count)
 	}
 
 	if _, err := q.IngestCheckIn(ctx, db.IngestCheckInParams{
@@ -353,26 +370,68 @@ func TestIngestCheckOut_LatestWinsAndRequiresCheckIn(t *testing.T) {
 	if n := checkOut(a, "17:00:00"); n != 1 {
 		t.Fatalf("check-out rows = %d, want 1", n)
 	}
-	if _, in, out, _, _, _ := attendanceRow(t, pool, emp.ID, day); str(in) != "08:00:00" || str(out) != "17:00:00" {
-		t.Fatalf("in=%s out=%s, want 08:00:00 / 17:00:00", str(in), str(out))
+	if got := readAttendance(t, pool, emp.ID, day); orNil(got.TimeIn) != "08:00:00" || orNil(got.TimeOut) != "17:00:00" {
+		t.Fatalf("in=%s out=%s, want 08:00:00 / 17:00:00", orNil(got.TimeIn), orNil(got.TimeOut))
 	}
 
 	// Latest check-out wins; an older one never regresses it.
 	checkOut(a, "18:30:00")
-	if _, _, out, _, _, _ := attendanceRow(t, pool, emp.ID, day); str(out) != "18:30:00" {
-		t.Fatalf("later check-out did not win: %s", str(out))
+	if got := readAttendance(t, pool, emp.ID, day); orNil(got.TimeOut) != "18:30:00" {
+		t.Fatalf("later check-out did not win: %s", orNil(got.TimeOut))
 	}
 	checkOut(a, "16:00:00")
-	if _, _, out, _, _, _ := attendanceRow(t, pool, emp.ID, day); str(out) != "18:30:00" {
-		t.Fatalf("earlier check-out regressed time_out: %s", str(out))
+	if got := readAttendance(t, pool, emp.ID, day); orNil(got.TimeOut) != "18:30:00" {
+		t.Fatalf("earlier check-out regressed time_out: %s", orNil(got.TimeOut))
 	}
 
 	// Wrong company touches nothing.
 	if n := checkOut(b, "23:00:00"); n != 0 {
 		t.Fatalf("cross-company check-out updated %d rows", n)
 	}
-	if _, _, out, _, _, _ := attendanceRow(t, pool, emp.ID, day); str(out) != "18:30:00" {
-		t.Fatalf("cross-company check-out changed time_out: %s", str(out))
+	if got := readAttendance(t, pool, emp.ID, day); orNil(got.TimeOut) != "18:30:00" {
+		t.Fatalf("cross-company check-out changed time_out: %s", orNil(got.TimeOut))
+	}
+}
+
+// CO-S5a-4: a row without time_in (absent or manually created) is not a
+// check-in; a check-out must not turn it into a punched day.
+func TestIngestCheckOut_RequiresTimeIn(t *testing.T) {
+	pool := testutil.Pool(t)
+	ctx := context.Background()
+	q := db.New(pool)
+	a := testutil.Company(t, pool, "AdmsOutNoIn")
+	emp := admsEmployee(t, pool, a, "NI-"+uuid.NewString()[:8])
+	const day = "2026-03-03"
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO attendance_logs (company_id, employee_id, employee_name, date, status)
+		 VALUES ($1, $2, $3, $4, 'absent')`, a.CompanyID, emp.ID, emp.Name, day); err != nil {
+		t.Fatalf("seed row without time_in: %v", err)
+	}
+	checkOut := func(clock string) int64 {
+		n, err := q.IngestCheckOut(ctx, db.IngestCheckOutParams{
+			CompanyID: admsUUID(t, a.CompanyID), EmployeeID: admsUUID(t, emp.ID),
+			Date: admsDate(t, day), TimeOut: admsTime(t, clock),
+		})
+		if err != nil {
+			t.Fatalf("IngestCheckOut: %v", err)
+		}
+		return n
+	}
+
+	if n := checkOut("17:00:00"); n != 0 {
+		t.Fatalf("check-out on a row without time_in updated %d rows, want 0 (no_checkin)", n)
+	}
+	if got := readAttendance(t, pool, emp.ID, day); got.Count != 1 || got.TimeIn != nil || got.TimeOut != nil || orNil(got.Status) != "absent" {
+		t.Fatalf("row changed: count=%d in=%s out=%s status=%s", got.Count, orNil(got.TimeIn), orNil(got.TimeOut), orNil(got.Status))
+	}
+
+	// Triangulation: once a check-in exists the same check-out is accepted.
+	if _, err := pool.Exec(ctx, `UPDATE attendance_logs SET time_in = '08:00:00' WHERE employee_id = $1 AND date = $2`, emp.ID, day); err != nil {
+		t.Fatal(err)
+	}
+	if n := checkOut("17:00:00"); n != 1 {
+		t.Fatalf("check-out after a check-in updated %d rows, want 1", n)
 	}
 }
 
@@ -400,7 +459,7 @@ func TestAddIngestRejections_AccumulatesPerSerialAndReason(t *testing.T) {
 		).Scan(&n, &pin); err != nil {
 			t.Fatalf("read counter %s/%s: %v", serial, reason, err)
 		}
-		return n, str(pin)
+		return n, orNil(pin)
 	}
 
 	add(sn, "malformed", 2, "1001")

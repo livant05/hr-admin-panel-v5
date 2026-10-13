@@ -138,6 +138,83 @@ func TestUsers_RerunNeedsNoPasswordsFile(t *testing.T) {
 	}
 }
 
+// TestUsers_RerunKeepsCredentialsAndIssuesNoNewOnes pins SR-4 for the cutover
+// runbook: running the same export again must not duplicate users, must not
+// regenerate the temporary password of a user that already exists, and must
+// not write a second passwords file, even when --passwords-out is passed
+// again. A third user added to the export is the control: only that one is
+// issued a password, so the "nothing issued" result is not a vacuous no-op.
+func TestUsers_RerunKeepsCredentialsAndIssuesNoNewOnes(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	ctx := context.Background()
+	hashes := func() map[string]string {
+		rowsOut, err := pool.Query(ctx, `SELECT email, password_hash FROM users WHERE company_id = $1 ORDER BY email`, coID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rowsOut.Close()
+		out := map[string]string{}
+		for rowsOut.Next() {
+			var email, hash string
+			if err := rowsOut.Scan(&email, &hash); err != nil {
+				t.Fatal(err)
+			}
+			out[email] = hash
+		}
+		return out
+	}
+
+	first := filepath.Join(t.TempDir(), "first.csv")
+	if _, err := run(t, pool, importer.Options{Dir: writeExport(t, usersExport()), PasswordsOut: first}); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+	before := hashes()
+	if len(before) != 2 || before["ana@example.test"] == "" || before["beto@example.test"] == "" {
+		t.Fatalf("first run stored %v, want two users with hashes", before)
+	}
+
+	second := filepath.Join(t.TempDir(), "second.csv")
+	rep, err := run(t, pool, importer.Options{Dir: writeExport(t, usersExport()), PasswordsOut: second})
+	if err != nil {
+		t.Fatalf("second run: %v", err)
+	}
+	if rep.UsersCreated != 0 {
+		t.Fatalf("second run issued %d credentials, want 0", rep.UsersCreated)
+	}
+	if _, err := os.Stat(second); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("second run wrote a passwords file (stat err=%v), want none", err)
+	}
+	after := hashes()
+	for email, h := range before {
+		if after[email] != h {
+			t.Fatalf("%s: stored hash changed on re-run", email)
+		}
+	}
+	if len(after) != 2 {
+		t.Fatalf("re-run left %d users, want 2", len(after))
+	}
+
+	// Control: a genuinely new user in the same export is the only one issued.
+	third := filepath.Join(t.TempDir(), "third.csv")
+	extra := map[string]any{"id": "dddddddd-dddd-4ddd-8ddd-ddddddddddd3", "company_id": coID, "email": "cata@example.test", "role": "empleado", "first_name": "Cata", "last_name": "Nueva", "status": "active"}
+	rep, err = run(t, pool, importer.Options{Dir: writeExport(t, usersExport(extra)), PasswordsOut: third})
+	if err != nil {
+		t.Fatalf("third run: %v", err)
+	}
+	if rep.UsersCreated != 1 {
+		t.Fatalf("third run issued %d credentials, want 1", rep.UsersCreated)
+	}
+	creds := readCreds(t, third)
+	if len(creds) != 1 || creds["cata@example.test"] == "" {
+		t.Fatalf("third passwords file = %v, want only cata@example.test", creds)
+	}
+	for email, h := range before {
+		if hashes()[email] != h {
+			t.Fatalf("%s: stored hash changed when a new user was added", email)
+		}
+	}
+}
+
 func TestUsers_NewUsersRequirePasswordsOut(t *testing.T) {
 	pool, _ := testutil.IsolatedSchema(t)
 	_, err := run(t, pool, importer.Options{Dir: writeExport(t, usersExport())})

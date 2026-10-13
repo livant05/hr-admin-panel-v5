@@ -228,6 +228,9 @@ type Querier interface {
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
 	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
+	// Run in the claim transaction: counters collected while a device was
+	// unclaimed (or owned by someone else) must not pass to its new owner.
+	DeleteIngestRejectionsBySerial(ctx context.Context, serialNumber string) error
 	DeleteJobPosting(ctx context.Context, arg DeleteJobPostingParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
@@ -259,6 +262,11 @@ type Querier interface {
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
+	// Run in the claim transaction: PINs that were rejected on this serial before
+	// the claim belong to the previous (unclaimed or foreign) context, so the new
+	// owner starts with a clean unknown-PIN list instead of inheriting someone
+	// else's punches.
+	DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error
 	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
 	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
 	// against DELETE, and keeps a concurrent committed write from being overwritten
@@ -344,8 +352,10 @@ type Querier interface {
 	// earliest check-in of the day wins; time_out, work_type and notes are never
 	// touched, so re-pushing a batch is idempotent.
 	IngestCheckIn(ctx context.Context, arg IngestCheckInParams) (int64, error)
-	// Sets time_out only on an existing row; zero rows affected means there was no
-	// check-in (the caller counts no_checkin). Latest check-out wins.
+	// Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+	// absent or manually created row without time_in is not a punched day. Zero
+	// rows affected means there was no check-in (the caller counts no_checkin).
+	// Latest check-out wins.
 	IngestCheckOut(ctx context.Context, arg IngestCheckOutParams) (int64, error)
 	ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
@@ -411,7 +421,12 @@ type Querier interface {
 	// Rows with company_id NULL (the unclaimed pool) never match company_id = $1.
 	ListZktecoDevices(ctx context.Context, arg ListZktecoDevicesParams) ([]ZktecoDevice, error)
 	// zkteco_unknown_pins has no company_id (an unresolved PIN has no employee,
-	// hence no company); the caller must be gated by requireAdmin.
+	// hence no company). Tenancy comes from the device that punched the PIN: only
+	// rows whose serial_number belongs to a device of the caller's company are
+	// returned, so pins of other tenants' devices and of unclaimed devices (or
+	// with a NULL serial) never match. The caller must also be gated by
+	// requireAdmin. zkteco_devices.serial_number is UNIQUE, so the join never
+	// duplicates a pin.
 	ListZktecoUnknownPins(ctx context.Context, arg ListZktecoUnknownPinsParams) ([]ZktecoUnknownPin, error)
 	// The write path below locks rows so the last-active-admin guard holds under
 	// concurrency (design D6). Callers MUST run LockActiveAdmins first and
@@ -506,8 +521,9 @@ type Querier interface {
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
 	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
-	// idempotency guarantees below are binding). These queries are deliberately
-	// separate from UpsertAttendanceLog, which overwrites time_out.
+	// idempotency guarantees of this file are binding). These queries are
+	// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+	//
 	// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 	// and refreshes a known one. company_id is NEVER part of the SET list, so a
 	// heartbeat can not change ownership.
@@ -528,6 +544,8 @@ type Querier interface {
 	// a run. total_earned is `b` and is NOT the sum of the income columns here
 	// (design R4f, pinned by TestPayrollRun_TotalEarnedInvariant).
 	UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayrollRunPayRecordParams) (UpsertPayrollRunPayRecordRow, error)
+	// One row per (serial_number, pin) since migration 0012, so the same PIN on
+	// two devices is two rows and a tenant never shares a counter with another.
 	// attempts increments on every conflict (the Edge Function wrote a literal 1).
 	UpsertUnknownPin(ctx context.Context, arg UpsertUnknownPinParams) error
 }

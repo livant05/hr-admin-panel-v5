@@ -1,8 +1,8 @@
--- ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
--- idempotency guarantees below are binding). These queries are deliberately
--- separate from UpsertAttendanceLog, which overwrites time_out.
-
 -- name: UpsertDeviceHeartbeat :one
+-- ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+-- idempotency guarantees of this file are binding). These queries are
+-- deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+--
 -- Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 -- and refreshes a known one. company_id is NEVER part of the SET list, so a
 -- heartbeat can not change ownership.
@@ -29,13 +29,14 @@ SELECT EXISTS (
 ) AS exists_elsewhere;
 
 -- name: UpsertUnknownPin :exec
+-- One row per (serial_number, pin) since migration 0012, so the same PIN on
+-- two devices is two rows and a tenant never shares a counter with another.
 -- attempts increments on every conflict (the Edge Function wrote a literal 1).
 INSERT INTO zkteco_unknown_pins (pin, serial_number, attempts, last_seen)
 VALUES (sqlc.arg('pin'), sqlc.arg('serial_number'), 1, now())
-ON CONFLICT (pin) DO UPDATE
+ON CONFLICT (serial_number, pin) DO UPDATE
 SET attempts = zkteco_unknown_pins.attempts + 1,
-    last_seen = now(),
-    serial_number = EXCLUDED.serial_number;
+    last_seen = now();
 
 -- name: IngestCheckIn :execrows
 -- The employee must belong to the company ($1) or nothing is written. The
@@ -51,13 +52,16 @@ SET time_in = LEAST(attendance_logs.time_in, EXCLUDED.time_in),
     status = CASE WHEN attendance_logs.status = 'absent' THEN 'present' ELSE attendance_logs.status END;
 
 -- name: IngestCheckOut :execrows
--- Sets time_out only on an existing row; zero rows affected means there was no
--- check-in (the caller counts no_checkin). Latest check-out wins.
+-- Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+-- absent or manually created row without time_in is not a punched day. Zero
+-- rows affected means there was no check-in (the caller counts no_checkin).
+-- Latest check-out wins.
 UPDATE attendance_logs
 SET time_out = GREATEST(time_out, sqlc.arg('time_out')::time)
 WHERE company_id = sqlc.arg('company_id')
   AND employee_id = sqlc.arg('employee_id')
-  AND date = sqlc.arg('date')::date;
+  AND date = sqlc.arg('date')::date
+  AND time_in IS NOT NULL;
 
 -- name: AddIngestRejections :exec
 -- One call per (serial, reason) per batch. A NULL last_pin keeps the previous
@@ -68,3 +72,15 @@ ON CONFLICT (serial_number, reason) DO UPDATE
 SET count = zkteco_ingest_rejections.count + EXCLUDED.count,
     last_pin = COALESCE(EXCLUDED.last_pin, zkteco_ingest_rejections.last_pin),
     last_seen = now();
+
+-- name: DeleteIngestRejectionsBySerial :exec
+-- Run in the claim transaction: counters collected while a device was
+-- unclaimed (or owned by someone else) must not pass to its new owner.
+DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1;
+
+-- name: DeleteUnknownPinsBySerial :exec
+-- Run in the claim transaction: PINs that were rejected on this serial before
+-- the claim belong to the previous (unclaimed or foreign) context, so the new
+-- owner starts with a clean unknown-PIN list instead of inheriting someone
+-- else's punches.
+DELETE FROM zkteco_unknown_pins WHERE serial_number = $1;

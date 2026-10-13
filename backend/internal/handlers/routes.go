@@ -193,6 +193,9 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	// login (decision #911) there is no legitimate stream of successful registers
 	// behind a shared NAT, and each success creates a tenant, so success must cost.
 	mux.Handle("POST /api/auth/register", a.rateLimited(limiterAuth, a.AuthLimiter, http.HandlerFunc(a.Register)))
+	// ZKTeco ADMS device endpoints: public (devices carry no JWT), outside /api/
+	// and behind ADMSLimiter. PROVISIONAL wire format, see adms.go.
+	a.admsRoutes(mux)
 	mux.Handle("/api/", signer.Middleware(protected))
 	return mux
 }

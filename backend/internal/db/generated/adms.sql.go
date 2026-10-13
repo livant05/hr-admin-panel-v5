@@ -60,6 +60,30 @@ func (q *Queries) CedulaExistsElsewhere(ctx context.Context, arg CedulaExistsEls
 	return exists_elsewhere, err
 }
 
+const deleteIngestRejectionsBySerial = `-- name: DeleteIngestRejectionsBySerial :exec
+DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1
+`
+
+// Run in the claim transaction: counters collected while a device was
+// unclaimed (or owned by someone else) must not pass to its new owner.
+func (q *Queries) DeleteIngestRejectionsBySerial(ctx context.Context, serialNumber string) error {
+	_, err := q.db.Exec(ctx, deleteIngestRejectionsBySerial, serialNumber)
+	return err
+}
+
+const deleteUnknownPinsBySerial = `-- name: DeleteUnknownPinsBySerial :exec
+DELETE FROM zkteco_unknown_pins WHERE serial_number = $1
+`
+
+// Run in the claim transaction: PINs that were rejected on this serial before
+// the claim belong to the previous (unclaimed or foreign) context, so the new
+// owner starts with a clean unknown-PIN list instead of inheriting someone
+// else's punches.
+func (q *Queries) DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error {
+	_, err := q.db.Exec(ctx, deleteUnknownPinsBySerial, serialNumber)
+	return err
+}
+
 const ingestCheckIn = `-- name: IngestCheckIn :execrows
 INSERT INTO attendance_logs (company_id, employee_id, employee_name, department, date, time_in, status)
 SELECT $1, e.id, e.first_name || ' ' || e.last_name, e.department,
@@ -100,6 +124,7 @@ SET time_out = GREATEST(time_out, $1::time)
 WHERE company_id = $2
   AND employee_id = $3
   AND date = $4::date
+  AND time_in IS NOT NULL
 `
 
 type IngestCheckOutParams struct {
@@ -109,8 +134,10 @@ type IngestCheckOutParams struct {
 	Date       pgtype.Date `json:"date"`
 }
 
-// Sets time_out only on an existing row; zero rows affected means there was no
-// check-in (the caller counts no_checkin). Latest check-out wins.
+// Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+// absent or manually created row without time_in is not a punched day. Zero
+// rows affected means there was no check-in (the caller counts no_checkin).
+// Latest check-out wins.
 func (q *Queries) IngestCheckOut(ctx context.Context, arg IngestCheckOutParams) (int64, error) {
 	result, err := q.db.Exec(ctx, ingestCheckOut,
 		arg.TimeOut,
@@ -159,7 +186,6 @@ func (q *Queries) ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmplo
 }
 
 const upsertDeviceHeartbeat = `-- name: UpsertDeviceHeartbeat :one
-
 INSERT INTO zkteco_devices (serial_number, status, last_seen)
 VALUES ($1, 'online', now())
 ON CONFLICT (serial_number) DO UPDATE
@@ -173,8 +199,9 @@ type UpsertDeviceHeartbeatRow struct {
 }
 
 // ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
-// idempotency guarantees below are binding). These queries are deliberately
-// separate from UpsertAttendanceLog, which overwrites time_out.
+// idempotency guarantees of this file are binding). These queries are
+// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+//
 // Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 // and refreshes a known one. company_id is NEVER part of the SET list, so a
 // heartbeat can not change ownership.
@@ -188,10 +215,9 @@ func (q *Queries) UpsertDeviceHeartbeat(ctx context.Context, serialNumber string
 const upsertUnknownPin = `-- name: UpsertUnknownPin :exec
 INSERT INTO zkteco_unknown_pins (pin, serial_number, attempts, last_seen)
 VALUES ($1, $2, 1, now())
-ON CONFLICT (pin) DO UPDATE
+ON CONFLICT (serial_number, pin) DO UPDATE
 SET attempts = zkteco_unknown_pins.attempts + 1,
-    last_seen = now(),
-    serial_number = EXCLUDED.serial_number
+    last_seen = now()
 `
 
 type UpsertUnknownPinParams struct {
@@ -199,6 +225,8 @@ type UpsertUnknownPinParams struct {
 	SerialNumber pgtype.Text `json:"serial_number"`
 }
 
+// One row per (serial_number, pin) since migration 0012, so the same PIN on
+// two devices is two rows and a tenant never shares a counter with another.
 // attempts increments on every conflict (the Edge Function wrote a literal 1).
 func (q *Queries) UpsertUnknownPin(ctx context.Context, arg UpsertUnknownPinParams) error {
 	_, err := q.db.Exec(ctx, upsertUnknownPin, arg.Pin, arg.SerialNumber)
