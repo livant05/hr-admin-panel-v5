@@ -65,10 +65,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// D12: production must not run while the seed admin (known password) is
+	// in the users table. The runbook deletes it before the import; this is
+	// the backstop.
+	if err := checkSeedGuard(connCtx, log, os.Getenv("APP_ENV"), pool); err != nil {
+		if errors.Is(err, errSeedCredentialPresent) {
+			log.Error(err.Error())
+		} else {
+			log.Error("seed credential check failed", "err", err)
+		}
+		os.Exit(1)
+	}
+
 	signer := auth.NewSigner(jwtSecret, 24*time.Hour)
 	api := handlers.New(pool, signer, log)
 	api.AuthLimiter = ratelimit.New(rates.AuthPerMin, rates.AuthPerMin)
-	api.AuthSuccessLimiter = ratelimit.New(rates.AuthSuccessPerMin, rates.AuthSuccessPerMin)
+	api.AuthAttemptLimiter = ratelimit.New(rates.AuthAttemptPerMin, rates.AuthAttemptPerMin)
 	api.ADMSLimiter = ratelimit.New(rates.ADMSPerMin, rates.ADMSPerMin)
 	api.TrustedProxies = rates.TrustedProxies
 

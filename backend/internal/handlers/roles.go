@@ -78,10 +78,13 @@ type createRoleRequest struct {
 	Permissions *json.RawMessage `json:"permissions"`
 }
 
-// POST /api/roles
+// POST /api/roles — admin only (UM-5): permission keys control authority.
 func (a *API) CreateRole(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
 		return
 	}
 
@@ -128,13 +131,16 @@ type updateRoleRequest struct {
 	Permissions *json.RawMessage `json:"permissions"`
 }
 
-// PATCH /api/roles/{id} — updates `name` and/or `permissions` independently.
+// PATCH /api/roles/{id} — admin only (UM-5); updates `name` and/or `permissions` independently.
 // Unlike departments/positions/branches, roles has no TEXT-match
 // relationship to employees (per spec), so no rename-propagation or
 // RESTRICT-on-delete logic applies here.
 func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
 		return
 	}
 
@@ -189,12 +195,15 @@ func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	writeRows(w, http.StatusOK, []db.Role{row})
 }
 
-// DELETE /api/roles/{id} — plain delete, no RESTRICT: roles has no
+// DELETE /api/roles/{id} — admin only (UM-5); plain delete, no RESTRICT: roles has no
 // TEXT-match relationship to employees (only users.role, a separate
 // existing capability out of scope for this phase per spec).
 func (a *API) DeleteRole(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
 		return
 	}
 
