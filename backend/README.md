@@ -387,7 +387,7 @@ unknown PINs with SQL or the ADMS endpoint, and check the dev database has every
       the overlap window, do not toast it again.
 - [ ] Live feed, paging: with more than 200 new rows between polls, the same poll continues with
       `_offset=200` until a page is shorter than 200 and every row is toasted at most once (the toast
-      list is capped at five, followed by a "+N más" toast).
+      list is capped at five, followed by a "+N marcadas anteriores" toast).
 - [ ] Live feed, failures: stopping the API makes polls fail silently (no toast loop), and the next
       successful poll catches up without duplicates.
 - [ ] Demo mode (`hr_demo`, no `hr_sess`): the ZKTeco tab shows the same empty tables as before with
