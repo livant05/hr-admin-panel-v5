@@ -103,6 +103,8 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       </div>
       <hr>
       <a href="#" onclick="showV('register')" class="btn btn-outline-secondary btn-block btn-sm">Registrar nueva empresa</a>
+      <button type="button" id="btn-demo-enter" class="btn btn-outline-secondary btn-block btn-sm mt-2" onclick="demoMode()"><i class="fas fa-flask mr-1"></i>Modo Demo</button>
+      <button type="button" id="btn-demo-exit" class="btn btn-outline-warning btn-block btn-sm mt-2 d-none" onclick="exitDemo()"><i class="fas fa-door-open mr-1"></i>Salir del modo demo</button>
       <a href="#" onclick="showV('setup')" class="text-muted mt-2 d-block text-center" style="font-size:.75rem"><i class="fas fa-cog mr-1"></i>Configurar Supabase</a>
     </div></div>
   </div>
@@ -2034,6 +2036,10 @@ var Supa = {
   // call-site guard still catches it if this path is ever reused against a
   // Supabase-shaped error response.
   gres: async function(r) {
+    // A 401 on an authenticated Go call means the token is no longer accepted
+    // (expired, signed with another secret, user removed). Public auth calls
+    // never come through here, so a wrong password is not an expiry.
+    if (r.status === 401 && !A.demo && A.session) this.onUnauthorized();
     if (r.status === 204) return [];
     var body = await r.json().catch(function(){ return null; });
     if (!r.ok) {
@@ -2049,14 +2055,61 @@ var Supa = {
     if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
     return h;
   },
+  // ── Go auth (AUTH-1, AUTH-6, AUTH-9) ─────────────────────────────────────
+  // sessionExpired makes onUnauthorized re-entrancy safe: several requests in
+  // flight can all come back 401, but the user sees one toast and one reset.
+  // startSession re-arms it for the next session.
+  sessionExpired: false,
+  authFields: {company_name:'empresa', first_name:'nombre', last_name:'apellido', email:'correo', password:'contraseña'},
+
+  onUnauthorized: function() {
+    if (this.sessionExpired) return;
+    this.sessionExpired = true;
+    clearSession();
+    showV('login');
+    toast('Sesión expirada', 'warning');
+  },
+
+  // Spanish text for a Go auth error. Server messages are English and never
+  // shown; only the code and the field names (a closed set) pick the wording.
+  authErrMsg: function(err, retryAfter, fallback) {
+    var self = this;
+    if (err.code === 'unauthorized') return 'Credenciales inválidas';
+    if (err.code === 'rate_limited') {
+      var n = parseInt(retryAfter, 10);
+      return n > 0 ? 'Demasiados intentos, intenta en ' + n + ' s' : 'Demasiados intentos, intenta más tarde';
+    }
+    if (err.code === 'conflict') return 'Ya existe una cuenta con ese correo';
+    if (err.code === 'validation_failed') {
+      var f = Object.keys(err.fields || {}).map(function(k){ return self.authFields[k]; }).filter(Boolean);
+      return f.length ? 'Datos inválidos: revisa ' + f.join(', ') : 'Datos inválidos';
+    }
+    return fallback;
+  },
+
+  // POST to a public Go auth endpoint. Parsed here, NOT through gres, so its
+  // 401 never reaches the session-expiry hook. Always resolves to either the
+  // session payload or {error:{code,message}} (message already in Spanish).
+  authCall: async function(path, payload, fallback) {
+    var r;
+    try {
+      r = await fetch(this.goUrl + path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    } catch (e) {
+      return {error:{code:'network', message:'No se pudo conectar con el servidor'}};
+    }
+    var body = await r.json().catch(function(){ return null; });
+    if (r.ok) return body && body.access_token ? body : {error:{code:'bad_response', message:'Respuesta inválida del servidor'}};
+    var err = (body && body.error) || {};
+    return {error:{code:err.code || 'internal', message:this.authErrMsg(err, r.headers.get('Retry-After'), fallback)}};
+  },
+
   signIn: async function(em, pw) {
     if (A.demo) {
       var u = DS.users.find(function(x){ return x.email === em; });
       if (!u || pw.length < 4) return {error:{message:'Credenciales inválidas'}};
       return {access_token:'demo-'+Date.now(), user:{id:u.id, email:u.email, user_metadata:Object.assign({},u)}};
     }
-    var r = await fetch(A.url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json',apikey:A.key},body:JSON.stringify({email:em,password:pw})});
-    return r.json();
+    return this.authCall('/api/auth/login', {email:em, password:pw}, 'No se pudo iniciar sesión');
   },
   signUp: async function(em, pw, meta) {
     if (A.demo) {
@@ -2066,13 +2119,15 @@ var Supa = {
       DS.users.push(u);
       return {access_token:'demo-jwt', user:{id:u.id, email:em, user_metadata:u}};
     }
-    var r = await fetch(A.url+'/auth/v1/signup',{method:'POST',headers:{'Content-Type':'application/json',apikey:A.key},body:JSON.stringify({email:em,password:pw,data:meta})});
-    return r.json();
+    // Only the fields the Go endpoint accepts: it rejects unknown keys, and
+    // the company id and the admin role are always assigned server-side.
+    return this.authCall('/api/auth/register',
+      {company_name:meta.company_name, first_name:meta.first_name, last_name:meta.last_name, email:em, password:pw},
+      'No se pudo crear la empresa');
   },
-  signOut: async function() {
-    if (!A.demo && A.session && A.session.access_token)
-      await fetch(A.url+'/auth/v1/logout',{method:'POST',headers:this.hdr()}).catch(function(){});
-  },
+  // Sessions are stateless JWTs with no revocation endpoint: signing out only
+  // discards the local session, so there is nothing to send.
+  signOut: async function() {},
   sel: async function(tbl, flt) {
     flt = flt || {};
     if (A.demo) {
@@ -2309,15 +2364,8 @@ async function doLogin() {
   var res=await Supa.signIn(em,pw);
   btn.innerHTML='Entrar'; btn.disabled=false;
   if(res.error||!res.access_token){ errEl.textContent=res.error?res.error.message:'Error'; errEl.classList.remove('d-none'); return; }
-  A.session=res;
-  var meta=res.user&&res.user.user_metadata ? res.user.user_metadata : {};
-  A.role=meta.role||'admin'; A.companyId=meta.company_id||'co1';
-  var cos=await Supa.sel('companies',{id:A.companyId});
-  A.companyName=(Array.isArray(cos)&&cos[0]?cos[0].name:null)||meta.company_name||'Mi Empresa';
-  var uMeta={role:A.role,companyId:A.companyId,companyName:A.companyName,email:em,name:((meta.first_name||'')+' '+(meta.last_name||'')).trim()};
-  try{localStorage.setItem('hr_sess',JSON.stringify(A.session)); localStorage.setItem('hr_meta',JSON.stringify(uMeta));}catch(e){}
-  loadUI(uMeta); showV('app'); go('dashboard'); toast('¡Bienvenido! 👋');
-  loadRolePerms(); setTimeout(loadNotifications,1500);
+  startSession(res,em);
+  toast('¡Bienvenido! 👋');
 }
 
 async function doReg() {
@@ -2329,25 +2377,78 @@ async function doReg() {
   if(pw!==c2){ errEl.textContent='Contraseñas no coinciden'; errEl.classList.remove('d-none'); return; }
   if(pw.length<8){ errEl.textContent='Mínimo 8 caracteres'; errEl.classList.remove('d-none'); return; }
   btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>'; btn.disabled=true;
-  var cId=crypto.randomUUID();
-  var res=await Supa.signUp(em,pw,{first_name:fn,last_name:gv('rg-ln'),company_id:cId,company_name:co,role:'admin'});
+  // company_id is generated for the demo adapter only; Go assigns its own.
+  var res=await Supa.signUp(em,pw,{first_name:fn,last_name:gv('rg-ln'),company_id:crypto.randomUUID(),company_name:co,role:'admin'});
   btn.innerHTML='Crear empresa'; btn.disabled=false;
   if(res.error){ errEl.textContent=res.error.message; errEl.classList.remove('d-none'); return; }
-  var tmpKey=A.key, tmpUrl=A.url;
-  A.companyId=cId;
-  await fetch(tmpUrl+'/rest/v1/companies',{method:'POST',headers:{'Content-Type':'application/json','apikey':tmpKey,'Authorization':'Bearer '+(res.access_token||''),'Prefer':'return=minimal'},body:JSON.stringify({id:cId,name:co})});
-  toast('¡Empresa creada! Inicia sesión.'); showV('login');
+  if(A.demo){ toast('¡Empresa creada! Inicia sesión.'); showV('login'); return; }
+  startSession(res,em); // register answers with a login payload: no second login step
+  toast('¡Empresa creada! 👋');
 }
 
 async function doLogout() {
-  await Supa.signOut(); A.session=null; stopZKPolling();
+  await Supa.signOut();
+  clearSession();
+  showV('login'); toast('Sesión cerrada','info');
+}
+
+// True when a JWT is unusable as a session: not three segments, a payload that
+// does not decode to JSON, no numeric exp, or exp already reached. The browser
+// only reads the claims to decide whether to show login; the server still
+// verifies the signature on every call.
+function tokenExpired(token) {
+  try {
+    var parts=String(token).split('.');
+    if(parts.length!==3) return true;
+    var b64=parts[1].replace(/-/g,'+').replace(/_/g,'/');
+    while(b64.length%4) b64+='=';
+    var exp=JSON.parse(atob(b64)).exp;
+    if(typeof exp!=='number'||!isFinite(exp)) return true;
+    return exp*1000<=Date.now();
+  } catch(e) { return true; }
+}
+
+// Shared by doLogin and doReg (register auto-logs in): keeps the session the
+// server issued, remembers it across reloads and opens the app.
+function startSession(res, email) {
+  Supa.sessionExpired=false; // a new session can expire again
+  A.session=res;
+  var meta=res.user&&res.user.user_metadata ? res.user.user_metadata : {};
+  A.role=meta.role||'admin'; A.companyId=meta.company_id||'co1';
+  A.companyName=res.company_name||meta.company_name||'Mi Empresa';
+  var uMeta={role:A.role,companyId:A.companyId,companyName:A.companyName,email:email,name:((meta.first_name||'')+' '+(meta.last_name||'')).trim()};
+  try{localStorage.setItem('hr_sess',JSON.stringify(A.session)); localStorage.setItem('hr_meta',JSON.stringify(uMeta));}catch(e){}
+  loadUI(uMeta); showV('app'); go('dashboard');
+  loadRolePerms(); setTimeout(loadNotifications,1500);
+}
+
+// Shared by doLogout and the 401 hook: drops everything tied to the session.
+// It never shows a view or a toast; the caller decides what the user sees.
+function clearSession() {
+  A.session=null; A.perms=null; stopZKPolling();
   try{localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta');}catch(e){}
   ['employees','departments','positions','attendance_logs','leave_balances','leave_requests',
    'overtime_logs','deductions','payroll_history','liquidation_history','document_templates',
    'generated_documents','evaluations','uniforms','medical_records','surveys','survey_responses',
    'trainings','enrollments','announcements','job_postings','candidates','applications'
   ].forEach(function(k){ DS[k]=[]; });
-  showV('login'); toast('Sesión cerrada','info');
+}
+
+// The login view shows "Modo Demo" in real mode and "Salir del modo demo" in demo mode.
+function syncDemoUI() {
+  var enter=document.getElementById('btn-demo-enter'), exit=document.getElementById('btn-demo-exit');
+  if(enter) enter.classList.toggle('d-none', !!A.demo);
+  if(exit) exit.classList.toggle('d-none', !A.demo);
+}
+function demoMode() {
+  A.demo=true; A.companyId='co1';
+  try{localStorage.setItem('hr_demo','1');}catch(e){}
+  syncDemoUI(); toast('Modo Demo activado','info'); showV('login');
+}
+function exitDemo() {
+  A.demo=false; A.companyId='';
+  try{localStorage.removeItem('hr_demo');}catch(e){}
+  syncDemoUI(); toast('Modo Demo desactivado','info'); showV('login');
 }
 
 function loadUI(meta) {
@@ -2435,12 +2536,7 @@ function saveConfig() {
   if(!url||!key){ toast('Completa ambos campos','warning'); return; }
   A.url=url; A.key=key; A.demo=false;
   try{localStorage.setItem('hr_url',url); localStorage.setItem('hr_key',key); localStorage.removeItem('hr_demo');}catch(e){}
-  toast('¡Configuración guardada!'); showV('login');
-}
-function demoMode() {
-  A.demo=true; A.url='demo'; A.key='demo'; A.companyId='co1';
-  try{localStorage.setItem('hr_demo','1');}catch(e){}
-  toast('Modo Demo activado','info'); showV('login');
+  syncDemoUI(); toast('¡Configuración guardada!'); showV('login');
 }
 
 // ════════════════ DASHBOARD ══════════════════════════════════
@@ -5149,14 +5245,24 @@ async function init(){
   A.theme='light'; A.url=DEFAULT_URL; A.key=DEFAULT_KEY; A.demo=false;
   try{ A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||DEFAULT_URL; A.key=localStorage.getItem('hr_key')||DEFAULT_KEY; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
   if(A.theme==='dark') document.body.classList.add('dark-mode');
+  syncDemoUI();
+  var sess=null, meta=null;
   try{
     var ss=localStorage.getItem('hr_sess'), sm=localStorage.getItem('hr_meta');
     if(ss&&sm){
-      A.session=JSON.parse(ss); var meta=JSON.parse(sm);
-      A.role=meta.role; A.companyId=meta.companyId; A.companyName=meta.companyName;
-      loadUI(meta); showV('app'); go('dashboard'); loadRolePerms(); setTimeout(loadNotifications,1500); return;
+      sess=JSON.parse(ss); meta=JSON.parse(sm);
+      if(!sess||typeof sess!=='object'||!meta||typeof meta!=='object') throw new Error('unreadable session');
     }
-  }catch(e){}
+  }catch(e){ clearSession(); sess=null; }
+  if(sess&&meta){
+    // An expired or malformed token never reaches the API: straight to login.
+    // Demo sessions carry a fake token, so they skip the check.
+    if(!A.demo&&tokenExpired(sess.access_token)){ clearSession(); showV('login'); return; }
+    try{
+      A.session=sess; A.role=meta.role; A.companyId=meta.companyId; A.companyName=meta.companyName;
+      loadUI(meta); showV('app'); go('dashboard'); loadRolePerms(); setTimeout(loadNotifications,1500); return;
+    }catch(e){}
+  }
   if(A.demo||A.url) showV('login'); else showV('setup');
   if(A.url){ document.getElementById('s-url').value=A.url; document.getElementById('s-key').value=A.key; }
 }

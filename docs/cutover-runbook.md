@@ -464,6 +464,13 @@ call the rollback and what happens to data entered in Go meanwhile.
 **demo mode**. Use a private window so no old session leaks in. Items marked "no request" are
 verified in the browser DevTools Network tab.
 
+The session lifecycle is also covered by an automated harness that runs the real functions from
+`hr_admin_panel.html` against a fake fetch (`node tools/session/harness.mjs`, exit code 1 on failure):
+login success and failures (401, 429 with `Retry-After`, network), register auto-login, logout with no
+request, expired, malformed and valid tokens on load, one toast on concurrent 401s, and demo mode
+with zero requests. Run it before the checklist; the items marked "browser-only" below are what it
+cannot see (real DOM, nginx headers, timers, layout).
+
 ### Real mode
 
 - [ ] **Login:** valid email and password lands in the app; the Network tab shows `POST /api/auth/login`
@@ -471,7 +478,8 @@ verified in the browser DevTools Network tab.
 - [ ] **Login failure:** a wrong password shows "Credenciales inválidas"; an unknown email shows the same
       text; neither is treated as an expired session.
 - [ ] **Login rate limit:** more than 10 failed attempts in a minute from one address returns 429 and the
-      screen shows how long to wait.
+      screen shows "Demasiados intentos, intenta en N s" (browser-only: the seconds come from the
+      `Retry-After` header, so check that nginx passes the header through and the number is plausible).
 - [ ] **Register:** "Registrar nueva empresa" creates the company and lands in the app already logged in
       as the new admin, with no second login step.
 - [ ] **Logout:** returns to the login view, removes the session keys from `localStorage`, and sends **no
@@ -480,7 +488,17 @@ verified in the browser DevTools Network tab.
       reload: the login view appears and **no API call** is made.
 - [ ] **401 mid-session:** invalidate the token while logged in (change `JWT_SECRET` in a test
       environment, or edit the stored token), trigger any action: you are returned to login with a
-      single "Sesión expirada" toast.
+      single "Sesión expirada" toast. (browser-only) Also confirm the screen you were on does not stay
+      stuck on a spinner, any modal that was open is gone or harmless, and the Network tab shows no
+      further attendance polling requests once the login view is up.
+- [ ] **Old Supabase session (browser-only):** in a browser that was logged in before the flip, reload
+      the new build. The stored Supabase token is not accepted by Go: you get the login view (or, if its
+      `exp` is still in the future, one "Sesión expirada" toast on the first Go call). Either way log in
+      again and the app works; no loop of toasts.
+- [ ] **Login view layout (browser-only):** the login view shows "Modo Demo" under "Registrar nueva
+      empresa"; there is no way to reach a blank screen (no setup screen on first load once S7c is
+      deployed). The error line under the password field is visible for a wrong password and the
+      "Entrar" button returns from its spinner.
 - [ ] **Persistence per screen:** on each screen below, create or edit a record, reload the page, and
       confirm it comes back from the server with its server id:
   - [ ] Employees and attendance
@@ -508,6 +526,11 @@ Demo mode must behave exactly as before the change and make **no network request
 - [ ] Recruitment, Users, ZKTeco and Attendance screens load their demo data; edits stay local.
 - [ ] ZKTeco "Probar conexión" explains that it is unavailable in demo mode.
 - [ ] Logout returns to the login view with **no request**.
+- [ ] (browser-only) On the login view "Modo Demo" turns into "Salir del modo demo" once demo is on;
+      pressing it returns to real mode, `localStorage.hr_demo` is gone, and a reload shows the real
+      login with no demo banner or data.
+- [ ] (browser-only) Reload while inside the demo app: you stay in demo (no expiry check on the fake
+      token, no login redirect).
 
 ---
 
