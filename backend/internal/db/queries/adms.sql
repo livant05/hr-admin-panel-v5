@@ -1,10 +1,8 @@
-/*
- * ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
- * idempotency guarantees below are binding). These queries are deliberately
- * separate from UpsertAttendanceLog, which overwrites time_out.
- */
-
 -- name: UpsertDeviceHeartbeat :one
+-- ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+-- idempotency guarantees of this file are binding). These queries are
+-- deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+--
 -- Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 -- and refreshes a known one. company_id is NEVER part of the SET list, so a
 -- heartbeat can not change ownership.
@@ -81,5 +79,8 @@ SET count = zkteco_ingest_rejections.count + EXCLUDED.count,
 DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1;
 
 -- name: DeleteUnknownPinsBySerial :exec
--- Same as above for the unknown PINs punched on the device before the claim.
+-- Run in the claim transaction: PINs that were rejected on this serial before
+-- the claim belong to the previous (unclaimed or foreign) context, so the new
+-- owner starts with a clean unknown-PIN list instead of inheriting someone
+-- else's punches.
 DELETE FROM zkteco_unknown_pins WHERE serial_number = $1;

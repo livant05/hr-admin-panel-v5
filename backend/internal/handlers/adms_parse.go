@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"iter"
 	"strconv"
 	"strings"
 	"time"
@@ -88,24 +89,41 @@ type reject struct {
 	PIN    string
 }
 
+// attlogLines yields the non-blank lines of an ATTLOG body one at a time,
+// with the trailing carriage return removed. It never splits the body up
+// front, so a consumer that stops early never pays for the rest of it.
+func attlogLines(body string) iter.Seq[string] {
+	return func(yield func(string) bool) {
+		for rest := body; rest != ""; {
+			var raw string
+			raw, rest, _ = strings.Cut(rest, "\n")
+			line := strings.TrimRight(raw, "\r")
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			if !yield(line) {
+				return
+			}
+		}
+	}
+}
+
 // parseATTLOG classifies every non-empty line of an ATTLOG body. It never
 // fails a batch for a bad line: bad lines become rejects. When the body has
 // more than maxATTLOGLines non-empty lines it returns tooMany=true and nothing
 // else, so the caller can refuse the request before any write.
 func parseATTLOG(body string) (punches []punch, rejects []reject, tooMany bool) {
-	lines := 0
-	// Walk the body one line at a time (no up-front split) so a request far
-	// over the cap is abandoned right after line maxATTLOGLines+1 instead of
-	// materializing every line first.
-	for rest := body; rest != ""; {
-		var raw string
-		raw, rest, _ = strings.Cut(rest, "\n")
-		line := strings.TrimRight(raw, "\r")
-		if strings.TrimSpace(line) == "" {
-			continue
-		}
-		lines++
-		if lines > maxATTLOGLines {
+	return parseATTLOGLines(attlogLines(body))
+}
+
+// parseATTLOGLines is parseATTLOG over any line source. It pulls lines one by
+// one and returns as soon as line maxATTLOGLines+1 shows up, so a request far
+// over the cap is abandoned there instead of being read to the end.
+func parseATTLOGLines(lines iter.Seq[string]) (punches []punch, rejects []reject, tooMany bool) {
+	count := 0
+	for line := range lines {
+		count++
+		if count > maxATTLOGLines {
 			return nil, nil, true
 		}
 		p, rej, ok := parseATTLOGLine(line)

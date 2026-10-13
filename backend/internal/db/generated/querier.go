@@ -262,7 +262,10 @@ type Querier interface {
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
-	// Same as above for the unknown PINs punched on the device before the claim.
+	// Run in the claim transaction: PINs that were rejected on this serial before
+	// the claim belong to the previous (unclaimed or foreign) context, so the new
+	// owner starts with a clean unknown-PIN list instead of inheriting someone
+	// else's punches.
 	DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error
 	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
 	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
@@ -517,6 +520,10 @@ type Querier interface {
 	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
+	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+	// idempotency guarantees of this file are binding). These queries are
+	// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+	//
 	// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 	// and refreshes a known one. company_id is NEVER part of the SET list, so a
 	// heartbeat can not change ownership.
