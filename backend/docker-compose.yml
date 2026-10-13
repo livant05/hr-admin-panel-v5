@@ -33,6 +33,15 @@ services:
       APP_ENV: ${APP_ENV:-development}
       DB_URL: postgres://rrhh_go:${POSTGRES_PASSWORD:-rrhh_go_dev}@postgres:5432/rrhh_go?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-dev_change_me_in_prod}
+      AUTH_RATE_PER_MIN: ${AUTH_RATE_PER_MIN:-10}
+      AUTH_ATTEMPT_RATE_PER_MIN: ${AUTH_ATTEMPT_RATE_PER_MIN:-60}
+      # PROVISIONAL until a real-device check (OPS-1).
+      ADMS_RATE_PER_MIN: ${ADMS_RATE_PER_MIN:-600}
+      # Only nginx reaches this service (no published port), so the only
+      # trusted proxy is the compose network itself (subnet declared under
+      # networks below; keep both in sync). Its X-Real-IP is believed when
+      # keying the rate limiters; no other private range is.
+      TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.29.77.0/24}
     networks:
       - rrhh_go_net
 
@@ -54,6 +63,12 @@ services:
 networks:
   rrhh_go_net:
     driver: bridge
+    # Explicit subnet so the trusted proxy range above is deterministic. If it
+    # collides with a network on your host, change it here AND in
+    # TRUSTED_PROXY_CIDRS.
+    ipam:
+      config:
+        - subnet: 172.29.77.0/24
 
 volumes:
   rrhh_go_postgres_data:

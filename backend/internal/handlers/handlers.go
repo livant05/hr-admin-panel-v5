@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 	db "github.com/livant05/rrhh-go/internal/db/generated"
 
 	"github.com/livant05/rrhh-go/internal/auth"
+	"github.com/livant05/rrhh-go/internal/ratelimit"
 	"github.com/livant05/rrhh-go/internal/scheduler"
 )
 
@@ -38,14 +40,45 @@ type API struct {
 	// means auth.CheckPassword). Tests set it, like Scheduler, to assert how
 	// many comparisons a request performs and with which hash.
 	PasswordCheck func(hash, plain string) bool
+
+	// AuthLimiter throttles the public auth endpoints per client IP; login
+	// (and register, once it exists) share this one instance so they share one
+	// bucket. ADMSLimiter throttles the device ingestion endpoints. New
+	// installs both with the production defaults; main overrides them from the
+	// environment and tests replace them with fake-clock instances.
+	AuthLimiter, ADMSLimiter *ratelimit.Limiter
+
+	// AuthAttemptLimiter is the looser per-client budget that counts EVERY
+	// login attempt, successful or not. AuthLimiter only charges failures
+	// (decision #911), so without this cap a client could force unbounded
+	// bcrypt work with valid credentials.
+	AuthAttemptLimiter *ratelimit.Limiter
+
+	// TrustedProxies lists the reverse-proxy prefixes whose X-Real-IP header
+	// is believed when keying the limiters. Empty trusts nobody.
+	TrustedProxies []netip.Prefix
 }
+
+// Production defaults for the public-endpoint limiters (requests per minute,
+// also used as the burst). The ADMS figure is provisional until a real-device
+// check (design D1, OPS-1). DefaultAuthAttemptRatePerMin sizes the looser
+// login budget that counts successes as well (CO-S1b-2).
+const (
+	DefaultAuthRatePerMin        = 10
+	DefaultAuthAttemptRatePerMin = 60
+	DefaultADMSRatePerMin        = 600
+)
 
 func New(pool *pgxpool.Pool, signer *auth.Signer, log *slog.Logger) *API {
 	return &API{
-		Queries: db.New(pool),
-		Pool:    pool,
-		Signer:  signer,
-		Log:     log,
+		Queries:     db.New(pool),
+		Pool:        pool,
+		Signer:      signer,
+		Log:         log,
+		AuthLimiter: ratelimit.New(DefaultAuthRatePerMin, DefaultAuthRatePerMin),
+		ADMSLimiter: ratelimit.New(DefaultADMSRatePerMin, DefaultADMSRatePerMin),
+
+		AuthAttemptLimiter: ratelimit.New(DefaultAuthAttemptRatePerMin, DefaultAuthAttemptRatePerMin),
 	}
 }
 
