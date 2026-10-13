@@ -135,10 +135,13 @@ func TestZktecoUnknownPins_ListRules(t *testing.T) {
 
 	a := testutil.Company(t, pool, "ZkPinsRules")
 	ta := a.Token(t, signer)
-	now := time.Now().UTC().Truncate(time.Microsecond)
-	oldest := seedUnknownPin(t, pool, 1, false, now.Add(-3*time.Hour))
-	middle := seedUnknownPin(t, pool, 7, true, now.Add(-2*time.Hour))
-	newest := seedUnknownPin(t, pool, 2, false, now.Add(-time.Hour))
+	// The table is global, so the seeded pins carry last_seen values in the
+	// year 2999: they always sort to the top, and every assertion below reads
+	// only the head of the list instead of a window over the whole table.
+	base := time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC)
+	oldest := seedUnknownPin(t, pool, 1, false, base.Add(1*time.Hour))
+	middle := seedUnknownPin(t, pool, 7, true, base.Add(2*time.Hour))
+	newest := seedUnknownPin(t, pool, 2, false, base.Add(3*time.Hour))
 
 	list := func(t *testing.T, query string) []unknownPinRow {
 		t.Helper()
@@ -149,33 +152,47 @@ func TestZktecoUnknownPins_ListRules(t *testing.T) {
 		return testutil.DecodeRows[unknownPinRow](t, rec)
 	}
 
+	ids := func(rows []unknownPinRow) string {
+		out := make([]string, len(rows))
+		for i, r := range rows {
+			out[i] = r.ID
+		}
+		return strings.Join(out, ",")
+	}
+
 	t.Run("newest last_seen first", func(t *testing.T) {
-		got := pinIDsAmong(list(t, "?_limit=1000"), oldest, middle, newest)
-		want := []string{newest.ID, middle.ID, oldest.ID}
-		if strings.Join(got, ",") != strings.Join(want, ",") {
+		got := ids(list(t, "?_limit=3"))
+		want := newest.ID + "," + middle.ID + "," + oldest.ID
+		if got != want {
 			t.Fatalf("order = %v, want %v", got, want)
 		}
 	})
 
 	t.Run("resolved filter", func(t *testing.T) {
-		open := pinIDsAmong(list(t, "?resolved=false&_limit=1000"), oldest, middle, newest)
-		if strings.Join(open, ",") != newest.ID+","+oldest.ID {
+		if open := ids(list(t, "?resolved=false&_limit=2")); open != newest.ID+","+oldest.ID {
 			t.Fatalf("resolved=false = %v, want newest then oldest", open)
 		}
-		done := list(t, "?resolved=true&_limit=1000")
-		if got := pinIDsAmong(done, oldest, middle, newest); len(got) != 1 || got[0] != middle.ID {
+		done := list(t, "?resolved=true&_limit=1")
+		if got := ids(done); got != middle.ID {
 			t.Fatalf("resolved=true = %v, want only the resolved pin", got)
 		}
-		for _, r := range done {
-			if !r.Resolved {
-				t.Fatalf("resolved=true returned an unresolved row: %+v", r)
-			}
+		if !done[0].Resolved {
+			t.Fatalf("resolved=true returned an unresolved row: %+v", done[0])
 		}
 	})
 
 	t.Run("limit and offset page the list", func(t *testing.T) {
-		if rows := list(t, "?_limit=2"); len(rows) != 2 {
-			t.Fatalf("_limit=2 returned %d rows", len(rows))
+		cases := []struct{ query, want string }{
+			{"?_limit=1", newest.ID},
+			{"?_limit=1&_offset=1", middle.ID},
+			{"?_limit=1&_offset=2", oldest.ID},
+			{"?_limit=2&_offset=1", middle.ID + "," + oldest.ID},
+			{"?resolved=false&_limit=1&_offset=1", oldest.ID},
+		}
+		for _, c := range cases {
+			if got := ids(list(t, c.query)); got != c.want {
+				t.Fatalf("%s = %v, want %v", c.query, got, c.want)
+			}
 		}
 	})
 
