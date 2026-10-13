@@ -261,9 +261,18 @@ every admin sees the same global list. Filter `resolved` (`true` or `false`; an 
 `created_at` is strictly greater (tenant-scoped, combinable with the other filters and `_limit`/`_offset`).
 A malformed or empty value is `400 validation_failed` with `fields.created_after`. Encode a `+hh:mm`
 offset as `%2B` (or use `Z`), otherwise the `+` reaches the server as a space. This is the only endpoint
-that accepts `_order`, and only `_order=created_at.desc` (newest insert first, ties by id); any other value
-is `400 validation_failed`, and every other endpoint still rejects `_order`. Without `_order` the list keeps
-its `date DESC` order. The ZKTeco live feed polls with the newest `created_at` it has seen.
+that accepts `_order`, and only `created_at.desc` (newest insert first) and `created_at.asc` (oldest
+first). The `id` breaks ties in the same direction as `created_at` (`created_at DESC, id DESC` and
+`created_at ASC, id ASC`), so `_limit`/`_offset` paging is deterministic and returns each row exactly
+once; any other value is `400 validation_failed`, and every other endpoint still rejects `_order`.
+Without `_order` the list keeps its `date DESC` order.
+
+The ZKTeco live feed (TT-1) is a cursor over this list. A strict `created_at > cutoff` can miss a row
+that commits late with an older `created_at`, so the client keeps `maxSeenCreatedAt` and polls with
+`created_after = maxSeenCreatedAt - OVERLAP` (the panel uses 120 s), `_order=created_at.asc` and
+`_limit=200`, pages with `_offset` until a page returns fewer rows than the limit, and drops rows it has
+already shown by `id` (a bounded seen-set). The first call, which only learns the starting point and
+shows nothing, is `_order=created_at.desc&_limit=1`.
 
 ## Interim dev procedure
 

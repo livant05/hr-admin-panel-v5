@@ -340,6 +340,11 @@ type Querier interface {
 	// newest insert first. created_after is strict (created_at > cutoff), and id
 	// breaks ties so a page boundary can never repeat or skip a row.
 	ListAttendanceLogsByCreated(ctx context.Context, arg ListAttendanceLogsByCreatedParams) ([]ListAttendanceLogsByCreatedRow, error)
+	// The live feed's cursor list (CO-S4b-1/2): same filters as
+	// ListAttendanceLogsByCreated but oldest first, so a poll that finds more rows
+	// than its page can walk forward with _offset and never skip the older ones.
+	// id breaks ties in the same direction as created_at.
+	ListAttendanceLogsByCreatedAsc(ctx context.Context, arg ListAttendanceLogsByCreatedAscParams) ([]ListAttendanceLogsByCreatedAscRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
 	ListCandidates(ctx context.Context, arg ListCandidatesParams) ([]Candidate, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)

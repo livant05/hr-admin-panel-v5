@@ -153,10 +153,13 @@ func toAttendanceLogResponse(row attendanceLogDBRow) attendanceLogResponse {
 	}
 }
 
-// attendanceOrderCreatedDesc is the only `_order` this endpoint offers: the
-// newest-first feed the ZKTeco live view polls (TT-1, design D9). Every other
-// endpoint keeps rejecting `_order`.
-const attendanceOrderCreatedDesc = "created_at.desc"
+// The only `_order` values this endpoint offers, for the ZKTeco live view
+// (TT-1, design D9): newest first for the seed call, oldest first for the
+// cursor loop (CO-S4b-1/2). Every other endpoint keeps rejecting `_order`.
+const (
+	attendanceOrderCreatedDesc = "created_at.desc"
+	attendanceOrderCreatedAsc  = "created_at.asc"
+)
 
 // parseCreatedAfter parses the strict RFC 3339 `created_after` cutoff. A
 // present but empty or malformed value is rejected rather than ignored: a
@@ -174,14 +177,14 @@ func parseCreatedAfter(w http.ResponseWriter, p listParams) (pgtype.Timestamptz,
 	return pgtype.Timestamptz{Time: ts, Valid: true}, true
 }
 
-// GET /api/attendance_logs?id=&employee_id=&date=&date_from=&date_to=&created_after=&_order=created_at.desc&_limit=&_offset=
+// GET /api/attendance_logs?id=&employee_id=&date=&date_from=&date_to=&created_after=&_order=created_at.desc|created_at.asc&_limit=&_offset=
 func (a *API) ListAttendanceLogs(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
 		return
 	}
 
-	p, order, ok := parseListOrdered(w, r, []string{attendanceOrderCreatedDesc},
+	p, order, ok := parseListOrdered(w, r, []string{attendanceOrderCreatedDesc, attendanceOrderCreatedAsc},
 		"id", "employee_id", "date", "date_from", "date_to", "created_after")
 	if !ok {
 		return
@@ -219,7 +222,8 @@ func (a *API) ListAttendanceLogs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var resp []attendanceLogResponse
-	if order == attendanceOrderCreatedDesc {
+	switch order {
+	case attendanceOrderCreatedDesc:
 		rows, err := a.Queries.ListAttendanceLogsByCreated(r.Context(), db.ListAttendanceLogsByCreatedParams{
 			CompanyID:    companyID, // $1 — from ctx, never from a query param
 			ID:           id,
@@ -239,7 +243,27 @@ func (a *API) ListAttendanceLogs(w http.ResponseWriter, r *http.Request) {
 		for i, row := range rows {
 			resp[i] = toAttendanceLogResponse(attendanceLogDBRow(row))
 		}
-	} else {
+	case attendanceOrderCreatedAsc:
+		rows, err := a.Queries.ListAttendanceLogsByCreatedAsc(r.Context(), db.ListAttendanceLogsByCreatedAscParams{
+			CompanyID:    companyID, // $1 — from ctx, never from a query param
+			ID:           id,
+			EmployeeID:   employeeID,
+			Date:         date,
+			DateFrom:     dateFrom,
+			DateTo:       dateTo,
+			CreatedAfter: createdAfter,
+			Limit:        p.Limit,
+			Offset:       p.Offset,
+		})
+		if err != nil {
+			a.writeDBErr(w, err, "list attendance logs by created asc")
+			return
+		}
+		resp = make([]attendanceLogResponse, len(rows))
+		for i, row := range rows {
+			resp[i] = toAttendanceLogResponse(attendanceLogDBRow(row))
+		}
+	default:
 		rows, err := a.Queries.ListAttendanceLogs(r.Context(), db.ListAttendanceLogsParams{
 			CompanyID:    companyID, // $1 — from ctx, never from a query param
 			Column2:      id,
