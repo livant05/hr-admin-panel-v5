@@ -487,6 +487,21 @@ func TestJobPostings_ListGetFilters(t *testing.T) {
 		}
 	})
 
+	t.Run("an empty or unknown status is validation_failed with fields.status", func(t *testing.T) {
+		for _, q := range []string{"?status=", "?status=archived", "?status=Open"} {
+			rec := testutil.Do(t, h, http.MethodGet, jobPostingsPath+q, tok, nil)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("GET %s: got %d, want 400", q, rec.Code)
+			}
+			if code := testutil.ErrCode(t, rec); code != "validation_failed" {
+				t.Fatalf("GET %s: error.code = %q, want validation_failed", q, code)
+			}
+			if errField(t, rec, "status") == "" {
+				t.Fatalf("GET %s: no fields.status in %s", q, rec.Body.String())
+			}
+		}
+	})
+
 	t.Run("a company with no postings lists [] not null", func(t *testing.T) {
 		empty := testutil.Company(t, pool, "JobEmptyCo")
 		rec := testutil.Do(t, h, http.MethodGet, jobPostingsPath, empty.Token(t, signer), nil)

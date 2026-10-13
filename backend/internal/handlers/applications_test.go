@@ -182,6 +182,54 @@ func TestApplications_CrossTenantLeak(t *testing.T) {
 		}
 	})
 
+	t.Run("patch other tenant row is 404 and leaves it byte-identical", func(t *testing.T) {
+		before := testutil.Do(t, h, http.MethodGet, applicationsPath+"/"+appA.ID, ta, nil).Body.String()
+		for _, body := range []map[string]any{{"stage": "hired"}, {"notes": "Hacked", "stage": "rejected"}, {"job_posting_id": jobB.ID}} {
+			rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+appA.ID, tb, body)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("PATCH %v: got %d (%s), want 404", body, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "not_found" {
+				t.Fatalf("error.code = %q, want not_found", code)
+			}
+		}
+		if after := testutil.Do(t, h, http.MethodGet, applicationsPath+"/"+appA.ID, ta, nil).Body.String(); after != before {
+			t.Fatalf("row changed by a cross-tenant PATCH:\nbefore %s\nafter  %s", before, after)
+		}
+	})
+
+	t.Run("patch re-pointing to another company's rows is 404 and leaves the row unchanged", func(t *testing.T) {
+		before := testutil.Do(t, h, http.MethodGet, applicationsPath+"/"+appA.ID, ta, nil).Body.String()
+		for name, body := range map[string]map[string]any{
+			"foreign posting":       {"job_posting_id": jobB.ID},
+			"foreign candidate":     {"candidate_id": candB.ID},
+			"both foreign":          {"job_posting_id": jobB.ID, "candidate_id": candB.ID, "stage": "hired"},
+			"own posting + foreign": {"job_posting_id": jobA.ID, "candidate_id": candB.ID, "notes": "x"},
+			"nonexistent posting":   {"job_posting_id": uuid.NewString()},
+			"nonexistent candidate": {"candidate_id": uuid.NewString()},
+		} {
+			rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+appA.ID, ta, body)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("%s: got %d (%s), want 404", name, rec.Code, rec.Body.String())
+			}
+			if msg := errMessage(t, rec); msg != "not found" {
+				t.Fatalf("%s: message %q discloses more than %q", name, msg, "not found")
+			}
+		}
+		if after := testutil.Do(t, h, http.MethodGet, applicationsPath+"/"+appA.ID, ta, nil).Body.String(); after != before {
+			t.Fatalf("row changed by a rejected re-point:\nbefore %s\nafter  %s", before, after)
+		}
+	})
+
+	t.Run("delete other tenant row is 404 and the row survives", func(t *testing.T) {
+		if rec := testutil.Do(t, h, http.MethodDelete, applicationsPath+"/"+appA.ID, tb, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d, want 404", rec.Code)
+		}
+		if _, code := getApplication(t, h, ta, appA.ID); code != http.StatusOK {
+			t.Fatalf("row did not survive the cross-tenant delete: %d", code)
+		}
+	})
+
 	t.Run("created row belongs to the token company", func(t *testing.T) {
 		if appA.CompanyID != a.CompanyID || appB.CompanyID != b.CompanyID {
 			t.Fatalf("company ids = %s/%s, want %s/%s", appA.CompanyID, appB.CompanyID, a.CompanyID, b.CompanyID)
@@ -500,6 +548,21 @@ func TestApplications_ListGetFilters(t *testing.T) {
 		}
 	})
 
+	t.Run("an empty or unknown stage is validation_failed with fields.stage", func(t *testing.T) {
+		for _, q := range []string{"?stage=", "?stage=pending", "?stage=Hired", "?job_posting_id=" + job1.ID + "&stage="} {
+			rec := testutil.Do(t, h, http.MethodGet, applicationsPath+q, tok, nil)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("GET %s: got %d, want 400", q, rec.Code)
+			}
+			if code := testutil.ErrCode(t, rec); code != "validation_failed" {
+				t.Fatalf("GET %s: error.code = %q, want validation_failed", q, code)
+			}
+			if errField(t, rec, "stage") == "" {
+				t.Fatalf("GET %s: no fields.stage in %s", q, rec.Body.String())
+			}
+		}
+	})
+
 	t.Run("a company with no applications lists [] not null", func(t *testing.T) {
 		empty := testutil.Company(t, pool, "AppEmptyCo")
 		rec := testutil.Do(t, h, http.MethodGet, applicationsPath, empty.Token(t, signer), nil)
@@ -652,4 +715,402 @@ func mustJSON(t *testing.T, v any) string {
 		t.Fatalf("marshal: %v", err)
 	}
 	return string(b)
+}
+
+func TestApplications_CrudRoundTrip(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "AppCrudCo")
+	tok := c.Token(t, signer)
+	job1 := createJobPosting(t, h, tok, map[string]any{"title": "Job One"})
+	job2 := createJobPosting(t, h, tok, map[string]any{"title": "Job Two"})
+	cand1 := createCandidate(t, h, tok, map[string]any{"full_name": "Cand One"})
+	cand2 := createCandidate(t, h, tok, map[string]any{"full_name": "Cand Two"})
+
+	created := createApplication(t, h, tok, appBody(job1.ID, cand1.ID, map[string]any{"notes": "first", "applied_at": "2025-05-03"}))
+	path := applicationsPath + "/" + created.ID
+	patch := func(t *testing.T, body any) applicationRow {
+		t.Helper()
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, body)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PATCH %v: got %d (%s)", body, rec.Code, rec.Body.String())
+		}
+		rows := testutil.DecodeRows[applicationRow](t, rec)
+		if len(rows) != 1 {
+			t.Fatalf("PATCH returned %d rows, want a one-element array", len(rows))
+		}
+		return rows[0]
+	}
+
+	t.Run("patch changes only the sent fields", func(t *testing.T) {
+		got := patch(t, map[string]any{"stage": "screening", "applied_at": "2025-06-01"})
+		if textOrNull(got.Stage) != "screening" || textOrNull(got.AppliedAt) != "2025-06-01" {
+			t.Fatalf("stage/applied_at = %q/%q", textOrNull(got.Stage), textOrNull(got.AppliedAt))
+		}
+		if textOrNull(got.Notes) != "first" || textOrNull(got.JobPostingID) != job1.ID || textOrNull(got.CandidateID) != cand1.ID {
+			t.Fatalf("unsent fields changed: %+v", got)
+		}
+		if again, _ := getApplication(t, h, tok, created.ID); textOrNull(again.Stage) != "screening" {
+			t.Fatalf("stage did not persist: %q", textOrNull(again.Stage))
+		}
+	})
+
+	t.Run("null notes clear them and an empty patch is a no-op", func(t *testing.T) {
+		if got := patch(t, map[string]any{"notes": nil}); got.Notes != nil {
+			t.Fatalf("notes = %q, want cleared", *got.Notes)
+		}
+		before, _ := getApplication(t, h, tok, created.ID)
+		got := patch(t, map[string]any{})
+		if mustJSON(t, got) != mustJSON(t, before) {
+			t.Fatalf("empty patch changed the row:\n%s\n%s", mustJSON(t, before), mustJSON(t, got))
+		}
+	})
+
+	t.Run("job_title and candidate_name in the body are ignored", func(t *testing.T) {
+		got := patch(t, map[string]any{"job_title": "Forged", "candidate_name": "Forged", "stage": "interview"})
+		if textOrNull(got.JobTitle) != "Job One" || textOrNull(got.CandidateName) != "Cand One" {
+			t.Fatalf("names = %q/%q, want them untouched", textOrNull(got.JobTitle), textOrNull(got.CandidateName))
+		}
+	})
+
+	t.Run("sending the unchanged ids keeps the stored names", func(t *testing.T) {
+		if rec := testutil.Do(t, h, http.MethodPatch, jobPostingsPath+"/"+job1.ID, tok, map[string]any{"title": "Job One Renamed"}); rec.Code != http.StatusOK {
+			t.Fatalf("rename: %d", rec.Code)
+		}
+		got := patch(t, map[string]any{"job_posting_id": job1.ID, "candidate_id": cand1.ID, "stage": "offer"})
+		if textOrNull(got.JobTitle) != "Job One" {
+			t.Fatalf("job_title = %q, want the stored snapshot %q (the frontend always resends the ids)", textOrNull(got.JobTitle), "Job One")
+		}
+	})
+
+	t.Run("re-pointing to own rows re-derives the names", func(t *testing.T) {
+		got := patch(t, map[string]any{"job_posting_id": job2.ID})
+		if textOrNull(got.JobPostingID) != job2.ID || textOrNull(got.JobTitle) != "Job Two" || textOrNull(got.CandidateName) != "Cand One" {
+			t.Fatalf("after re-pointing the posting: %+v", got)
+		}
+		got = patch(t, map[string]any{"candidate_id": cand2.ID})
+		if textOrNull(got.CandidateID) != cand2.ID || textOrNull(got.CandidateName) != "Cand Two" || textOrNull(got.JobTitle) != "Job Two" {
+			t.Fatalf("after re-pointing the candidate: %+v", got)
+		}
+	})
+
+	t.Run("an application with a null foreign key can still change stage", func(t *testing.T) {
+		legacy := seedApplication(t, pool, c.CompanyID, job1.ID) // candidate_id stays NULL
+		rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+legacy, tok, map[string]any{"stage": "rejected"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		got := testutil.DecodeRows[applicationRow](t, rec)[0]
+		if textOrNull(got.Stage) != "rejected" || got.CandidateID != nil {
+			t.Fatalf("got stage=%q candidate_id=%v", textOrNull(got.Stage), got.CandidateID)
+		}
+	})
+
+	t.Run("hard delete removes the row and nothing else", func(t *testing.T) {
+		if rec := testutil.Do(t, h, http.MethodDelete, path, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+		if _, code := getApplication(t, h, tok, created.ID); code != http.StatusNotFound {
+			t.Fatalf("GET after delete: %d, want 404", code)
+		}
+		var n int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM applications WHERE id = $1`, created.ID).Scan(&n); err != nil || n != 0 {
+			t.Fatalf("row still stored (n=%d, err=%v): the delete must be hard", n, err)
+		}
+		if _, code := getJobPosting(t, h, tok, job1.ID); code != http.StatusOK {
+			t.Fatalf("posting disappeared with its application: %d", code)
+		}
+		if _, code := getCandidate(t, h, tok, cand1.ID); code != http.StatusOK {
+			t.Fatalf("candidate disappeared with its application: %d", code)
+		}
+		for _, id := range []string{created.ID, uuid.NewString(), "not-a-uuid"} {
+			if rec := testutil.Do(t, h, http.MethodDelete, applicationsPath+"/"+id, tok, nil); rec.Code != http.StatusNotFound {
+				t.Fatalf("DELETE %s: got %d, want 404", id, rec.Code)
+			}
+		}
+	})
+}
+
+// TestApplications_HirePersistsStageOnly pins REC-3: the hire is a stage change
+// and creates no employee.
+func TestApplications_HirePersistsStageOnly(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "AppHireCo")
+	tok := c.Token(t, signer)
+	job := createJobPosting(t, h, tok, map[string]any{"title": "Hire me"})
+	cand := createCandidate(t, h, tok, map[string]any{"full_name": "Nuevo Ingreso", "id_number": "8-123-456"})
+	app := createApplication(t, h, tok, appBody(job.ID, cand.ID, map[string]any{"stage": "offer", "notes": "keep"}))
+
+	countEmployees := func() int {
+		var n int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM employees WHERE company_id = $1`, c.CompanyID).Scan(&n); err != nil {
+			t.Fatalf("count employees: %v", err)
+		}
+		return n
+	}
+	employeesBefore := countEmployees()
+
+	rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+app.ID, tok, map[string]any{"stage": "hired"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+	}
+	got, _ := getApplication(t, h, tok, app.ID)
+	if textOrNull(got.Stage) != "hired" || textOrNull(got.Notes) != "keep" {
+		t.Fatalf("after the hire: stage=%q notes=%q", textOrNull(got.Stage), textOrNull(got.Notes))
+	}
+	if after := countEmployees(); after != employeesBefore {
+		t.Fatalf("employees went from %d to %d: hiring must not create an employee", employeesBefore, after)
+	}
+}
+
+func TestApplications_PatchValidation(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "AppPatchValCo")
+	tok := c.Token(t, signer)
+	job := createJobPosting(t, h, tok, map[string]any{"title": "J"})
+	cand := createCandidate(t, h, tok, map[string]any{"full_name": "C"})
+	app := createApplication(t, h, tok, appBody(job.ID, cand.ID, map[string]any{"stage": "interview", "notes": "n", "applied_at": "2025-05-03"}))
+	path := applicationsPath + "/" + app.ID
+	before := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String()
+
+	t.Run("invalid values are validation_failed and leave the row unchanged", func(t *testing.T) {
+		cases := []struct {
+			name  string
+			body  string
+			field string
+		}{
+			{"stage unknown", `{"stage":"pending"}`, "stage"},
+			{"stage wrong case", `{"stage":"HIRED"}`, "stage"},
+			{"stage empty", `{"stage":""}`, "stage"},
+			{"stage null", `{"stage":null}`, "stage"},
+			{"posting null", `{"job_posting_id":null}`, "job_posting_id"},
+			{"candidate null", `{"candidate_id":null}`, "candidate_id"},
+			{"posting not a uuid", `{"job_posting_id":"nope"}`, "job_posting_id"},
+			{"candidate empty", `{"candidate_id":""}`, "candidate_id"},
+			{"applied_at null", `{"applied_at":null}`, "applied_at"},
+			{"applied_at garbage", `{"applied_at":"soon"}`, "applied_at"},
+			{"applied_at impossible", `{"applied_at":"2025-02-30"}`, "applied_at"},
+		}
+		for _, tc := range cases {
+			rec := doRawBody(t, h, http.MethodPatch, path, tok, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s: got %d (%s), want 400", tc.name, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "validation_failed" {
+				t.Fatalf("%s: error.code = %q, want validation_failed", tc.name, code)
+			}
+			var env struct {
+				Error struct {
+					Fields map[string]string `json:"fields"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatalf("%s: decode: %v", tc.name, err)
+			}
+			if _, ok := env.Error.Fields[tc.field]; !ok {
+				t.Fatalf("%s: fields = %v, want %q", tc.name, env.Error.Fields, tc.field)
+			}
+		}
+		if after := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String(); after != before {
+			t.Fatalf("a rejected PATCH changed the row:\nbefore %s\nafter  %s", before, after)
+		}
+	})
+
+	t.Run("malformed bodies, unknown fields and oversize bodies are 400 bad_request", func(t *testing.T) {
+		for name, body := range map[string]string{
+			"not json":      `nope`,
+			"array":         `[]`,
+			"null":          `null`,
+			"unknown field": `{"salary":1}`,
+			"company_id":    `{"company_id":"` + uuid.NewString() + `"}`,
+			"id":            `{"id":"` + uuid.NewString() + `"}`,
+			"created_at":    `{"created_at":"2020-01-01T00:00:00Z"}`,
+			"notes number":  `{"notes":5}`,
+			"over 1 MiB":    `{"notes":"` + strings.Repeat("a", 1<<20) + `"}`,
+		} {
+			rec := doRawBody(t, h, http.MethodPatch, path, tok, body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s: got %d (%s), want 400", name, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "bad_request" {
+				t.Fatalf("%s: error.code = %q, want bad_request", name, code)
+			}
+		}
+		if after := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String(); after != before {
+			t.Fatalf("a rejected PATCH changed the row")
+		}
+	})
+
+	t.Run("a malformed id is 404", func(t *testing.T) {
+		if rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/not-a-uuid", tok, map[string]any{"stage": "hired"}); rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d, want 404", rec.Code)
+		}
+	})
+}
+
+// TestApplications_RepointRacingADelete pins the lock discipline of a PATCH that
+// re-points a foreign key, in both directions, with pg_blocking_pids waits:
+//
+//   - the target is being deleted (uncommitted): the PATCH waits, then answers
+//     404 and the application is unchanged, never a foreign key error;
+//   - the PATCH is in flight (parked after it locked the target, before the
+//     foreign key check): the guarded delete of the target waits, then counts the
+//     re-pointed application and answers 409, so the target survives.
+func TestApplications_RepointRacingADelete(t *testing.T) {
+	for _, ref := range referencedRows {
+		// repoint is the PATCH body that moves an application onto target.
+		repoint := func(target string, extra map[string]any) map[string]any {
+			body := map[string]any{}
+			if ref.table == "job_postings" {
+				body["job_posting_id"] = target
+			} else {
+				body["candidate_id"] = target
+			}
+			for k, v := range extra {
+				body[k] = v
+			}
+			return body
+		}
+		setup := func(t *testing.T, pool *pgxpool.Pool, h http.Handler, tok string) (app applicationRow, target string) {
+			job := createJobPosting(t, h, tok, map[string]any{"title": "Original"})
+			cand := createCandidate(t, h, tok, map[string]any{"full_name": "Original"})
+			app = createApplication(t, h, tok, appBody(job.ID, cand.ID, nil))
+			return app, ref.create(t, h, tok)
+		}
+		current := func(t *testing.T, pool *pgxpool.Pool, id string) string {
+			var fk string
+			col := "job_posting_id"
+			if ref.table == "candidates" {
+				col = "candidate_id"
+			}
+			if err := pool.QueryRow(context.Background(), `SELECT `+col+`::text FROM applications WHERE id = $1`, id).Scan(&fk); err != nil {
+				t.Fatalf("read %s: %v", col, err)
+			}
+			return fk
+		}
+
+		t.Run(ref.name+"/patch waits for a delete of the target in flight and answers 404", func(t *testing.T) {
+			pool := testutil.Pool(t)
+			h, signer := testutil.Server(t, pool)
+			c := testutil.Company(t, pool, "AppRepDel"+ref.table)
+			tok := c.Token(t, signer)
+			app, target := setup(t, pool, h, tok)
+			original := current(t, pool, app.ID)
+
+			ctx := context.Background()
+			tx, err := pool.Begin(ctx)
+			if err != nil {
+				t.Fatalf("begin: %v", err)
+			}
+			defer tx.Rollback(ctx)
+			if _, err := tx.Exec(ctx, `DELETE FROM `+ref.table+` WHERE id = $1`, target); err != nil {
+				t.Fatalf("delete in tx: %v", err)
+			}
+			var holderPID int
+			if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
+				t.Fatalf("holder pid: %v", err)
+			}
+
+			var wg sync.WaitGroup
+			defer func() {
+				_ = tx.Rollback(ctx)
+				wg.Wait()
+			}()
+			rec := serveAsync(h, &wg, authedRequest(http.MethodPatch, applicationsPath+"/"+app.ID, tok, mustJSON(t, repoint(target, map[string]any{"stage": "hired"}))))
+			waitUntilBlockedBy(t, pool, holderPID) // the PATCH is parked on the row being deleted
+
+			if err := tx.Commit(ctx); err != nil {
+				t.Fatalf("commit delete: %v", err)
+			}
+			wg.Wait()
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("PATCH got %d (%s), want 404 once the target was deleted", rec.Code, rec.Body.String())
+			}
+			got, _ := getApplication(t, h, tok, app.ID)
+			if textOrNull(got.Stage) != "applied" || current(t, pool, app.ID) != original {
+				t.Fatalf("the application changed despite the 404: %+v", got)
+			}
+		})
+
+		t.Run(ref.name+"/delete of the target waits for a re-point in flight and answers 409", func(t *testing.T) {
+			pool, _ := testutil.IsolatedSchema(t)
+			h, signer := testutil.Server(t, pool)
+			c := testutil.Company(t, pool, "AppRepIns"+ref.table)
+			tok := c.Token(t, signer)
+			app, target := setup(t, pool, h, tok)
+
+			const marker = "hold-this-repoint"
+			holderPID, release := parkPatchesInTrigger(t, pool, "applications", "notes", marker)
+			var wg sync.WaitGroup
+			defer func() {
+				release()
+				wg.Wait()
+			}()
+
+			patchRec := serveAsync(h, &wg, authedRequest(http.MethodPatch, applicationsPath+"/"+app.ID, tok, mustJSON(t, repoint(target, map[string]any{"notes": marker}))))
+			patchPID := waitUntilBlockedBy(t, pool, holderPID) // the PATCH holds the target's lock, parked in the trigger
+
+			delRec := serveAsync(h, &wg, authedRequest(http.MethodDelete, ref.delete+"/"+target, tok, ""))
+			waitUntilBlockedBy(t, pool, patchPID) // the delete is queued behind the PATCH
+
+			release()
+			wg.Wait()
+			if patchRec.Code != http.StatusOK {
+				t.Fatalf("PATCH got %d (%s), want 200", patchRec.Code, patchRec.Body.String())
+			}
+			if delRec.Code != http.StatusConflict {
+				t.Fatalf("delete got %d (%s), want 409 because it must count the re-pointed application", delRec.Code, delRec.Body.String())
+			}
+			if got := current(t, pool, app.ID); got != target {
+				t.Fatalf("application points at %s, want the surviving target %s", got, target)
+			}
+		})
+	}
+}
+
+// TestApplications_PatchMergeReadDoesNotLoseAConcurrentWrite: a committed write
+// to a column the PATCH did not send must survive, which only holds because the
+// merge read waits for the writer (FOR NO KEY UPDATE) instead of snapshotting.
+func TestApplications_PatchMergeReadDoesNotLoseAConcurrentWrite(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "AppLostUpdateCo")
+	tok := c.Token(t, signer)
+	job := createJobPosting(t, h, tok, map[string]any{"title": "J"})
+	cand := createCandidate(t, h, tok, map[string]any{"full_name": "C"})
+	app := createApplication(t, h, tok, appBody(job.ID, cand.ID, nil))
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE applications SET notes = 'concurrent' WHERE id = $1`, app.ID); err != nil {
+		t.Fatalf("concurrent write: %v", err)
+	}
+	var holderPID int
+	if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
+		t.Fatalf("holder pid: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	defer func() {
+		_ = tx.Rollback(ctx)
+		wg.Wait()
+	}()
+	rec := serveAsync(h, &wg, authedRequest(http.MethodPatch, applicationsPath+"/"+app.ID, tok, `{"stage":"hired"}`))
+	waitUntilBlockedBy(t, pool, holderPID)
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	wg.Wait()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if got, _ := getApplication(t, h, tok, app.ID); textOrNull(got.Notes) != "concurrent" || textOrNull(got.Stage) != "hired" {
+		t.Fatalf("notes=%q stage=%q, want the concurrent write and the patch both kept", textOrNull(got.Notes), textOrNull(got.Stage))
+	}
 }
