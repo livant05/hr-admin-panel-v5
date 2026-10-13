@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/testutil"
@@ -485,6 +487,21 @@ func TestJobPostings_ListGetFilters(t *testing.T) {
 		}
 	})
 
+	t.Run("an empty or unknown status is validation_failed with fields.status", func(t *testing.T) {
+		for _, q := range []string{"?status=", "?status=archived", "?status=Open"} {
+			rec := testutil.Do(t, h, http.MethodGet, jobPostingsPath+q, tok, nil)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("GET %s: got %d, want 400", q, rec.Code)
+			}
+			if code := testutil.ErrCode(t, rec); code != "validation_failed" {
+				t.Fatalf("GET %s: error.code = %q, want validation_failed", q, code)
+			}
+			if errField(t, rec, "status") == "" {
+				t.Fatalf("GET %s: no fields.status in %s", q, rec.Body.String())
+			}
+		}
+	})
+
 	t.Run("a company with no postings lists [] not null", func(t *testing.T) {
 		empty := testutil.Company(t, pool, "JobEmptyCo")
 		rec := testutil.Do(t, h, http.MethodGet, jobPostingsPath, empty.Token(t, signer), nil)
@@ -713,19 +730,22 @@ func errMessage(t *testing.T, rec *httptest.ResponseRecorder) string {
 
 // waitUntilBlockedBy polls until some backend is waiting on a lock held by the
 // backend holderPID, so a test knows the request under test has reached the
-// lock instead of guessing with a sleep. It fails the test after 10 seconds.
-func waitUntilBlockedBy(t *testing.T, pool *pgxpool.Pool, holderPID int) {
+// lock instead of guessing with a sleep. It returns the pid of a backend that
+// is blocked (the request's own connection) and fails the test after 10
+// seconds.
+func waitUntilBlockedBy(t *testing.T, pool *pgxpool.Pool, holderPID int) int {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
 		var waiting int
-		if err := pool.QueryRow(context.Background(),
-			`SELECT count(*) FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid))`,
-			holderPID).Scan(&waiting); err != nil {
-			t.Fatalf("count backends blocked by %d: %v", holderPID, err)
+		err := pool.QueryRow(context.Background(),
+			`SELECT pid FROM pg_stat_activity WHERE $1 = ANY (pg_blocking_pids(pid)) ORDER BY pid LIMIT 1`,
+			holderPID).Scan(&waiting)
+		if err == nil {
+			return waiting
 		}
-		if waiting > 0 {
-			return
+		if !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("find backends blocked by %d: %v", holderPID, err)
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("no backend became blocked by backend %d within 10s", holderPID)
@@ -955,6 +975,12 @@ func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 		defer wg.Done()
 		h.ServeHTTP(rec, req)
 	}()
+	// A failed assertion must not leave the PATCH goroutine parked in the trigger
+	// and running past the test: release the hold, then wait for it.
+	defer func() {
+		release()
+		wg.Wait()
+	}()
 	waitUntilBlockedBy(t, pool, holderPID) // the PATCH holds its merge-read lock and is parked in the trigger
 
 	tx, err := pool.Begin(ctx)
@@ -996,14 +1022,28 @@ func TestJobPostings_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
 // pid (for waitUntilBlockedBy) and an idempotent release; cleanup releases too.
 func parkPatchesInTrigger(t *testing.T, pool *pgxpool.Pool, table, column, marker string) (holderPID int, release func()) {
 	t.Helper()
+	return parkInTrigger(t, pool, "UPDATE", table, column, marker)
+}
+
+// parkInsertsInTrigger is parkPatchesInTrigger for INSERT: a row whose column is
+// marker stays in flight inside the BEFORE INSERT trigger, after the statement
+// has taken every lock its SELECT part acquired and before the foreign key
+// checks run.
+func parkInsertsInTrigger(t *testing.T, pool *pgxpool.Pool, table, column, marker string) (holderPID int, release func()) {
+	t.Helper()
+	return parkInTrigger(t, pool, "INSERT", table, column, marker)
+}
+
+func parkInTrigger(t *testing.T, pool *pgxpool.Pool, event, table, column, marker string) (holderPID int, release func()) {
+	t.Helper()
 	ctx := context.Background()
 	key := rand.Int63() // advisory locks are database-wide, so the key is random
 	if _, err := pool.Exec(ctx, fmt.Sprintf(`
-		CREATE FUNCTION hold_%[1]s_patch() RETURNS trigger LANGUAGE plpgsql AS $$
+		CREATE FUNCTION hold_%[1]s_%[5]s() RETURNS trigger LANGUAGE plpgsql AS $$
 		BEGIN PERFORM pg_advisory_xact_lock(%[4]d); RETURN NEW; END $$;
-		CREATE TRIGGER trg_hold_%[1]s_patch BEFORE UPDATE ON %[1]s
-		FOR EACH ROW WHEN (NEW.%[2]s = '%[3]s') EXECUTE FUNCTION hold_%[1]s_patch();`,
-		table, column, marker, key)); err != nil {
+		CREATE TRIGGER trg_hold_%[1]s_%[5]s BEFORE %[5]s ON %[1]s
+		FOR EACH ROW WHEN (NEW.%[2]s = '%[3]s') EXECUTE FUNCTION hold_%[1]s_%[5]s();`,
+		table, column, marker, key, event)); err != nil {
 		t.Fatalf("install hold trigger on %s: %v", table, err)
 	}
 

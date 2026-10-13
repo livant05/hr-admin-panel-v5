@@ -103,3 +103,55 @@ func errCodeFromBody(t *testing.T, rec *httptest.ResponseRecorder) string {
 	}
 	return body.Error.Code
 }
+
+// TestParseListOrdered pins the per-endpoint order whitelist (design D9):
+// parseList keeps rejecting `_order` outright, while an endpoint that passes an
+// explicit whitelist accepts exactly those values and nothing else.
+func TestParseListOrdered(t *testing.T) {
+	cases := []struct {
+		name      string
+		query     string
+		orders    []string
+		allow     []string
+		wantOK    bool
+		wantOrder string
+		wantField string // a filter that must come through
+	}{
+		{name: "no _order returns the empty order", query: "?id=x", orders: []string{"created_at.desc"}, allow: []string{"id"}, wantOK: true, wantOrder: "", wantField: "id"},
+		{name: "a whitelisted _order is returned", query: "?_order=created_at.desc", orders: []string{"created_at.desc"}, allow: []string{"id"}, wantOK: true, wantOrder: "created_at.desc"},
+		{name: "the whitelist may hold several values", query: "?_order=date.asc", orders: []string{"created_at.desc", "date.asc"}, allow: nil, wantOK: true, wantOrder: "date.asc"},
+		{name: "another direction is rejected", query: "?_order=created_at.asc", orders: []string{"created_at.desc"}, allow: nil, wantOK: false},
+		{name: "another column is rejected", query: "?_order=date.desc", orders: []string{"created_at.desc"}, allow: nil, wantOK: false},
+		{name: "an empty _order is rejected", query: "?_order=", orders: []string{"created_at.desc"}, allow: nil, wantOK: false},
+		{name: "nil whitelist rejects every _order", query: "?_order=created_at.desc", orders: nil, allow: nil, wantOK: false},
+		{name: "unknown parameter is still rejected", query: "?bogus=1&_order=created_at.desc", orders: []string{"created_at.desc"}, allow: nil, wantOK: false},
+		{name: "_limit rules still apply", query: "?_limit=0&_order=created_at.desc", orders: []string{"created_at.desc"}, allow: nil, wantOK: false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/api/attendance_logs"+tc.query, nil)
+			rec := httptest.NewRecorder()
+
+			p, order, ok := parseListOrdered(rec, req, tc.orders, tc.allow...)
+			if ok != tc.wantOK {
+				t.Fatalf("expected ok=%v, got %v (body=%s)", tc.wantOK, ok, rec.Body.String())
+			}
+			if !tc.wantOK {
+				if rec.Code != 400 {
+					t.Fatalf("expected 400, got %d", rec.Code)
+				}
+				if code := errCodeFromBody(t, rec); code != codeValidation {
+					t.Fatalf("expected error.code=%s, got %q", codeValidation, code)
+				}
+				return
+			}
+			if order != tc.wantOrder {
+				t.Fatalf("order = %q, want %q", order, tc.wantOrder)
+			}
+			if tc.wantField != "" && p.Filters[tc.wantField] != "x" {
+				t.Fatalf("filter %q lost: %v", tc.wantField, p.Filters)
+			}
+		})
+	}
+}
