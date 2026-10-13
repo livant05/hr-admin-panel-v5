@@ -548,6 +548,21 @@ func TestApplications_ListGetFilters(t *testing.T) {
 		}
 	})
 
+	t.Run("an empty or unknown stage is validation_failed with fields.stage", func(t *testing.T) {
+		for _, q := range []string{"?stage=", "?stage=pending", "?stage=Hired", "?job_posting_id=" + job1.ID + "&stage="} {
+			rec := testutil.Do(t, h, http.MethodGet, applicationsPath+q, tok, nil)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("GET %s: got %d, want 400", q, rec.Code)
+			}
+			if code := testutil.ErrCode(t, rec); code != "validation_failed" {
+				t.Fatalf("GET %s: error.code = %q, want validation_failed", q, code)
+			}
+			if errField(t, rec, "stage") == "" {
+				t.Fatalf("GET %s: no fields.stage in %s", q, rec.Body.String())
+			}
+		}
+	})
+
 	t.Run("a company with no applications lists [] not null", func(t *testing.T) {
 		empty := testutil.Company(t, pool, "AppEmptyCo")
 		rec := testutil.Do(t, h, http.MethodGet, applicationsPath, empty.Token(t, signer), nil)
@@ -829,7 +844,7 @@ func TestApplications_HirePersistsStageOnly(t *testing.T) {
 
 	countEmployees := func() int {
 		var n int
-		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM employees`).Scan(&n); err != nil {
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM employees WHERE company_id = $1`, c.CompanyID).Scan(&n); err != nil {
 			t.Fatalf("count employees: %v", err)
 		}
 		return n
