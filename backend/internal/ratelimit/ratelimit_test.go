@@ -136,39 +136,104 @@ func TestAllow_KeysAreIsolated(t *testing.T) {
 	}
 }
 
-func TestAllow_SweepsIdleFullBucketsAboveKeyLimit(t *testing.T) {
-	l, clk := newTestLimiter(60, 1)
+func TestAllow_TrackedKeysNeverExceedTheCap(t *testing.T) {
+	l, _ := newTestLimiter(60, 1)
+	l.maxKeys = 50
 
-	for i := 0; i <= maxKeys; i++ { // maxKeys+1 distinct keys, each spends its token
-		l.Allow(fmt.Sprintf("key-%d", i))
+	for i := 0; i < 50*20; i++ { // 20x more distinct keys than the cap
+		l.Allow(fmt.Sprintf("flood-%d", i))
+		if got := len(l.buckets); got > l.maxKeys {
+			t.Fatalf("after %d keys: %d tracked, cap is %d", i+1, got, l.maxKeys)
+		}
+		if got := l.order.Len(); got != len(l.buckets) {
+			t.Fatalf("recency list (%d) and map (%d) diverged", got, len(l.buckets))
+		}
 	}
-	if got := len(l.buckets); got != maxKeys+1 {
-		t.Fatalf("precondition: %d keys tracked, want %d", got, maxKeys+1)
-	}
-
-	clk.Advance(10 * time.Second) // every bucket refilled to full (1/s)
-	l.Allow("fresh-key")          // triggers the sweep
-
-	if got := len(l.buckets); got != 1 {
-		t.Fatalf("idle full buckets must be evicted, only the fresh key remains: %d tracked", got)
+	if got := len(l.buckets); got != l.maxKeys {
+		t.Fatalf("a flood must leave the table exactly at the cap: %d tracked, cap %d", got, l.maxKeys)
 	}
 }
 
-func TestAllow_SweepKeepsBucketsThatAreNotFull(t *testing.T) {
+func TestAllow_DefaultCapIsTenThousand(t *testing.T) {
+	if got := New(10, 1).maxKeys; got != 10_000 {
+		t.Fatalf("default cap = %d, want 10000", got)
+	}
+}
+
+// Eviction is amortised O(1): at the cap, one new key removes exactly one
+// bucket (the least recently used). The retired sweep dropped every refilled
+// bucket in one O(n) pass, which this test would observe as the table
+// collapsing to a single key.
+func TestAllow_AtCapEvictsExactlyOneLeastRecentlyUsedKey(t *testing.T) {
 	l, clk := newTestLimiter(60, 1)
-
-	for i := 0; i <= maxKeys; i++ {
-		l.Allow(fmt.Sprintf("key-%d", i))
+	l.maxKeys = 3
+	for _, k := range []string{"a", "b", "c"} {
+		l.Allow(k)
 	}
-	l.Allow("hot") // spent token, not refilled by the time of the sweep
+	clk.Advance(time.Minute) // every bucket is full again: a sweep would drop all three
+
+	l.Allow("d")
+
+	if got := len(l.buckets); got != 3 {
+		t.Fatalf("exactly one key must be evicted, %d tracked, want 3", got)
+	}
+	if _, ok := l.buckets["a"]; ok {
+		t.Fatal("the least recently used key (a) must be the one evicted")
+	}
+	for _, k := range []string{"b", "c", "d"} {
+		if _, ok := l.buckets[k]; !ok {
+			t.Fatalf("key %q must survive", k)
+		}
+	}
+}
+
+func TestAllow_UseRefreshesRecency(t *testing.T) {
+	l, _ := newTestLimiter(60, 2)
+	l.maxKeys = 3
+	for _, k := range []string{"a", "b", "c"} {
+		l.Allow(k)
+	}
+	l.Allow("a") // a is now the most recently used; b is the oldest
+
+	l.Allow("d")
+
+	if _, ok := l.buckets["b"]; ok {
+		t.Fatal("b is least recently used and must be evicted")
+	}
+	if _, ok := l.buckets["a"]; !ok {
+		t.Fatal("a was just used and must survive")
+	}
+}
+
+// Documented tradeoff: evicting a bucket forgets its debt, so a flood of
+// distinct keys beyond the cap can reset a victim. The cap and /64 keying make
+// that expensive; the behaviour is pinned here so it stays deliberate.
+func TestAllow_EvictedKeyStartsWithAFullBucket(t *testing.T) {
+	l, _ := newTestLimiter(10, 1)
+	l.maxKeys = 2
+	l.Allow("victim")
+	if ok, _ := l.Allow("victim"); ok {
+		t.Fatal("precondition: victim is in debt")
+	}
+	l.Allow("x")
+	l.Allow("y") // evicts victim
+
+	if ok, _ := l.Allow("victim"); !ok {
+		t.Fatal("an evicted key is forgotten and starts full")
+	}
+}
+
+func TestAllow_KeysInDebtKeepRefillingAcrossRecencyMoves(t *testing.T) {
+	l, clk := newTestLimiter(60, 1)
+	l.maxKeys = 3
+	l.Allow("hot")
 	clk.Advance(500 * time.Millisecond)
-	l.Allow("hot") // sweep runs here; "hot" has 0.5 tokens
-
-	if _, ok := l.buckets["hot"]; !ok {
-		t.Fatal("a bucket that is not full carries debt and must survive the sweep")
-	}
 	if ok, _ := l.Allow("hot"); ok {
-		t.Fatal("the surviving bucket must still deny until it refills")
+		t.Fatal("hot has only 0.5 tokens")
+	}
+	clk.Advance(500 * time.Millisecond)
+	if ok, _ := l.Allow("hot"); !ok {
+		t.Fatal("hot refilled one token over 1s in total")
 	}
 }
 
@@ -198,4 +263,88 @@ func TestAllow_ConcurrentUseIsSafe(t *testing.T) {
 	if n < 100 || n > 110 {
 		t.Fatalf("expected ~100 allowed of 400 concurrent attempts, got %d", n)
 	}
+}
+
+func TestRefund_GivesBackOneToken(t *testing.T) {
+	l, _ := newTestLimiter(10, 2)
+
+	l.Allow("k")
+	l.Allow("k")
+	if ok, _ := l.Allow("k"); ok {
+		t.Fatal("bucket must be empty after the burst")
+	}
+	l.Refund("k")
+	if ok, _ := l.Allow("k"); !ok {
+		t.Fatal("a refunded token must be spendable again")
+	}
+	if ok, _ := l.Allow("k"); ok {
+		t.Fatal("exactly one token was refunded")
+	}
+}
+
+func TestRefund_NeverExceedsTheBurst(t *testing.T) {
+	l, _ := newTestLimiter(10, 2)
+
+	l.Allow("k")
+	l.Refund("k")
+	l.Refund("k")
+	l.Refund("k")
+	allowed := 0
+	for i := 0; i < 10; i++ {
+		if ok, _ := l.Allow("k"); ok {
+			allowed++
+		}
+	}
+	if allowed != 2 {
+		t.Fatalf("allowed = %d after surplus refunds, want the burst (2)", allowed)
+	}
+}
+
+func TestRefund_UnknownOrEvictedKeyIsANoOp(t *testing.T) {
+	l, _ := newTestLimiter(10, 1)
+
+	l.Refund("never-seen")
+	if len(l.buckets) != 0 {
+		t.Fatalf("refunding an unknown key must not track it, got %d keys", len(l.buckets))
+	}
+}
+
+func TestRefund_ConcurrentFailuresNeverOverdrawTheBurst(t *testing.T) {
+	const burst = 10
+	l, _ := newTestLimiter(10, burst)
+
+	// 200 concurrent "failing" requests: each reserves, none refunds.
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	admitted := 0
+	for i := 0; i < 200; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if ok, _ := l.Allow("k"); ok {
+				mu.Lock()
+				admitted++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	if admitted != burst {
+		t.Fatalf("admitted = %d concurrent failures, want exactly the burst (%d)", admitted, burst)
+	}
+}
+
+func TestRefund_ConcurrentMixIsRaceFree(t *testing.T) {
+	l, _ := newTestLimiter(600, 50)
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if ok, _ := l.Allow("k"); ok && i%2 == 0 {
+				l.Refund("k")
+			}
+		}(i)
+	}
+	wg.Wait()
 }

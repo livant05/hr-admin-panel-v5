@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"net/netip"
 	"strconv"
@@ -12,9 +13,10 @@ import (
 // rateConfig is the public-endpoint throttling configuration read from the
 // environment.
 type rateConfig struct {
-	AuthPerMin     int            // AUTH_RATE_PER_MIN: login (and register) per client IP
-	ADMSPerMin     int            // ADMS_RATE_PER_MIN: device ingestion per client IP (provisional)
-	TrustedProxies []netip.Prefix // TRUSTED_PROXY_CIDRS: proxies whose X-Real-IP is believed
+	AuthPerMin        int            // AUTH_RATE_PER_MIN: failed logins (and register) per client IP
+	AuthAttemptPerMin int            // AUTH_ATTEMPT_RATE_PER_MIN: all login attempts, successes included, per client IP
+	ADMSPerMin        int            // ADMS_RATE_PER_MIN: device ingestion per client IP (provisional)
+	TrustedProxies    []netip.Prefix // TRUSTED_PROXY_CIDRS: proxies whose X-Real-IP is believed
 }
 
 // loadRateConfig reads the rate-limit settings through getenv. Rates must be
@@ -24,7 +26,13 @@ type rateConfig struct {
 func loadRateConfig(getenv func(string) string) (rateConfig, error) {
 	var cfg rateConfig
 	var err error
+	if getenv("AUTH_SUCCESS_RATE_PER_MIN") != "" {
+		return rateConfig{}, errors.New("AUTH_SUCCESS_RATE_PER_MIN was renamed: use AUTH_ATTEMPT_RATE_PER_MIN")
+	}
 	if cfg.AuthPerMin, err = positiveIntEnv(getenv, "AUTH_RATE_PER_MIN", handlers.DefaultAuthRatePerMin); err != nil {
+		return rateConfig{}, err
+	}
+	if cfg.AuthAttemptPerMin, err = positiveIntEnv(getenv, "AUTH_ATTEMPT_RATE_PER_MIN", handlers.DefaultAuthAttemptRatePerMin); err != nil {
 		return rateConfig{}, err
 	}
 	if cfg.ADMSPerMin, err = positiveIntEnv(getenv, "ADMS_RATE_PER_MIN", handlers.DefaultADMSRatePerMin); err != nil {
