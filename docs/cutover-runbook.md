@@ -326,9 +326,19 @@ DELETE FROM users
 WHERE password_hash = '$2a$10$d8UdlIbA4nESHywDqYk6h.L2W6qk9YEUiPqNnUm5qgQmKKGAwk9Q.';
 ```
 
-Run both with `docker compose exec -T postgres psql -U rrhh_go -d rrhh_go -c "..."` (single-quote
-the SQL in the shell so `$2a$10$` is not expanded). No table references `users(id)`, so the delete
-is safe. **Cutover is not declared done until the preflight returns zero rows**; step 10 enforces
+Run them through a quoted heredoc so the shell never expands `$2a$10$...` (with `-c "..."` the
+shell would replace `$2`, `$10` and the rest with empty strings, the preflight would return zero
+rows and the delete would remove nothing):
+
+```sh
+docker compose exec -T postgres psql -U rrhh_go -d rrhh_go -v ON_ERROR_STOP=1 <<'SQL'
+SELECT id, email, status FROM users
+WHERE password_hash = '$2a$10$d8UdlIbA4nESHywDqYk6h.L2W6qk9YEUiPqNnUm5qgQmKKGAwk9Q.';
+SQL
+```
+
+Run the `DELETE` the same way, then run the preflight again. No table references `users(id)`, so
+the delete is safe. **Cutover is not declared done until the preflight returns zero rows**; step 10 enforces
 it at startup.
 
 ### 7. Import: dry run, then real run `[USER-OPS]` (OPS-7)
@@ -438,7 +448,7 @@ flip. Do not delete, pause or downgrade either before day 14. During the window 
 |-----------|--------|
 | Frontend or login broken after the flip | Revert the tracker merge on `master`; the app returns to Supabase login. |
 | Devices misbehaving | Repoint them to the Edge Function URL. |
-| Bad migration | `DROP INDEX idx_users_email_lower;` and, if needed, `DROP TABLE zkteco_ingest_rejections;`. Restore the step 5 dump for anything else. |
+| Bad migration | First repoint every device away from Go (row above): ADMS ingestion writes `zkteco_ingest_rejections` in the same transaction as each batch, so dropping that table while devices still push makes every batch with a rejection fail with 500 and retry forever. Then `DROP INDEX idx_users_email_lower;` and, if needed, `DROP TABLE zkteco_ingest_rejections;`. Restore the step 5 dump for anything else. |
 
 Limits you must accept before starting: **writes made through the Go backend after the flip are not
 carried back to Supabase**. Do not decommission Supabase within 14 days. Decide in advance who may
