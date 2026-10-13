@@ -2,8 +2,11 @@ package handlers_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
@@ -64,9 +67,9 @@ func textOrNull(p *string) string {
 	return *p
 }
 
-// TestCandidates_CrossTenantLeak covers XC-1 for the read and create side:
-// GET and LIST never reach another company's candidates and a create is always
-// bound to the token's company. PATCH and DELETE are added with S2d.
+// TestCandidates_CrossTenantLeak covers XC-1: GET, PATCH, DELETE and LIST
+// never reach another company's candidates and a create is always bound to the
+// token's company.
 func TestCandidates_CrossTenantLeak(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
@@ -113,6 +116,32 @@ func TestCandidates_CrossTenantLeak(t *testing.T) {
 		own := testutil.DecodeRows[candidateRow](t, testutil.Do(t, h, http.MethodGet, candidatesPath+"?id="+candA.ID, ta, nil))
 		if len(own) != 1 || own[0].ID != candA.ID {
 			t.Fatalf("A filtered by its own id got %v, want [%s]", candidateIDs(own), candA.ID)
+		}
+	})
+
+	t.Run("patch other tenant row is 404 and leaves it byte-identical", func(t *testing.T) {
+		before := testutil.Do(t, h, http.MethodGet, candidatesPath+"/"+candA.ID, ta, nil).Body.String()
+		for _, body := range []map[string]any{{"full_name": "Hacked"}, {"email": "evil@x.test", "nationality": nil}} {
+			rec := testutil.Do(t, h, http.MethodPatch, candidatesPath+"/"+candA.ID, tb, body)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("PATCH %v: got %d (%s), want 404", body, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "not_found" {
+				t.Fatalf("error.code = %q, want not_found", code)
+			}
+		}
+		if after := testutil.Do(t, h, http.MethodGet, candidatesPath+"/"+candA.ID, ta, nil).Body.String(); after != before {
+			t.Fatalf("row changed by a cross-tenant PATCH:\nbefore %s\nafter  %s", before, after)
+		}
+	})
+
+	t.Run("delete other tenant row is 404 and the row survives", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodDelete, candidatesPath+"/"+candA.ID, tb, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d, want 404", rec.Code)
+		}
+		if got := testutil.Do(t, h, http.MethodGet, candidatesPath+"/"+candA.ID, ta, nil); got.Code != http.StatusOK {
+			t.Fatalf("row did not survive the cross-tenant delete: %d", got.Code)
 		}
 	})
 
@@ -418,4 +447,376 @@ func TestCandidates_ListGetFilters(t *testing.T) {
 			t.Fatalf("empleado-created row company = %s, want %s", row.CompanyID, c.CompanyID)
 		}
 	})
+}
+
+func getCandidate(t *testing.T, h http.Handler, token, id string) (candidateRow, int) {
+	t.Helper()
+	rec := testutil.Do(t, h, http.MethodGet, candidatesPath+"/"+id, token, nil)
+	if rec.Code != http.StatusOK {
+		return candidateRow{}, rec.Code
+	}
+	return testutil.DecodeRow[candidateRow](t, rec), rec.Code
+}
+
+func TestCandidates_CrudRoundTrip(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "CandCrudCo")
+	tok := c.Token(t, signer)
+
+	created := createCandidate(t, h, tok, map[string]any{
+		"full_name": "Original", "email": "o@x.test", "phone": "111", "id_number": "8-1-1",
+		"nationality": "Colombiana", "resume_notes": "notas",
+	})
+	path := candidatesPath + "/" + created.ID
+
+	t.Run("patch changes only the sent fields and returns a one-element array", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{"full_name": "  Renombrado  ", "phone": "222"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		rows := testutil.DecodeRows[candidateRow](t, rec)
+		if len(rows) != 1 {
+			t.Fatalf("PATCH returned %d rows, want a one-element array", len(rows))
+		}
+		got := rows[0]
+		if got.FullName != "Renombrado" || textOrNull(got.Phone) != "222" {
+			t.Fatalf("full_name/phone = %q/%s", got.FullName, textOrNull(got.Phone))
+		}
+		if textOrNull(got.Email) != "o@x.test" || textOrNull(got.IDNumber) != "8-1-1" ||
+			textOrNull(got.Nationality) != "Colombiana" || textOrNull(got.ResumeNotes) != "notas" {
+			t.Fatalf("unsent fields changed: %+v", got)
+		}
+		if got.ID != created.ID || got.CompanyID != c.CompanyID || got.CreatedAt != created.CreatedAt {
+			t.Fatalf("identity fields changed: %+v", got)
+		}
+		stored, _ := getCandidate(t, h, tok, created.ID)
+		if stored.FullName != "Renombrado" || textOrNull(stored.Phone) != "222" {
+			t.Fatalf("GET after PATCH = %q/%s", stored.FullName, textOrNull(stored.Phone))
+		}
+	})
+
+	t.Run("null clears an optional field including nationality", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{"email": nil, "nationality": nil})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		got := testutil.DecodeRows[candidateRow](t, rec)[0]
+		if got.Email != nil || got.Nationality != nil {
+			t.Fatalf("email/nationality = %s/%s, want null", textOrNull(got.Email), textOrNull(got.Nationality))
+		}
+		if textOrNull(got.Phone) != "222" || got.FullName != "Renombrado" {
+			t.Fatalf("a null on one field disturbed others: %+v", got)
+		}
+	})
+
+	t.Run("a blank string is stored as blank, distinct from null", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{"phone": ""})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if got := testutil.DecodeRows[candidateRow](t, rec)[0]; got.Phone == nil || *got.Phone != "" {
+			t.Fatalf("phone = %s, want the stored blank string", textOrNull(got.Phone))
+		}
+	})
+
+	t.Run("empty patch is a no-op that returns the row", func(t *testing.T) {
+		before, _ := getCandidate(t, h, tok, created.ID)
+		rec := testutil.Do(t, h, http.MethodPatch, path, tok, map[string]any{})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		got := testutil.DecodeRows[candidateRow](t, rec)[0]
+		wantJSON, _ := json.Marshal(before)
+		gotJSON, _ := json.Marshal(got)
+		if string(gotJSON) != string(wantJSON) {
+			t.Fatalf("empty patch changed the row:\nbefore %s\nafter  %s", wantJSON, gotJSON)
+		}
+	})
+
+	t.Run("delete returns 204 and the id is gone", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodDelete, path, tok, nil)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("204 carries a body: %q", rec.Body.String())
+		}
+		if _, code := getCandidate(t, h, tok, created.ID); code != http.StatusNotFound {
+			t.Fatalf("GET after delete = %d, want 404", code)
+		}
+		if n := countCandidates(t, pool, c.CompanyID); n != 0 {
+			t.Fatalf("%d rows left after delete", n)
+		}
+	})
+
+	t.Run("a deleted or malformed id is 404 for patch and delete", func(t *testing.T) {
+		for _, id := range []string{created.ID, uuid.NewString(), "not-a-uuid"} {
+			for _, m := range []string{http.MethodPatch, http.MethodDelete} {
+				rec := testutil.Do(t, h, m, candidatesPath+"/"+id, tok, map[string]any{"full_name": "x"})
+				if rec.Code != http.StatusNotFound {
+					t.Fatalf("%s %s: got %d, want 404", m, id, rec.Code)
+				}
+			}
+		}
+	})
+}
+
+func TestCandidates_PatchValidation(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "CandPatchValidationCo")
+	tok := c.Token(t, signer)
+
+	cand := createCandidate(t, h, tok, map[string]any{"full_name": "Base", "email": "base@x.test"})
+	path := candidatesPath + "/" + cand.ID
+	baseline := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String()
+
+	cases := []struct {
+		name  string
+		body  string
+		code  string
+		field string
+	}{
+		{"blank full_name", `{"full_name":"   "}`, "validation_failed", "full_name"},
+		{"null full_name", `{"full_name":null}`, "validation_failed", "full_name"},
+		{"full_name over 200 runes", `{"full_name":"` + strings.Repeat("ñ", 201) + `"}`, "validation_failed", "full_name"},
+		{"unknown field", `{"bogus":1}`, "bad_request", ""},
+		{"company_id in body", `{"company_id":"` + uuid.NewString() + `"}`, "bad_request", ""},
+		{"id in body", `{"id":"` + uuid.NewString() + `"}`, "bad_request", ""},
+		{"created_at in body", `{"created_at":"2020-01-01T00:00:00Z"}`, "bad_request", ""},
+		{"full_name wrong type", `{"full_name":5}`, "bad_request", ""},
+		{"email wrong type", `{"email":5}`, "bad_request", ""},
+		{"malformed json", `{"full_name":`, "bad_request", ""},
+		{"not an object", `["full_name"]`, "bad_request", ""},
+		{"empty body", ``, "bad_request", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := doRawBody(t, h, http.MethodPatch, path, tok, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("got %d (%s), want 400", rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != tc.code {
+				t.Fatalf("error.code = %q, want %q (%s)", code, tc.code, rec.Body.String())
+			}
+			if tc.field != "" {
+				var env struct {
+					Error struct {
+						Fields map[string]string `json:"fields"`
+					} `json:"error"`
+				}
+				if err := decodeJSON(rec, &env); err != nil {
+					t.Fatalf("decode: %v", err)
+				}
+				if _, ok := env.Error.Fields[tc.field]; !ok {
+					t.Fatalf("fields = %v, want a %q entry", env.Error.Fields, tc.field)
+				}
+			}
+			if after := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String(); after != baseline {
+				t.Fatalf("a rejected PATCH changed the row:\nbefore %s\nafter  %s", baseline, after)
+			}
+		})
+	}
+
+	t.Run("a body over 1 MiB is 400 bad_request and leaves the row unchanged", func(t *testing.T) {
+		const prefix, suffix = `{"resume_notes":"`, `"}`
+		body := prefix + strings.Repeat("a", 1<<20+1-len(prefix)-len(suffix)) + suffix
+		rec := doRawBody(t, h, http.MethodPatch, path, tok, body)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("got %d, want 400", rec.Code)
+		}
+		if after := testutil.Do(t, h, http.MethodGet, path, tok, nil).Body.String(); after != baseline {
+			t.Fatalf("an oversized PATCH changed the row")
+		}
+	})
+}
+
+func seedCandidateApplication(t *testing.T, pool *pgxpool.Pool, companyID, candidateID string) string {
+	t.Helper()
+	id := uuid.NewString()
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO applications (id, company_id, candidate_id, job_title, candidate_name)
+		 VALUES ($1, $2, $3, 'Seed', 'Candidate')`, id, companyID, candidateID); err != nil {
+		t.Fatalf("seed application: %v", err)
+	}
+	return id
+}
+
+func countCandidateApplications(t *testing.T, pool *pgxpool.Pool, candidateID string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM applications WHERE candidate_id = $1`, candidateID).Scan(&n); err != nil {
+		t.Fatalf("count applications: %v", err)
+	}
+	return n
+}
+
+// TestCandidates_DeleteBlockedWhileApplicationsExist pins REC-4: the schema
+// CASCADE never fires through the API, a delete with applications is 409 with
+// the count, and nothing is removed.
+func TestCandidates_DeleteBlockedWhileApplicationsExist(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "CandDeleteRestrictCo")
+	tok := c.Token(t, signer)
+
+	withApps := createCandidate(t, h, tok, map[string]any{"full_name": "With applications"})
+	other := createCandidate(t, h, tok, map[string]any{"full_name": "Other"})
+	seedCandidateApplication(t, pool, c.CompanyID, withApps.ID)
+	seedCandidateApplication(t, pool, c.CompanyID, withApps.ID)
+	seedCandidateApplication(t, pool, c.CompanyID, other.ID)
+
+	rec := testutil.Do(t, h, http.MethodDelete, candidatesPath+"/"+withApps.ID, tok, nil)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d (%s), want 409", rec.Code, rec.Body.String())
+	}
+	if code := testutil.ErrCode(t, rec); code != "conflict" {
+		t.Fatalf("error.code = %q, want conflict", code)
+	}
+	if msg := errMessage(t, rec); !strings.HasPrefix(msg, "2 postulación") {
+		t.Fatalf("409 message = %q, want it to start with the application count %q", msg, "2 postulación")
+	}
+	if _, code := getCandidate(t, h, tok, withApps.ID); code != http.StatusOK {
+		t.Fatalf("candidate was removed by a blocked delete: %d", code)
+	}
+	if n := countCandidateApplications(t, pool, withApps.ID); n != 2 {
+		t.Fatalf("applications = %d after a blocked delete, want 2 (cascade must not fire)", n)
+	}
+
+	t.Run("another candidate's applications do not block this delete", func(t *testing.T) {
+		third := createCandidate(t, h, tok, map[string]any{"full_name": "No applications"})
+		if rec := testutil.Do(t, h, http.MethodDelete, candidatesPath+"/"+third.ID, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+		if n := countCandidateApplications(t, pool, other.ID); n != 1 {
+			t.Fatalf("unrelated applications = %d, want 1", n)
+		}
+	})
+
+	t.Run("delete succeeds once the applications are gone", func(t *testing.T) {
+		if _, err := pool.Exec(context.Background(), `DELETE FROM applications WHERE candidate_id = $1`, withApps.ID); err != nil {
+			t.Fatalf("remove applications: %v", err)
+		}
+		if rec := testutil.Do(t, h, http.MethodDelete, candidatesPath+"/"+withApps.ID, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("got %d (%s), want 204", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// TestCandidates_DeleteWaitsForAnInFlightApplication holds an uncommitted
+// application insert open while DELETE runs. The delete must not count past it
+// and cascade the application away: it waits on the candidate row and then
+// answers 409 once the insert commits.
+func TestCandidates_DeleteWaitsForAnInFlightApplication(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "CandDeleteRaceCo")
+	tok := c.Token(t, signer)
+	cand := createCandidate(t, h, tok, map[string]any{"full_name": "Racy"})
+
+	ctx := context.Background()
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO applications (company_id, candidate_id, job_title, candidate_name)
+		 VALUES ($1, $2, 'Racy', 'Inflight')`, c.CompanyID, cand.ID); err != nil {
+		t.Fatalf("insert in tx: %v", err)
+	}
+	var holderPID int
+	if err := tx.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID); err != nil {
+		t.Fatalf("holder pid: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, candidatesPath+"/"+cand.ID, nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		h.ServeHTTP(rec, req)
+	}()
+	waitUntilBlockedBy(t, pool, holderPID) // the handler is parked on the candidate row lock
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	wg.Wait()
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("got %d (%s), want 409", rec.Code, rec.Body.String())
+	}
+	if n := countCandidateApplications(t, pool, cand.ID); n != 1 {
+		t.Fatalf("applications = %d, want the in-flight one to survive", n)
+	}
+	if _, code := getCandidate(t, h, tok, cand.ID); code != http.StatusOK {
+		t.Fatalf("candidate was deleted under an in-flight application: %d", code)
+	}
+}
+
+// TestCandidates_PatchInFlightDoesNotBlockApplicationInsert is the candidate
+// twin of the job-posting test: the PATCH merge read takes FOR NO KEY UPDATE, so
+// an application insert for the same candidate completes while the PATCH is
+// still in flight. DELETE keeps FOR UPDATE.
+func TestCandidates_PatchInFlightDoesNotBlockApplicationInsert(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "CandPatchHoldCo")
+	tok := c.Token(t, signer)
+	cand := createCandidate(t, h, tok, map[string]any{"full_name": "Held"})
+
+	const holdName = "hold-this-patch"
+	holderPID, release := parkPatchesInTrigger(t, pool, "candidates", "full_name", holdName)
+	ctx := context.Background()
+
+	req := httptest.NewRequest(http.MethodPatch, candidatesPath+"/"+cand.ID, strings.NewReader(`{"full_name":"`+holdName+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		h.ServeHTTP(rec, req)
+	}()
+	// A failed assertion must not leave the PATCH goroutine parked in the trigger
+	// and running past the test: release the hold, then wait for it.
+	defer func() {
+		release()
+		wg.Wait()
+	}()
+	waitUntilBlockedBy(t, pool, holderPID) // the PATCH holds its merge-read lock and is parked in the trigger
+
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '2s'`); err != nil {
+		t.Fatalf("set lock_timeout: %v", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO applications (company_id, candidate_id, job_title, candidate_name)
+		 VALUES ($1, $2, 'Held', 'Candidate')`, c.CompanyID, cand.ID); err != nil {
+		t.Fatalf("application insert was blocked by a PATCH in flight: %v", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		t.Fatalf("commit application: %v", err)
+	}
+
+	release()
+	wg.Wait()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH got %d (%s), want 200", rec.Code, rec.Body.String())
+	}
+	if got := testutil.DecodeRows[candidateRow](t, rec)[0]; got.FullName != holdName {
+		t.Fatalf("PATCH full_name = %q, want %q", got.FullName, holdName)
+	}
+	if n := countCandidateApplications(t, pool, cand.ID); n != 1 {
+		t.Fatalf("applications = %d, want the concurrent insert to be kept", n)
+	}
 }

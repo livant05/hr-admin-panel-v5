@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countApplicationsForCandidate = `-- name: CountApplicationsForCandidate :one
+SELECT count(*) FROM applications WHERE candidate_id = $1
+`
+
+// Counts by candidate only: any referencing row, whoever owns it, blocks the delete.
+func (q *Queries) CountApplicationsForCandidate(ctx context.Context, candidateID pgtype.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, countApplicationsForCandidate, candidateID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createCandidate = `-- name: CreateCandidate :one
 INSERT INTO candidates (
   company_id, full_name, email, phone, nationality, id_number, resume_notes
@@ -54,6 +66,24 @@ func (q *Queries) CreateCandidate(ctx context.Context, arg CreateCandidateParams
 	return i, err
 }
 
+const deleteCandidate = `-- name: DeleteCandidate :execrows
+DELETE FROM candidates
+WHERE id = $2 AND company_id = $1
+`
+
+type DeleteCandidateParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+func (q *Queries) DeleteCandidate(ctx context.Context, arg DeleteCandidateParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteCandidate, arg.CompanyID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getCandidate = `-- name: GetCandidate :one
 SELECT id, company_id, full_name, email, phone, nationality, id_number,
   resume_notes, created_at
@@ -68,6 +98,72 @@ type GetCandidateParams struct {
 
 func (q *Queries) GetCandidate(ctx context.Context, arg GetCandidateParams) (Candidate, error) {
 	row := q.db.QueryRow(ctx, getCandidate, arg.CompanyID, arg.ID)
+	var i Candidate
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.FullName,
+		&i.Email,
+		&i.Phone,
+		&i.Nationality,
+		&i.IDNumber,
+		&i.ResumeNotes,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCandidateForMerge = `-- name: GetCandidateForMerge :one
+SELECT id, company_id, full_name, email, phone, nationality, id_number,
+  resume_notes, created_at
+FROM candidates
+WHERE id = $2 AND company_id = $1
+FOR NO KEY UPDATE
+`
+
+type GetCandidateForMergeParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+// PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+// does not block application inserts: the PATCH never changes the key.
+func (q *Queries) GetCandidateForMerge(ctx context.Context, arg GetCandidateForMergeParams) (Candidate, error) {
+	row := q.db.QueryRow(ctx, getCandidateForMerge, arg.CompanyID, arg.ID)
+	var i Candidate
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.FullName,
+		&i.Email,
+		&i.Phone,
+		&i.Nationality,
+		&i.IDNumber,
+		&i.ResumeNotes,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getCandidateForUpdate = `-- name: GetCandidateForUpdate :one
+SELECT id, company_id, full_name, email, phone, nationality, id_number,
+  resume_notes, created_at
+FROM candidates
+WHERE id = $2 AND company_id = $1
+FOR UPDATE
+`
+
+type GetCandidateForUpdateParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+// insert takes on this row (FK check), so a delete waits for an in-flight insert
+// and then counts it instead of cascading it away.
+func (q *Queries) GetCandidateForUpdate(ctx context.Context, arg GetCandidateForUpdateParams) (Candidate, error) {
+	row := q.db.QueryRow(ctx, getCandidateForUpdate, arg.CompanyID, arg.ID)
 	var i Candidate
 	err := row.Scan(
 		&i.ID,
@@ -133,4 +229,50 @@ func (q *Queries) ListCandidates(ctx context.Context, arg ListCandidatesParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const updateCandidate = `-- name: UpdateCandidate :one
+UPDATE candidates SET
+  full_name = $3, email = $4, phone = $5, nationality = $6,
+  id_number = $7, resume_notes = $8
+WHERE id = $2 AND company_id = $1
+RETURNING id, company_id, full_name, email, phone, nationality, id_number,
+  resume_notes, created_at
+`
+
+type UpdateCandidateParams struct {
+	CompanyID   pgtype.UUID `json:"company_id"`
+	ID          pgtype.UUID `json:"id"`
+	FullName    string      `json:"full_name"`
+	Email       pgtype.Text `json:"email"`
+	Phone       pgtype.Text `json:"phone"`
+	Nationality pgtype.Text `json:"nationality"`
+	IDNumber    pgtype.Text `json:"id_number"`
+	ResumeNotes pgtype.Text `json:"resume_notes"`
+}
+
+func (q *Queries) UpdateCandidate(ctx context.Context, arg UpdateCandidateParams) (Candidate, error) {
+	row := q.db.QueryRow(ctx, updateCandidate,
+		arg.CompanyID,
+		arg.ID,
+		arg.FullName,
+		arg.Email,
+		arg.Phone,
+		arg.Nationality,
+		arg.IDNumber,
+		arg.ResumeNotes,
+	)
+	var i Candidate
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.FullName,
+		&i.Email,
+		&i.Phone,
+		&i.Nationality,
+		&i.IDNumber,
+		&i.ResumeNotes,
+		&i.CreatedAt,
+	)
+	return i, err
 }
