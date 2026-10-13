@@ -54,7 +54,8 @@ deferred on 2026-10-12 because no device is available yet; they stay open, not w
 
 **Why it blocks.** The parser reads the in/out code from field index 3
 (`attlogCodeIndex = 3` in `backend/internal/handlers/adms_parse.go`). That index was inherited from
-the Edge Function (`parts[3]` in `supabase/functions/zkteco-adms/index.ts`, line 78). Published
+the Edge Function (`parts[3]`, line 78 of `supabase/functions/zkteco-adms/index.ts`, now deleted from the
+working tree; read it with `git show 4a741fa:supabase/functions/zkteco-adms/index.ts`). Published
 ADMS documentation lists the ATTLOG fields as:
 
 ```text
@@ -531,6 +532,46 @@ Demo mode must behave exactly as before the change and make **no network request
       login with no demo banner or data.
 - [ ] (browser-only) Reload while inside the demo app: you stay in demo (no expiry check on the fake
       token, no login redirect).
+
+---
+
+## Supabase removal grep gate (SR-1)
+
+Run from the repository root. Both commands must print **nothing** and exit 1 (`rg` exit code 1 =
+no match). SR-1 is about *application* code, so the gate names the runtime paths explicitly instead
+of scanning the whole tree.
+
+```bash
+# Gate A: browser app and deploy files. Any mention at all is a failure.
+rg -n -i 'supabase|/auth/v1|/rest/v1|apikey|hr_go_tables|swciybuhetkfrtpyjvgb|DEFAULT_URL|DEFAULT_KEY|saveConfig|showSQLSchema|\bA\.(url|key)\b' \
+  hr_admin_panel.html backend/nginx backend/docker-compose.yml backend/Dockerfile \
+  backend/env.example backend/Makefile
+
+# Gate B: Go runtime. Endpoints, keys and env names of Supabase must not appear.
+rg -n -i '/auth/v1|/rest/v1|apikey|supabase\.co|supabase_|supabase-js|hr_go_tables' \
+  backend/cmd/api backend/internal --glob '!backend/internal/importer/**'
+```
+
+**Deliberately not scanned (and why):**
+
+| Path | Why it may name Supabase |
+|------|--------------------------|
+| `backend/cmd/import/`, `backend/internal/importer/` | The importer reads a Supabase **export** (JSON files) and says so. It never talks to Supabase. |
+| `backend/migrations/` | SQL history and comments (`0001_init.sql` is the Supabase schema, ported). |
+| `docs/`, `CHANGELOG.md`, `openspec/`, `odd/`, `backend/README.md` | Documentation and history, including this runbook and the importer procedure. |
+| `README.md`, `schema.sql` (repository root) | Legacy documentation and the original Supabase schema kept as reference. Not loaded by any runtime. |
+| `tools/` | Test harnesses. `tools/session/harness.mjs` asserts that **no** request goes to Supabase. |
+| Comments in `backend/internal/**` (outside gate B's patterns) | Historical notes such as "replaces Supabase's RLS" or "parity with the retired Edge Function". They are comments, not references. |
+
+Gate B is deliberately narrower than gate A: the bare word "Supabase" appears in Go comments that
+describe history, so only endpoints, header names, hostnames and env var names are forbidden there.
+
+**Deleting `supabase/` does not undeploy anything.** The `supabase/` directory held the source of
+the `zkteco-adms` Edge Function. Removing it from the repository does **not** remove the deployed
+function or the Supabase project: both must stay live for the 14-day stabilization window (step
+13). Recover the source with `git log --diff-filter=D -- supabase/` and
+`git show <sha>^:supabase/functions/zkteco-adms/index.ts`. The commit that introduced it is
+`4a741fa`, so `git show 4a741fa:supabase/functions/zkteco-adms/index.ts` works at any time.
 
 ---
 
