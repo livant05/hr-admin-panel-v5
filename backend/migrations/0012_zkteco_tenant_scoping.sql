@@ -1,5 +1,6 @@
 -- ============================================================
--- RRHH-Go migration 0012 -- ZKTeco tenant scoping (S5a review carry-overs)
+-- RRHH-Go migration 0012 -- ZKTeco tenant scoping and cedula lookup index
+-- (S5a review carry-overs CO-S5a-8 and CO-S5a-3)
 --
 -- zkteco_unknown_pins used to be keyed by UNIQUE(pin) alone. Two companies
 -- whose devices both see the same unresolved PIN (cedula) then collided on one
@@ -23,3 +24,9 @@ ALTER TABLE zkteco_unknown_pins DROP CONSTRAINT IF EXISTS zkteco_unknown_pins_pi
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_zkteco_unknown_pins_serial_pin
   ON zkteco_unknown_pins (serial_number, pin);
+
+-- CedulaExistsElsewhere asks "does this cedula exist in any other company",
+-- filtering on cedula alone; idx_emp_co_cedula (company_id leading) can not
+-- serve that and the query would scan employees once per unresolved punch,
+-- up to 10,000 per batch (CO-S5a-3).
+CREATE INDEX IF NOT EXISTS idx_emp_cedula ON employees(cedula);

@@ -76,3 +76,25 @@ func TestMigration0012_Idempotent(t *testing.T) {
 		t.Fatalf("same pin on another device after re-apply: %v", err)
 	}
 }
+
+// TestMigration0012_CedulaIndexLeadsWithCedula pins CO-S5a-3: CedulaExistsElsewhere
+// filters on cedula alone, which idx_emp_co_cedula (company_id leading) can not
+// serve, so a cedula-leading index must exist.
+func TestMigration0012_CedulaIndexLeadsWithCedula(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	ctx := context.Background()
+
+	var firstCol string
+	err := pool.QueryRow(ctx,
+		`SELECT a.attname
+		 FROM pg_index i
+		 JOIN pg_class c ON c.oid = i.indexrelid
+		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
+		 WHERE c.relname = 'idx_emp_cedula' AND i.indrelid = 'employees'::regclass`).Scan(&firstCol)
+	if err != nil {
+		t.Fatalf("idx_emp_cedula missing on employees: %v", err)
+	}
+	if firstCol != "cedula" {
+		t.Fatalf("idx_emp_cedula leading column = %q, want cedula", firstCol)
+	}
+}
