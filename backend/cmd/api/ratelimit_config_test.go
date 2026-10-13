@@ -14,8 +14,8 @@ func TestLoadRateConfig_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.AuthPerMin != 10 || cfg.ADMSPerMin != 600 {
-		t.Fatalf("defaults = %d/%d, want 10/600", cfg.AuthPerMin, cfg.ADMSPerMin)
+	if cfg.AuthPerMin != 10 || cfg.ADMSPerMin != 600 || cfg.AuthAttemptPerMin != 60 {
+		t.Fatalf("defaults = %d/%d/%d, want 10/600/60", cfg.AuthPerMin, cfg.ADMSPerMin, cfg.AuthAttemptPerMin)
 	}
 	if len(cfg.TrustedProxies) != 0 {
 		t.Fatalf("unset TRUSTED_PROXY_CIDRS must trust nobody, got %v", cfg.TrustedProxies)
@@ -24,15 +24,16 @@ func TestLoadRateConfig_Defaults(t *testing.T) {
 
 func TestLoadRateConfig_Overrides(t *testing.T) {
 	cfg, err := loadRateConfig(envFrom(map[string]string{
-		"AUTH_RATE_PER_MIN":   "30",
-		"ADMS_RATE_PER_MIN":   "1200",
-		"TRUSTED_PROXY_CIDRS": "10.0.0.0/8, 172.16.0.0/12,192.168.0.0/16",
+		"AUTH_RATE_PER_MIN":         "30",
+		"AUTH_ATTEMPT_RATE_PER_MIN": "90",
+		"ADMS_RATE_PER_MIN":         "1200",
+		"TRUSTED_PROXY_CIDRS":       "10.0.0.0/8, 172.16.0.0/12,192.168.0.0/16",
 	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if cfg.AuthPerMin != 30 || cfg.ADMSPerMin != 1200 {
-		t.Fatalf("got %d/%d, want 30/1200", cfg.AuthPerMin, cfg.ADMSPerMin)
+	if cfg.AuthPerMin != 30 || cfg.ADMSPerMin != 1200 || cfg.AuthAttemptPerMin != 90 {
+		t.Fatalf("got %d/%d/%d, want 30/1200/90", cfg.AuthPerMin, cfg.ADMSPerMin, cfg.AuthAttemptPerMin)
 	}
 	if len(cfg.TrustedProxies) != 3 || cfg.TrustedProxies[1].String() != "172.16.0.0/12" {
 		t.Fatalf("trusted proxies = %v", cfg.TrustedProxies)
@@ -48,6 +49,9 @@ func TestLoadRateConfig_RejectsInvalidValuesNamingTheVariable(t *testing.T) {
 		{"auth zero", map[string]string{"AUTH_RATE_PER_MIN": "0"}, "AUTH_RATE_PER_MIN"},
 		{"auth negative", map[string]string{"AUTH_RATE_PER_MIN": "-5"}, "AUTH_RATE_PER_MIN"},
 		{"auth not a number", map[string]string{"AUTH_RATE_PER_MIN": "ten"}, "AUTH_RATE_PER_MIN"},
+		{"attempt zero", map[string]string{"AUTH_ATTEMPT_RATE_PER_MIN": "0"}, "AUTH_ATTEMPT_RATE_PER_MIN"},
+		{"attempt negative", map[string]string{"AUTH_ATTEMPT_RATE_PER_MIN": "-1"}, "AUTH_ATTEMPT_RATE_PER_MIN"},
+		{"attempt not a number", map[string]string{"AUTH_ATTEMPT_RATE_PER_MIN": "sixty"}, "AUTH_ATTEMPT_RATE_PER_MIN"},
 		{"adms zero", map[string]string{"ADMS_RATE_PER_MIN": "0"}, "ADMS_RATE_PER_MIN"},
 		{"adms not a number", map[string]string{"ADMS_RATE_PER_MIN": "1e3"}, "ADMS_RATE_PER_MIN"},
 		{"bad cidr", map[string]string{"TRUSTED_PROXY_CIDRS": "10.0.0.0/8,nope"}, "TRUSTED_PROXY_CIDRS"},
@@ -58,6 +62,32 @@ func TestLoadRateConfig_RejectsInvalidValuesNamingTheVariable(t *testing.T) {
 			_, err := loadRateConfig(envFrom(tt.env))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Fatalf("expected an error naming %s, got %v", tt.want, err)
+			}
+		})
+	}
+}
+
+func TestLoadRateConfig_RejectsTheRenamedLoginEnvVar(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"old name alone", map[string]string{"AUTH_SUCCESS_RATE_PER_MIN": "60"}},
+		{"old name next to the new one", map[string]string{
+			"AUTH_SUCCESS_RATE_PER_MIN": "60",
+			"AUTH_ATTEMPT_RATE_PER_MIN": "60",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadRateConfig(envFrom(tt.env))
+			if err == nil {
+				t.Fatal("the old variable must fail startup, not fall back silently")
+			}
+			for _, want := range []string{"AUTH_SUCCESS_RATE_PER_MIN", "AUTH_ATTEMPT_RATE_PER_MIN"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q must name %s", err, want)
+				}
 			}
 		})
 	}

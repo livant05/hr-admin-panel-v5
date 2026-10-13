@@ -26,6 +26,9 @@ type Querier interface {
 	// scheduler's two-method split: AccrueAll passes NULL (no handler can reach
 	// it), AccrueCompany passes a non-nullable tenant.
 	AccrueVacationDays(ctx context.Context, arg AccrueVacationDaysParams) ([]LeaveBalance, error)
+	// One call per (serial, reason) per batch. A NULL last_pin keeps the previous
+	// value.
+	AddIngestRejections(ctx context.Context, arg AddIngestRejectionsParams) error
 	// Soft delete (design Q3): exportDedCSV already reads status==='cancelled'
 	// -> "¿Cancelada? SI", and saldaDed already writes 'paid' -- the status
 	// value already exists and is already consumed by the frontend. Mirrors
@@ -33,6 +36,18 @@ type Querier interface {
 	// guard makes a second DELETE on an already-cancelled row report 404
 	// (0 rows affected), consistent with that precedent.
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
+	// Distinguishes tenant_mismatch from not_found after a zero-row resolve. The
+	// answer only picks the rejection reason; it never discloses a row.
+	CedulaExistsElsewhere(ctx context.Context, arg CedulaExistsElsewhereParams) (bool, error)
+	// Atomic claim: the ownership check and the write are ONE statement. Two
+	// concurrent claims serialize on the row lock; the loser re-evaluates
+	// company_id IS NULL against the winner's committed row and gets no row back
+	// (pgx.ErrNoRows -> 404, the same answer as a missing or foreign device).
+	ClaimZktecoDevice(ctx context.Context, arg ClaimZktecoDeviceParams) (ZktecoDevice, error)
+	// Counts by candidate only: any referencing row, whoever owns it, blocks the delete.
+	CountApplicationsForCandidate(ctx context.Context, candidateID pgtype.UUID) (int64, error)
+	// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
+	CountApplicationsForJobPosting(ctx context.Context, jobPostingID pgtype.UUID) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
 	CountDocumentTemplates(ctx context.Context, arg CountDocumentTemplatesParams) (int64, error)
@@ -49,7 +64,21 @@ type Querier interface {
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
+	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
+	// The tenant check of both foreign keys IS the insert: the row is built from the
+	// posting and the candidate of the caller's company, so another company's id (or
+	// a nonexistent one) yields zero rows (pgx.ErrNoRows -> 404) and nothing is
+	// written. job_title and candidate_name are derived here, never taken from input.
+	// FOR KEY SHARE OF jp, c takes the locks the foreign key check would take later,
+	// up front: a guarded delete of either row (FOR UPDATE) then waits for this insert
+	// and counts it, or finishes first and leaves zero rows here instead of a 23503.
+	CreateApplication(ctx context.Context, arg CreateApplicationParams) (Application, error)
 	CreateBranch(ctx context.Context, arg CreateBranchParams) (Branch, error)
+	CreateCandidate(ctx context.Context, arg CreateCandidateParams) (Candidate, error)
+	// Public register (design D14): one company plus its first admin, created in a
+	// single transaction by the handler. Neither query returns password_hash, so
+	// the generated row types cannot carry it (XC-2).
+	CreateCompany(ctx context.Context, name string) (CreateCompanyRow, error)
 	// A1 rule 6 (design Q2): the tenant check on the client-supplied employee_id
 	// IS the insert, same as the other four Phase 2 tables -- a foreign
 	// employee_id selects zero rows from `employees`, so a cross-tenant create
@@ -113,6 +142,7 @@ type Querier interface {
 	// SENT only when that id is null. content is opaque: the client already ran
 	// applyVars; the server performs no {{VAR}} substitution.
 	CreateGeneratedDocument(ctx context.Context, arg CreateGeneratedDocumentParams) (GeneratedDocument, error)
+	CreateJobPosting(ctx context.Context, arg CreateJobPostingParams) (JobPosting, error)
 	// A1 rule 6 (design Q2, worked example in attendance_logs.sql): the tenant
 	// check on the client-supplied employee_id IS the insert -- a foreign
 	// employee_id selects zero rows from `employees`, so a cross-tenant create
@@ -175,6 +205,7 @@ type Querier interface {
 	// employee_name is DERIVED from the employees row. date defaults to the
 	// current date when the client sends none (legacy saveUniform behavior).
 	CreateUniform(ctx context.Context, arg CreateUniformParams) (Uniform, error)
+	CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error)
 	// Soft delete only (design P6.2): employees has 9 CASCADE child tables
 	// (attendance_logs, leave_balances, leave_requests, overtime_logs,
 	// deductions, medical_records, evaluations, uniforms, enrollments) that a
@@ -182,11 +213,14 @@ type Querier interface {
 	// (liquidation_history, generated_documents) that would block it with a raw
 	// FK error. No handler ever issues DELETE FROM employees.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (int64, error)
+	DeactivateUser(ctx context.Context, arg DeactivateUserParams) (DeactivateUserRow, error)
+	DeleteApplication(ctx context.Context, arg DeleteApplicationParams) (int64, error)
 	// Hard delete (design Q3): a mistyped punch is an operational correction,
 	// not history worth preserving — attendance_logs is not an FK target
 	// (rg 'REFERENCES attendance_logs' migrations/ -> zero matches).
 	DeleteAttendanceLog(ctx context.Context, arg DeleteAttendanceLogParams) (int64, error)
 	DeleteBranch(ctx context.Context, arg DeleteBranchParams) (int64, error)
+	DeleteCandidate(ctx context.Context, arg DeleteCandidateParams) (int64, error)
 	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (int64, error)
 	DeleteDocumentTemplate(ctx context.Context, arg DeleteDocumentTemplateParams) (int64, error)
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
@@ -194,6 +228,10 @@ type Querier interface {
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
 	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
+	// Run in the claim transaction: counters collected while a device was
+	// unclaimed (or owned by someone else) must not pass to its new owner.
+	DeleteIngestRejectionsBySerial(ctx context.Context, serialNumber string) error
+	DeleteJobPosting(ctx context.Context, arg DeleteJobPostingParams) (int64, error)
 	// Design Q3 addendum (not in the original tasks breakdown -- added back by
 	// the orchestrator after slice 2c1 flagged the gap): hard delete, but only
 	// while status='pending' -- an approved/rejected leave is the record behind
@@ -224,8 +262,27 @@ type Querier interface {
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
+	// Run in the claim transaction: PINs that were rejected on this serial before
+	// the claim belong to the previous (unclaimed or foreign) context, so the new
+	// owner starts with a clean unknown-PIN list instead of inheriting someone
+	// else's punches.
+	DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error
+	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
+	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
+	// against DELETE, and keeps a concurrent committed write from being overwritten
+	// with a stale copy.
+	GetApplicationForMerge(ctx context.Context, arg GetApplicationForMergeParams) (Application, error)
 	GetAttendanceLog(ctx context.Context, arg GetAttendanceLogParams) (GetAttendanceLogRow, error)
 	GetBranch(ctx context.Context, arg GetBranchParams) (Branch, error)
+	GetCandidate(ctx context.Context, arg GetCandidateParams) (Candidate, error)
+	// PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+	// PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+	// does not block application inserts: the PATCH never changes the key.
+	GetCandidateForMerge(ctx context.Context, arg GetCandidateForMergeParams) (Candidate, error)
+	// DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+	// insert takes on this row (FK check), so a delete waits for an in-flight insert
+	// and then counts it instead of cascading it away.
+	GetCandidateForUpdate(ctx context.Context, arg GetCandidateForUpdateParams) (Candidate, error)
 	GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error)
 	GetDeduction(ctx context.Context, arg GetDeductionParams) (Deduction, error)
 	GetDepartment(ctx context.Context, arg GetDepartmentParams) (Department, error)
@@ -259,6 +316,15 @@ type Querier interface {
 	GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error)
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
+	GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error)
+	// PATCH's merge read. FOR NO KEY UPDATE still serializes concurrent PATCHes and a
+	// PATCH against DELETE (both conflict with FOR UPDATE), but unlike FOR UPDATE it
+	// does not block application inserts: the PATCH never changes the key.
+	GetJobPostingForMerge(ctx context.Context, arg GetJobPostingForMergeParams) (JobPosting, error)
+	// DELETE's row lock. FOR UPDATE conflicts with the FOR KEY SHARE an application
+	// insert takes on this row (FK check), so a delete waits for an in-flight insert
+	// and then counts it instead of cascading it away.
+	GetJobPostingForUpdate(ctx context.Context, arg GetJobPostingForUpdateParams) (JobPosting, error)
 	GetLeaveBalance(ctx context.Context, arg GetLeaveBalanceParams) (LeaveBalance, error)
 	GetLeaveRequest(ctx context.Context, arg GetLeaveRequestParams) (LeaveRequest, error)
 	GetLiquidationHistory(ctx context.Context, arg GetLiquidationHistoryParams) (LiquidationHistory, error)
@@ -278,10 +344,32 @@ type Querier interface {
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
 	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
+	GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error)
+	GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error)
+	// The employee must belong to the company ($1) or nothing is written. The
+	// earliest check-in of the day wins; time_out, work_type and notes are never
+	// touched, so re-pushing a batch is idempotent.
+	IngestCheckIn(ctx context.Context, arg IngestCheckInParams) (int64, error)
+	// Sets time_out only on a row that has a check-in (time_in IS NOT NULL): an
+	// absent or manually created row without time_in is not a punched day. Zero
+	// rows affected means there was no check-in (the caller counts no_checkin).
+	// Latest check-out wins.
+	IngestCheckOut(ctx context.Context, arg IngestCheckOutParams) (int64, error)
+	ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
+	// The live feed's list (TT-1, design D9): same filters as ListAttendanceLogs,
+	// newest insert first. created_after is strict (created_at > cutoff), and id
+	// breaks ties so a page boundary can never repeat or skip a row.
+	ListAttendanceLogsByCreated(ctx context.Context, arg ListAttendanceLogsByCreatedParams) ([]ListAttendanceLogsByCreatedRow, error)
+	// The live feed's cursor list (CO-S4b-1/2): same filters as
+	// ListAttendanceLogsByCreated but oldest first, so a poll that finds more rows
+	// than its page can walk forward with _offset and never skip the older ones.
+	// id breaks ties in the same direction as created_at.
+	ListAttendanceLogsByCreatedAsc(ctx context.Context, arg ListAttendanceLogsByCreatedAscParams) ([]ListAttendanceLogsByCreatedAscRow, error)
 	ListBranches(ctx context.Context, arg ListBranchesParams) ([]Branch, error)
+	ListCandidates(ctx context.Context, arg ListCandidatesParams) ([]Candidate, error)
 	ListDeductions(ctx context.Context, arg ListDeductionsParams) ([]Deduction, error)
 	ListDepartments(ctx context.Context, arg ListDepartmentsParams) ([]Department, error)
 	ListDocumentTemplates(ctx context.Context, arg ListDocumentTemplatesParams) ([]DocumentTemplate, error)
@@ -291,6 +379,7 @@ type Querier interface {
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
 	ListEvaluations(ctx context.Context, arg ListEvaluationsParams) ([]Evaluation, error)
 	ListGeneratedDocuments(ctx context.Context, arg ListGeneratedDocumentsParams) ([]GeneratedDocument, error)
+	ListJobPostings(ctx context.Context, arg ListJobPostingsParams) ([]JobPosting, error)
 	ListLeaveBalances(ctx context.Context, arg ListLeaveBalancesParams) ([]LeaveBalance, error)
 	ListLeaveRequests(ctx context.Context, arg ListLeaveRequestsParams) ([]LeaveRequest, error)
 	// Filterable by employee_id (spec "List filtered by employee returns only
@@ -321,16 +410,51 @@ type Querier interface {
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
+	// The unclaimed pool: devices that heartbeated but belong to no company. The
+	// caller must be gated by requireAdmin; the rows carry the serial number an
+	// admin needs to recognize the physical device before claiming it.
+	ListUnclaimedZktecoDevices(ctx context.Context, arg ListUnclaimedZktecoDevicesParams) ([]ZktecoDevice, error)
 	ListUniforms(ctx context.Context, arg ListUniformsParams) ([]Uniform, error)
+	// The users API selects explicit columns and never password_hash, so the
+	// generated row types cannot carry the hash (XC-2 holds structurally).
+	ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error)
+	// Rows with company_id NULL (the unclaimed pool) never match company_id = $1.
+	ListZktecoDevices(ctx context.Context, arg ListZktecoDevicesParams) ([]ZktecoDevice, error)
+	// zkteco_unknown_pins has no company_id (an unresolved PIN has no employee,
+	// hence no company). Tenancy comes from the device that punched the PIN: only
+	// rows whose serial_number belongs to a device of the caller's company are
+	// returned, so pins of other tenants' devices and of unclaimed devices (or
+	// with a NULL serial) never match. The caller must also be gated by
+	// requireAdmin. zkteco_devices.serial_number is UNIQUE, so the join never
+	// duplicates a pin.
+	ListZktecoUnknownPins(ctx context.Context, arg ListZktecoUnknownPinsParams) ([]ZktecoUnknownPin, error)
+	// The write path below locks rows so the last-active-admin guard holds under
+	// concurrency (design D6). Callers MUST run LockActiveAdmins first and
+	// GetUserForUpdate second, inside one transaction: every transaction then takes
+	// the admin rows in id order before any other user row, so two requests can
+	// never wait on each other.
+	LockActiveAdmins(ctx context.Context, companyID pgtype.UUID) ([]pgtype.UUID, error)
+	// Same as LockJobPostingForShare, for a re-point to a new candidate.
+	LockCandidateForShare(ctx context.Context, arg LockCandidateForShareParams) (LockCandidateForShareRow, error)
+	// The tenant check of a re-point to a new posting, with the lock the foreign key
+	// check would take later: while the PATCH is in flight a guarded delete of the
+	// posting (FOR UPDATE) waits and then counts the re-pointed application; a posting
+	// deleted first leaves no row here (404) instead of a 23503.
+	LockJobPostingForShare(ctx context.Context, arg LockJobPostingForShareParams) (LockJobPostingForShareRow, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
+	// Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
+	// "ambiguous" without scanning every duplicate.
+	ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmployeesByCedulaParams) ([]pgtype.UUID, error)
+	UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (Application, error)
 	// PATCH keeps employee_id and date immutable (the upsert's own unique key)
 	// -- changing which employee or day a punch belongs to is a new record, not
 	// an edit, mirroring leave_requests' Q4 precedent of restricting PATCH to
 	// the operationally-editable fields rather than a full-column replace.
 	UpdateAttendanceLog(ctx context.Context, arg UpdateAttendanceLogParams) (UpdateAttendanceLogRow, error)
 	UpdateBranch(ctx context.Context, arg UpdateBranchParams) (Branch, error)
+	UpdateCandidate(ctx context.Context, arg UpdateCandidateParams) (Candidate, error)
 	// PATCH is a full-column replace of every editable field -- deductions has
 	// no state-machine PATCH restriction like leave_requests' Q4 (the design's
 	// Interfaces/Contracts section states PATCH -> 200 [Deduction] with no
@@ -352,6 +476,7 @@ type Querier interface {
 	// create -- it is a derived column regardless of which verb wrote it);
 	// net_salary is NOT recomputed, matching create.
 	UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmployeePayRecordParams) (UpdateEmployeePayRecordRow, error)
+	UpdateJobPosting(ctx context.Context, arg UpdateJobPostingParams) (JobPosting, error)
 	// PATCH restricted to used_days only (design Q3): earned_days is owned by
 	// the accrual job (AccrueVacationDays below) and would be silently reverted
 	// on the next scheduled run, and remaining_days is a GENERATED column that
@@ -380,6 +505,11 @@ type Querier interface {
 	// returnUniform's {status:'devuelto'} touches only status. Every parameter
 	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
 	UpdateUniform(ctx context.Context, arg UpdateUniformParams) (Uniform, error)
+	UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error)
+	// Only name and location are writable. A column is overwritten only when its
+	// set_* flag is true, so an absent JSON key keeps the stored value and an
+	// explicit null clears it.
+	UpdateZktecoDevice(ctx context.Context, arg UpdateZktecoDeviceParams) (ZktecoDevice, error)
 	// A1 rule 6 (design Q2, phase2-design): the tenant check on the
 	// client-supplied employee_id IS the insert — a foreign employee_id selects
 	// zero rows from `employees`, so a cross-tenant write becomes
@@ -390,6 +520,14 @@ type Querier interface {
 	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
+	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+	// idempotency guarantees of this file are binding). These queries are
+	// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+	//
+	// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
+	// and refreshes a known one. company_id is NEVER part of the SET list, so a
+	// heartbeat can not change ownership.
+	UpsertDeviceHeartbeat(ctx context.Context, serialNumber string) (UpsertDeviceHeartbeatRow, error)
 	// Settled decision #1 (design R4/R4a/R4c, task 6.2). The ONLY writer of
 	// origin='run'. A1 rule 6 shape is kept STRUCTURALLY even though the caller
 	// (CreatePayrollRun) enumerates the employees itself via
@@ -406,6 +544,10 @@ type Querier interface {
 	// a run. total_earned is `b` and is NOT the sum of the income columns here
 	// (design R4f, pinned by TestPayrollRun_TotalEarnedInvariant).
 	UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayrollRunPayRecordParams) (UpsertPayrollRunPayRecordRow, error)
+	// One row per (serial_number, pin) since migration 0012, so the same PIN on
+	// two devices is two rows and a tenant never shares a counter with another.
+	// attempts increments on every conflict (the Edge Function wrote a literal 1).
+	UpsertUnknownPin(ctx context.Context, arg UpsertUnknownPinParams) error
 }
 
 var _ Querier = (*Queries)(nil)
