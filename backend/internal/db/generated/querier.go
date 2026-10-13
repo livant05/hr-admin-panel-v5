@@ -26,6 +26,9 @@ type Querier interface {
 	// scheduler's two-method split: AccrueAll passes NULL (no handler can reach
 	// it), AccrueCompany passes a non-nullable tenant.
 	AccrueVacationDays(ctx context.Context, arg AccrueVacationDaysParams) ([]LeaveBalance, error)
+	// One call per (serial, reason) per batch. A NULL last_pin keeps the previous
+	// value.
+	AddIngestRejections(ctx context.Context, arg AddIngestRejectionsParams) error
 	// Soft delete (design Q3): exportDedCSV already reads status==='cancelled'
 	// -> "¿Cancelada? SI", and saldaDed already writes 'paid' -- the status
 	// value already exists and is already consumed by the frontend. Mirrors
@@ -33,6 +36,9 @@ type Querier interface {
 	// guard makes a second DELETE on an already-cancelled row report 404
 	// (0 rows affected), consistent with that precedent.
 	CancelDeduction(ctx context.Context, arg CancelDeductionParams) (int64, error)
+	// Distinguishes tenant_mismatch from not_found after a zero-row resolve. The
+	// answer only picks the rejection reason; it never discloses a row.
+	CedulaExistsElsewhere(ctx context.Context, arg CedulaExistsElsewhereParams) (bool, error)
 	// Atomic claim: the ownership check and the write are ONE statement. Two
 	// concurrent claims serialize on the row lock; the loser re-evaluates
 	// company_id IS NULL against the winner's committed row and gets no row back
@@ -334,6 +340,13 @@ type Querier interface {
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
 	GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error)
 	GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error)
+	// The employee must belong to the company ($1) or nothing is written. The
+	// earliest check-in of the day wins; time_out, work_type and notes are never
+	// touched, so re-pushing a batch is idempotent.
+	IngestCheckIn(ctx context.Context, arg IngestCheckInParams) (int64, error)
+	// Sets time_out only on an existing row; zero rows affected means there was no
+	// check-in (the caller counts no_checkin). Latest check-out wins.
+	IngestCheckOut(ctx context.Context, arg IngestCheckOutParams) (int64, error)
 	ListApplications(ctx context.Context, arg ListApplicationsParams) ([]Application, error)
 	ListAttendanceLogs(ctx context.Context, arg ListAttendanceLogsParams) ([]ListAttendanceLogsRow, error)
 	// The live feed's list (TT-1, design D9): same filters as ListAttendanceLogs,
@@ -416,6 +429,9 @@ type Querier interface {
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
+	// Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
+	// "ambiguous" without scanning every duplicate.
+	ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmployeesByCedulaParams) ([]pgtype.UUID, error)
 	UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (Application, error)
 	// PATCH keeps employee_id and date immutable (the upsert's own unique key)
 	// -- changing which employee or day a punch belongs to is a new record, not
@@ -489,6 +505,13 @@ type Querier interface {
 	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
+	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+	// idempotency guarantees below are binding). These queries are deliberately
+	// separate from UpsertAttendanceLog, which overwrites time_out.
+	// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
+	// and refreshes a known one. company_id is NEVER part of the SET list, so a
+	// heartbeat can not change ownership.
+	UpsertDeviceHeartbeat(ctx context.Context, serialNumber string) (UpsertDeviceHeartbeatRow, error)
 	// Settled decision #1 (design R4/R4a/R4c, task 6.2). The ONLY writer of
 	// origin='run'. A1 rule 6 shape is kept STRUCTURALLY even though the caller
 	// (CreatePayrollRun) enumerates the employees itself via
@@ -505,6 +528,8 @@ type Querier interface {
 	// a run. total_earned is `b` and is NOT the sum of the income columns here
 	// (design R4f, pinned by TestPayrollRun_TotalEarnedInvariant).
 	UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayrollRunPayRecordParams) (UpsertPayrollRunPayRecordRow, error)
+	// attempts increments on every conflict (the Edge Function wrote a literal 1).
+	UpsertUnknownPin(ctx context.Context, arg UpsertUnknownPinParams) error
 }
 
 var _ Querier = (*Queries)(nil)
