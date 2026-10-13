@@ -5,7 +5,7 @@
 // fetch, localStorage and DOM. Nothing is reimplemented here: the sources are
 // sliced out of the HTML by name and executed as written.
 //
-// Covers AUTH-9 / AUTH-6 (UI) / XC-5 of rrhh-go-auth-cutover: Go sign-in
+// Covers AUTH-9 / AUTH-6 (UI) / XC-5 / SR-1 of rrhh-go-auth-cutover: Go sign-in
 // without the global 401 hook, 429 wording, register auto-login, logout with
 // no request, expiry on load, a single "Sesión expirada" on mid-session 401,
 // and demo mode making no network request at all.
@@ -102,13 +102,13 @@ function makeEnv() {
   });
   const server = { respond: () => { throw new Error('unexpected fetch'); } };
   const sandbox = {
-    A: { url: 'https://supa.invalid', key: 'KEY', session: null, role: 'admin', companyId: '', companyName: '', theme: 'light', demo: false, perms: null },
+    A: { session: null, role: 'admin', companyId: '', companyName: '', theme: 'light', demo: false, perms: null },
     DS: {
       companies: [{ id: 'co1', name: 'Empresa Demo S.A.' }],
       users: [{ id: 'u1', email: 'admin@demo.com', company_id: 'co1', role: 'admin', first_name: 'Admin', last_name: 'Demo', status: 'active' }],
       employees: [{ id: 'e1' }], departments: [{ id: 'd1' }],
     },
-    GO_TABLES: ['employees', 'departments'], A_goUrl: '', DEMO_CALC_MSG: 'demo',
+    A_goUrl: '', DEMO_CALC_MSG: 'demo',
     Date: FakeDate, JSON, Object, Array, Number, String, Math, Promise, parseInt, isFinite, atob: globalThis.atob,
     Error, setTimeout: () => 0,
     crypto: { randomUUID: () => 'uuid-fixed' },
@@ -474,13 +474,12 @@ test('the Authorization header still carries the Go token on Go calls', async ()
 });
 
 // ── demo mode (XC-5) ────────────────────────────────────────────────────
-test('demoMode enters demo without touching A.url / A.key and without a request', async () => {
+test('demoMode enters demo without inventing A.url / A.key and without a request', async () => {
   const e = makeEnv();
   await e.run('demoMode()');
   assert.equal(e.A.demo, true);
   assert.equal(e.A.companyId, 'co1');
-  assert.equal(e.A.url, 'https://supa.invalid');
-  assert.equal(e.A.key, 'KEY');
+  assert.equal('url' in e.A || 'key' in e.A, false);
   assert.equal(e.store.get('hr_demo'), '1');
   assert.equal(e.lastView(), 'login');
   assert.equal(e.calls.length, 0);
@@ -559,6 +558,79 @@ test('the login view markup carries both demo buttons (the setup view is going a
   assert.match(login, /id="btn-demo-enter"[^>]*onclick="demoMode\(\)"/);
   assert.match(login, /id="btn-demo-exit"[^>]*onclick="exitDemo\(\)"/);
   assert.match(login, /Salir del modo demo/);
+});
+
+// ── Supabase removal (SR-1, SR-2, XC-5) ─────────────────────────────────
+test('real mode sends every table to /api/<table> on Go with only the Bearer header (no table list, no apikey)', async () => {
+  const e = await loggedIn();
+  e.respondWith(async (url, opts) => (opts.method === 'DELETE' ? res(204, undefined) : res(200, [])));
+  // "job_postings" and "weird_table" were never in the sandbox's old route list.
+  for (const tbl of ['job_postings', 'users', 'zkteco_devices', 'weird_table']) {
+    e.calls.length = 0;
+    await e.run(`Supa.sel('${tbl}', {id: 'x'})`);
+    await e.run(`Supa.selAll('${tbl}')`);
+    await e.run(`Supa.ins('${tbl}', {a: 1})`);
+    await e.run(`Supa.upd('${tbl}', 'i1', {a: 2})`);
+    await e.run(`Supa.del('${tbl}', 'i1')`);
+    assert.deepEqual(e.calls.map((c) => `${c.method} ${c.url}`), [
+      `GET /api/${tbl}?id=x`,
+      `GET /api/${tbl}?_limit=1000&_offset=0`,
+      `POST /api/${tbl}`,
+      `PATCH /api/${tbl}/i1`,
+      `DELETE /api/${tbl}/i1`,
+    ]);
+    for (const c of e.calls) {
+      assert.equal(c.headers.Authorization, 'Bearer ' + validToken());
+      assert.ok(!('apikey' in c.headers), 'no apikey header');
+    }
+  }
+  assert.equal(e.calls.length, 5);
+});
+
+test('the Supa facade no longer exposes the Supabase routing or header helpers', async () => {
+  const e = makeEnv();
+  for (const name of ['hdr', 'route', 'goTables']) {
+    assert.equal(e.run(`typeof Supa.${name}`), 'undefined', name);
+  }
+  for (const name of ['sel', 'selAll', 'ins', 'upd', 'del', 'goFetch', 'signIn', 'signUp', 'signOut', 'gres']) {
+    assert.equal(e.run(`typeof Supa.${name}`), 'function', name);
+  }
+});
+
+test('first load in a clean browser shows login directly: no setup view, no request, no config stored', async () => {
+  const e = makeEnv();
+  await e.run('init()');
+  assert.deepEqual(e.views, ['login']);
+  assert.equal(e.calls.length, 0);
+  assert.equal(e.store.size, 0);
+  assert.equal('url' in e.A || 'key' in e.A, false, 'init must not invent A.url / A.key');
+  assert.equal(e.A.demo, false);
+  // old browsers may still hold hr_url / hr_key from the setup view: they are simply ignored
+  const old = makeEnv();
+  old.store.set('hr_url', 'https://old.example'); old.store.set('hr_key', 'old');
+  await old.run('init()');
+  assert.deepEqual(old.views, ['login']);
+  assert.equal('url' in old.A || 'key' in old.A, false);
+});
+
+test('the page has no setup view, no Supabase config and no Supabase endpoints left', () => {
+  const banned = /supabase|\/rest\/v1|\/auth\/v1|apikey|hr_go_tables|swciybuhetkfrtpyjvgb|DEFAULT_URL|DEFAULT_KEY|saveConfig|showSQLSchema|id="v-setup"|id="s-url"|id="s-key"|\bA\.(url|key)\b/i;
+  const hits = html.split('\n').map((l, i) => [i + 1, l]).filter(([, l]) => banned.test(l)).map(([n, l]) => `${n}: ${l.slice(0, 80)}`);
+  assert.deepEqual(hits, []);
+  assert.doesNotMatch(extractFunction(html, 'function showV('), /setup/);
+  // the dev override of the Go base URL stays
+  assert.match(html, /localStorage\.getItem\('hr_go_url'\)/);
+});
+
+test('settings shows "Servidor: este sitio" in real mode and "Modo Demo activo" in demo mode', () => {
+  const src = between("'settings': function(){", '\n    }\n  };') + '\n    }';
+  for (const [demo, want] of [[false, 'Servidor: este sitio'], [true, 'Modo Demo activo']]) {
+    const e = makeEnv();
+    e.A.demo = demo; e.A.companyName = 'Ventatec';
+    e.run(`(${src.replace(/^'settings': /, '')})()`);
+    assert.equal(e.el('st-url').textContent, want);
+    assert.equal(e.el('st-coname').value, 'Ventatec');
+  }
 });
 
 let failed = 0;
