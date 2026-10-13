@@ -354,6 +354,45 @@ element ids are in `hr_admin_panel.html`.
 - [ ] Demo mode (`hr_demo`, no `hr_sess`): the three tabs behave exactly as before, local-only
       create, edit, delete and hire, with zero network calls.
 
+### Manual checklist: ZKTeco screen (Configuracion > ZKTeco) and live feed
+
+Run after step 3 above as the seeded admin, with the Network tab open. Written before the code it
+tests (no JS harness for the screen; the cursor logic also has a node harness). Seed devices and
+unknown PINs with SQL or the ADMS endpoint, and check the dev database has every migration first.
+
+- [ ] Real mode, devices: the table loads from `GET /api/zkteco_devices` (no `/rest/v1/` call), shows
+      only this company's devices, and an online badge only when `last_seen` is under 5 minutes old.
+- [ ] Real mode, edit: the pencil edits name and location in place; saving sends one
+      `PATCH /api/zkteco_devices/{id}` with `name` and `location` only, shows "Reloj actualizado" and
+      reloads. A name of 201 characters shows "Datos inválidos: revisa ..." and keeps the editor.
+- [ ] Real mode, server text: the URL field shows `<location.host>/iclock/` and the setup steps no
+      longer mention Supabase, Edge Functions, port 443 or the deploy card; the port and HTTPS
+      guidance is labelled provisional.
+- [ ] Real mode, test connection: Probar conexion sends exactly one `GET /api/health`, toasts success,
+      and the device count is the same before and after (no `TEST` device is created).
+- [ ] Real mode, unknown PINs: the card loads from `GET /api/zkteco_unknown_pins?resolved=false&_limit=20`
+      for an admin. As a non-admin it shows "Solo administradores" instead of a table or a raw 403.
+- [ ] Real mode, unclaimed devices: an admin sees the pool from `GET /api/zkteco_devices/unclaimed`
+      with serial numbers; Reclamar sends one `POST /api/zkteco_devices/{id}/claim` (no body), the
+      device moves into "Relojes Registrados" after the reload, and a double click sends one request.
+      Claiming a device someone else claimed first shows a not-found toast and refreshes the pool.
+      A non-admin sees "Solo administradores".
+- [ ] Real mode, escaping: a device name, location or serial number like `<b>x</b>` or `'"` renders as
+      text, and the edit and claim buttons still work for it.
+- [ ] Live feed, seed: opening Asistencia sends one `GET /api/attendance_logs?_order=created_at.desc&_limit=1`
+      and then a silent catch-up poll; existing rows produce no toast and the "ZKTeco en vivo" badge shows.
+- [ ] Live feed, poll: every 30 seconds one `GET /api/attendance_logs?created_after=...&_order=created_at.asc&_limit=200&_offset=0`
+      goes out, where `created_after` is the newest seen `created_at` minus 120 seconds. Inserting a
+      punch row (SQL) toasts it once and refreshes the list; the next polls, which re-read it through
+      the overlap window, do not toast it again.
+- [ ] Live feed, paging: with more than 200 new rows between polls, the same poll continues with
+      `_offset=200` until a page is shorter than 200 and every row is toasted at most once (the toast
+      list is capped at five, followed by a "+N más" toast).
+- [ ] Live feed, failures: stopping the API makes polls fail silently (no toast loop), and the next
+      successful poll catches up without duplicates.
+- [ ] Demo mode (`hr_demo`, no `hr_sess`): the ZKTeco tab shows the same empty tables as before with
+      zero network calls; Probar conexion explains that it is unavailable in demo mode.
+
 ## Migrations
 
 Plain numbered SQL files in `migrations/`, applied automatically by Postgres's own
