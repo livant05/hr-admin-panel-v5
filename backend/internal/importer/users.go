@@ -2,8 +2,6 @@ package importer
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/base64"
 	"encoding/csv"
 	"errors"
 	"fmt"
@@ -12,9 +10,6 @@ import (
 
 	"github.com/livant05/rrhh-go/internal/auth"
 )
-
-// passwordBytes of entropy per temporary password; base64url gives 24 chars.
-const passwordBytes = 18
 
 // credential is one new user's login. The password lives only in memory until
 // the CSV is written; it is never logged or printed.
@@ -29,14 +24,6 @@ type runState struct {
 	dryRun  bool
 	pending *credential  // set by a transform for the row being processed
 	creds   []credential // credentials of users actually inserted
-}
-
-func generatePassword() (string, error) {
-	b := make([]byte, passwordBytes)
-	if _, err := rand.Read(b); err != nil {
-		return "", fmt.Errorf("generate password: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
 // transformUser gives every user that is not already in the database a random
@@ -72,7 +59,7 @@ func transformUser(ctx context.Context, q querier, row Row, st *runState) error 
 		st.pending = cred // counted only; no password is generated or hashed
 		return nil
 	}
-	pw, err := generatePassword()
+	pw, err := auth.GenerateTempPassword()
 	if err != nil {
 		return err
 	}

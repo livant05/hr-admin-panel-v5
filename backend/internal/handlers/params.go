@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -23,6 +25,18 @@ type listParams struct {
 // is a 400, never silently ignored, because a silently-dropped filter is how
 // a tenant scope leak or an unnoticed no-op filter happens (A4).
 func parseList(w http.ResponseWriter, r *http.Request, allow ...string) (listParams, bool) {
+	p, _, ok := parseListOrdered(w, r, nil, allow...)
+	return p, ok
+}
+
+// parseListOrdered is parseList for an endpoint that offers a fixed set of
+// `_order` values (design D9). orders is the whitelist, spelled exactly as the
+// client sends it (e.g. "created_at.desc"); the accepted value is returned
+// verbatim so the handler can pick the matching sqlc query. An absent `_order`
+// returns "". Any other value, including an empty one, is a 400, and a nil or
+// empty whitelist rejects every `_order`, which is what keeps all other
+// endpoints on parseList's behavior.
+func parseListOrdered(w http.ResponseWriter, r *http.Request, orders []string, allow ...string) (listParams, string, bool) {
 	allowed := make(map[string]bool, len(allow))
 	for _, a := range allow {
 		allowed[a] = true
@@ -30,9 +44,17 @@ func parseList(w http.ResponseWriter, r *http.Request, allow ...string) (listPar
 
 	q := r.URL.Query()
 
+	order := ""
 	if q.Has("_order") {
-		writeErrCode(w, http.StatusBadRequest, codeValidation, "_order is not supported")
-		return listParams{}, false
+		order = q.Get("_order")
+		if !slices.Contains(orders, order) {
+			msg := "_order is not supported"
+			if len(orders) > 0 {
+				msg = "_order must be one of: " + strings.Join(orders, ", ")
+			}
+			writeErrCode(w, http.StatusBadRequest, codeValidation, msg)
+			return listParams{}, "", false
+		}
 	}
 
 	limit := int32(defaultLimit)
@@ -40,7 +62,7 @@ func parseList(w http.ResponseWriter, r *http.Request, allow ...string) (listPar
 		n, err := strconv.Atoi(v)
 		if err != nil || n <= 0 {
 			writeErrCode(w, http.StatusBadRequest, codeValidation, "_limit must be a positive integer")
-			return listParams{}, false
+			return listParams{}, "", false
 		}
 		if n > maxLimit {
 			n = maxLimit
@@ -53,7 +75,7 @@ func parseList(w http.ResponseWriter, r *http.Request, allow ...string) (listPar
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
 			writeErrCode(w, http.StatusBadRequest, codeValidation, "_offset must be a non-negative integer")
-			return listParams{}, false
+			return listParams{}, "", false
 		}
 		offset = int32(n)
 	}
@@ -65,12 +87,12 @@ func parseList(w http.ResponseWriter, r *http.Request, allow ...string) (listPar
 		}
 		if !allowed[key] {
 			writeErrCode(w, http.StatusBadRequest, codeValidation, "unsupported filter: "+key)
-			return listParams{}, false
+			return listParams{}, "", false
 		}
 		if len(vals) > 0 {
 			filters[key] = vals[0]
 		}
 	}
 
-	return listParams{Filters: filters, Limit: limit, Offset: offset}, true
+	return listParams{Filters: filters, Limit: limit, Offset: offset}, order, true
 }
