@@ -21,9 +21,37 @@ RETURNING id, company_id, serial_number, name, location, status, last_seen,
 
 -- name: ListZktecoUnknownPins :many
 -- zkteco_unknown_pins has no company_id (an unresolved PIN has no employee,
--- hence no company); the caller must be gated by requireAdmin.
-SELECT id, pin, serial_number, attempts, resolved, last_seen, created_at
-FROM zkteco_unknown_pins
-WHERE (sqlc.narg('resolved')::boolean IS NULL OR resolved = sqlc.narg('resolved'))
+-- hence no company). Tenancy comes from the device that punched the PIN: only
+-- rows whose serial_number belongs to a device of the caller's company are
+-- returned, so pins of other tenants' devices and of unclaimed devices (or
+-- with a NULL serial) never match. The caller must also be gated by
+-- requireAdmin. zkteco_devices.serial_number is UNIQUE, so the join never
+-- duplicates a pin.
+SELECT p.id, p.pin, p.serial_number, p.attempts, p.resolved, p.last_seen, p.created_at
+FROM zkteco_unknown_pins p
+JOIN zkteco_devices d ON d.serial_number = p.serial_number
+WHERE d.company_id = $1
+  AND (sqlc.narg('resolved')::boolean IS NULL OR p.resolved = sqlc.narg('resolved'))
+ORDER BY p.last_seen DESC NULLS LAST, p.id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: ListUnclaimedZktecoDevices :many
+-- The unclaimed pool: devices that heartbeated but belong to no company. The
+-- caller must be gated by requireAdmin; the rows carry the serial number an
+-- admin needs to recognize the physical device before claiming it.
+SELECT id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at
+FROM zkteco_devices
+WHERE company_id IS NULL
 ORDER BY last_seen DESC NULLS LAST, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: ClaimZktecoDevice :one
+-- Atomic claim: the ownership check and the write are ONE statement. Two
+-- concurrent claims serialize on the row lock; the loser re-evaluates
+-- company_id IS NULL against the winner's committed row and gets no row back
+-- (pgx.ErrNoRows -> 404, the same answer as a missing or foreign device).
+UPDATE zkteco_devices SET company_id = $1
+WHERE id = $2 AND company_id IS NULL
+RETURNING id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at;

@@ -8,8 +8,44 @@ WHERE company_id = $1
   AND (sqlc.narg('date')::date IS NULL OR date = sqlc.narg('date'))
   AND (sqlc.narg('date_from')::date IS NULL OR date >= sqlc.narg('date_from'))
   AND (sqlc.narg('date_to')::date IS NULL OR date <= sqlc.narg('date_to'))
+  AND (sqlc.narg('created_after')::timestamptz IS NULL OR created_at > sqlc.narg('created_after'))
 ORDER BY date DESC
 LIMIT $3 OFFSET $4;
+
+-- name: ListAttendanceLogsByCreated :many
+-- The live feed's list (TT-1, design D9): same filters as ListAttendanceLogs,
+-- newest insert first. created_after is strict (created_at > cutoff), and id
+-- breaks ties so a page boundary can never repeat or skip a row.
+SELECT id, company_id, employee_id, employee_name, department, date, time_in,
+  time_out, status, work_type, notes, created_at
+FROM attendance_logs
+WHERE company_id = $1
+  AND (sqlc.narg('id')::uuid IS NULL OR id = sqlc.narg('id'))
+  AND (sqlc.narg('employee_id')::uuid IS NULL OR employee_id = sqlc.narg('employee_id'))
+  AND (sqlc.narg('date')::date IS NULL OR date = sqlc.narg('date'))
+  AND (sqlc.narg('date_from')::date IS NULL OR date >= sqlc.narg('date_from'))
+  AND (sqlc.narg('date_to')::date IS NULL OR date <= sqlc.narg('date_to'))
+  AND (sqlc.narg('created_after')::timestamptz IS NULL OR created_at > sqlc.narg('created_after'))
+ORDER BY created_at DESC, id DESC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: ListAttendanceLogsByCreatedAsc :many
+-- The live feed's cursor list (CO-S4b-1/2): same filters as
+-- ListAttendanceLogsByCreated but oldest first, so a poll that finds more rows
+-- than its page can walk forward with _offset and never skip the older ones.
+-- id breaks ties in the same direction as created_at.
+SELECT id, company_id, employee_id, employee_name, department, date, time_in,
+  time_out, status, work_type, notes, created_at
+FROM attendance_logs
+WHERE company_id = $1
+  AND (sqlc.narg('id')::uuid IS NULL OR id = sqlc.narg('id'))
+  AND (sqlc.narg('employee_id')::uuid IS NULL OR employee_id = sqlc.narg('employee_id'))
+  AND (sqlc.narg('date')::date IS NULL OR date = sqlc.narg('date'))
+  AND (sqlc.narg('date_from')::date IS NULL OR date >= sqlc.narg('date_from'))
+  AND (sqlc.narg('date_to')::date IS NULL OR date <= sqlc.narg('date_to'))
+  AND (sqlc.narg('created_after')::timestamptz IS NULL OR created_at > sqlc.narg('created_after'))
+ORDER BY created_at ASC, id ASC
+LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: GetAttendanceLog :one
 SELECT id, company_id, employee_id, employee_name, department, date, time_in,

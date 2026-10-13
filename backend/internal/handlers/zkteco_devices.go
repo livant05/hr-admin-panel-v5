@@ -1,6 +1,10 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -119,4 +123,117 @@ func (a *API) UpdateZktecoDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.ZktecoDevice{row})
+}
+
+// GET /api/zkteco_devices/unclaimed — the pool of devices that heartbeated
+// without belonging to any company. Admin only (ZKM-3, XC-4). The pool is
+// global by nature (an unclaimed device has no tenant), which is why it is
+// gated by role instead of scoped by company.
+func (a *API) ListUnclaimedZktecoDevices(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.tenant(w, r); !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
+		return
+	}
+
+	p, ok := parseList(w, r)
+	if !ok {
+		return
+	}
+
+	rows, err := a.Queries.ListUnclaimedZktecoDevices(r.Context(), db.ListUnclaimedZktecoDevicesParams{
+		Limit:  p.Limit,
+		Offset: p.Offset,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "list unclaimed zkteco devices")
+		return
+	}
+	writeRows(w, http.StatusOK, rows)
+}
+
+// POST /api/zkteco_devices/{id}/claim — assign an unclaimed device to the
+// caller's company (ZKM-4). Admin only. The company comes from the token; the
+// body, when present, must be an empty object, so a company_id (or anything
+// else) is a 400 instead of being silently dropped.
+//
+// The ownership check and the write are the single UPDATE ... WHERE
+// company_id IS NULL, so concurrent claims cannot both win. A device that is
+// missing, claimed by another company, or already claimed by this one all
+// answer 404: the response never says who owns a device.
+func (a *API) ClaimZktecoDevice(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
+		return
+	}
+
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	var req struct{}
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<10))
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+		return
+	}
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 {
+		// Only an object is a valid body: JSON null would otherwise decode into
+		// the empty struct without error.
+		if trimmed[0] != '{' {
+			writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+			return
+		}
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&req); err != nil {
+			writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+			return
+		}
+		if _, err := dec.Token(); err != io.EOF {
+			writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+			return
+		}
+	}
+
+	row, err := a.claimDevice(r.Context(), companyID, id)
+	if err != nil {
+		a.writeDBErr(w, err, "claim zkteco device")
+		return
+	}
+	writeRows(w, http.StatusOK, []db.ZktecoDevice{row})
+}
+
+// claimDevice claims the device and, in the same transaction, deletes the
+// rejection counters and unknown PINs earlier punches left under its serial,
+// so the new owner never inherits data collected before the claim (CO-S5a-2).
+// A claim that matches no row (pgx.ErrNoRows) rolls back and deletes nothing.
+func (a *API) claimDevice(ctx context.Context, companyID, id pgtype.UUID) (db.ZktecoDevice, error) {
+	tx, err := a.Pool.Begin(ctx)
+	if err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	defer tx.Rollback(ctx) // no-op after Commit
+	q := a.Queries.WithTx(tx)
+
+	row, err := q.ClaimZktecoDevice(ctx, db.ClaimZktecoDeviceParams{
+		CompanyID: companyID, // $1 — from ctx, never from req
+		ID:        id,
+	})
+	if err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	if err := q.DeleteIngestRejectionsBySerial(ctx, row.SerialNumber); err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	if err := q.DeleteUnknownPinsBySerial(ctx, pgtype.Text{String: row.SerialNumber, Valid: true}); err != nil {
+		return db.ZktecoDevice{}, err
+	}
+	return row, tx.Commit(ctx)
 }

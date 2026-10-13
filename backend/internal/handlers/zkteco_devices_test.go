@@ -2,8 +2,12 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -393,4 +397,407 @@ func TestZktecoDevices_ListRules(t *testing.T) {
 			t.Fatalf("patch as empleado: got %d (%s)", rec.Code, rec.Body.String())
 		}
 	})
+}
+
+const zkUnclaimedPath = "/api/zkteco_devices/unclaimed"
+
+func claimPath(id string) string { return zkDevicesPath + "/" + id + "/claim" }
+
+func TestZktecoDevices_UnclaimedPool(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "ZkPoolA")
+	b := testutil.Company(t, pool, "ZkPoolB")
+	pooled := seedZkDevice(t, pool, zkSeed{name: "in the pool"})
+	ownA := seedZkDevice(t, pool, zkSeed{companyID: &a.CompanyID})
+	ownB := seedZkDevice(t, pool, zkSeed{companyID: &b.CompanyID})
+
+	t.Run("non-admin roles get 403 before any validation", func(t *testing.T) {
+		for _, role := range []string{"empleado", "manager", "rrhh"} {
+			rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath+"?bogus=1", a.TokenAs(t, signer, role), nil)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("%s: got %d (%s), want 403", role, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "forbidden" {
+				t.Fatalf("%s: error.code = %q, want forbidden", role, code)
+			}
+			if strings.Contains(rec.Body.String(), pooled.SerialNumber) {
+				t.Fatalf("%s: 403 body discloses a serial number", role)
+			}
+		}
+	})
+
+	t.Run("no token is 401", func(t *testing.T) {
+		if rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath, "", nil); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("got %d, want 401", rec.Code)
+		}
+	})
+
+	t.Run("an admin of any company sees the pool and only the pool", func(t *testing.T) {
+		for name, tok := range map[string]string{"A": a.Token(t, signer), "B": b.Token(t, signer)} {
+			rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath, tok, nil)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("%s: got %d (%s)", name, rec.Code, rec.Body.String())
+			}
+			saw := false
+			for _, r := range testutil.DecodeRows[zkDeviceRow](t, rec) {
+				if r.CompanyID != nil {
+					t.Fatalf("%s: the pool contains a claimed device: %+v", name, r)
+				}
+				if r.ID == ownA.ID || r.ID == ownB.ID {
+					t.Fatalf("%s: the pool contains a claimed device id", name)
+				}
+				if r.ID == pooled.ID {
+					saw = true
+				}
+			}
+			if !saw {
+				t.Fatalf("%s: the seeded unclaimed device is missing from the pool", name)
+			}
+		}
+	})
+
+	t.Run("unknown parameters and _order are validation_failed", func(t *testing.T) {
+		for _, q := range []string{"?bogus=1", "?company_id=" + a.CompanyID, "?_order=last_seen.desc", "?_limit=0"} {
+			rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath+q, a.Token(t, signer), nil)
+			if rec.Code != http.StatusBadRequest || testutil.ErrCode(t, rec) != "validation_failed" {
+				t.Fatalf("%s: got %d (%s), want 400 validation_failed", q, rec.Code, rec.Body.String())
+			}
+		}
+	})
+
+	t.Run("the literal path is not read as a device id", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, zkUnclaimedPath, a.Token(t, signer), map[string]any{"name": "x"})
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d, want 404", rec.Code)
+		}
+	})
+}
+
+// TestZktecoDevices_UnclaimedPoolPaging pins the pool's order and paging. The
+// pool is global, so the seeded rows carry last_seen values in the year 2999:
+// they always sort to the top regardless of what else the database holds, and
+// the assertions never depend on the size of the rest of the pool.
+func TestZktecoDevices_UnclaimedPoolPaging(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "ZkPoolPaging")
+	ta := a.Token(t, signer)
+
+	base := time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC)
+	at := func(h int) *time.Time { v := base.Add(time.Duration(h) * time.Hour); return &v }
+	newest := seedZkDevice(t, pool, zkSeed{lastSeen: at(3)})
+	second := seedZkDevice(t, pool, zkSeed{lastSeen: at(2)})
+	tieX := seedZkDevice(t, pool, zkSeed{lastSeen: at(1)})
+	tieY := seedZkDevice(t, pool, zkSeed{lastSeen: at(1)})
+	tied := []string{tieX.ID, tieY.ID}
+	sort.Sort(sort.Reverse(sort.StringSlice(tied)))
+	want := append([]string{newest.ID, second.ID}, tied...)
+
+	page := func(t *testing.T, query string) []string {
+		t.Helper()
+		rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath+query, ta, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: got %d (%s)", query, rec.Code, rec.Body.String())
+		}
+		return zkIDs(testutil.DecodeRows[zkDeviceRow](t, rec))
+	}
+	same := func(t *testing.T, label string, got, want []string) {
+		t.Helper()
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("%s = %v, want %v", label, got, want)
+		}
+	}
+
+	t.Run("newest last_seen first, ties by id descending", func(t *testing.T) {
+		same(t, "top 4", page(t, "?_limit=4"), want)
+	})
+
+	t.Run("limit takes the head of the order", func(t *testing.T) {
+		same(t, "limit 1", page(t, "?_limit=1"), want[:1])
+		same(t, "limit 3", page(t, "?_limit=3"), want[:3])
+	})
+
+	t.Run("offset skips from the head and pages are contiguous", func(t *testing.T) {
+		same(t, "offset 1 limit 2", page(t, "?_limit=2&_offset=1"), want[1:3])
+		same(t, "offset 2 limit 2", page(t, "?_limit=2&_offset=2"), want[2:4])
+		same(t, "offset 3 limit 1", page(t, "?_limit=1&_offset=3"), want[3:4])
+		var walked []string
+		for off := 0; off < 4; off++ {
+			walked = append(walked, page(t, fmt.Sprintf("?_limit=1&_offset=%d", off))...)
+		}
+		same(t, "walked one by one", walked, want)
+	})
+}
+
+func TestZktecoDevices_Claim(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "ZkClaimA")
+	b := testutil.Company(t, pool, "ZkClaimB")
+	ta, tb := a.Token(t, signer), b.Token(t, signer)
+
+	t.Run("admin claims an unclaimed device with the company from the token", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{name: "front door", location: "lobby"})
+		rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), ta, nil)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		rows := testutil.DecodeRows[zkDeviceRow](t, rec)
+		if len(rows) != 1 || strVal(rows[0].CompanyID) != a.CompanyID || rows[0].ID != dev.ID {
+			t.Fatalf("claim must return a one-element array owned by A, got %+v", rows)
+		}
+		after := readZkDevice(t, pool, dev.ID)
+		if strVal(after.CompanyID) != a.CompanyID {
+			t.Fatalf("stored company = %q, want A", strVal(after.CompanyID))
+		}
+		if after.SerialNumber != dev.SerialNumber || strVal(after.Name) != "front door" || strVal(after.Location) != "lobby" ||
+			strVal(after.Status) != "online" || !sameInstant(after.LastSeen, dev.LastSeen) {
+			t.Fatalf("a claim changed more than company_id: %+v -> %+v", dev, after)
+		}
+
+		inA := zkIDs(testutil.DecodeRows[zkDeviceRow](t, testutil.Do(t, h, http.MethodGet, zkDevicesPath, ta, nil)))
+		inB := zkIDs(testutil.DecodeRows[zkDeviceRow](t, testutil.Do(t, h, http.MethodGet, zkDevicesPath, tb, nil)))
+		inPool := zkIDs(testutil.DecodeRows[zkDeviceRow](t, testutil.Do(t, h, http.MethodGet, zkUnclaimedPath, ta, nil)))
+		if !strings.Contains(strings.Join(inA, ","), dev.ID) {
+			t.Fatal("the claimed device must appear in A's list")
+		}
+		if strings.Contains(strings.Join(inB, ","), dev.ID) || strings.Contains(strings.Join(inPool, ","), dev.ID) {
+			t.Fatal("the claimed device must appear in nobody else's list and leave the pool")
+		}
+	})
+
+	t.Run("another company's admin claims for their own company", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{})
+		if rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), tb, nil); rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if got := strVal(readZkDevice(t, pool, dev.ID).CompanyID); got != b.CompanyID {
+			t.Fatalf("company = %q, want B", got)
+		}
+	})
+
+	t.Run("an empty object body is accepted", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{})
+		rec := doRawBody(t, h, http.MethodPost, claimPath(dev.ID), ta, `{}`)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("a body naming a company is rejected and nothing is claimed", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{})
+		for _, body := range []string{
+			`{"company_id":"` + b.CompanyID + `"}`,
+			`{"company_id":"` + a.CompanyID + `"}`,
+			`{"serial_number":"x"}`,
+			`[]`,
+			`null`,
+			` null `,
+			`not json`,
+		} {
+			rec := doRawBody(t, h, http.MethodPost, claimPath(dev.ID), ta, body)
+			if rec.Code != http.StatusBadRequest || testutil.ErrCode(t, rec) != "bad_request" {
+				t.Fatalf("body %q: got %d (%s), want 400 bad_request", body, rec.Code, rec.Body.String())
+			}
+		}
+		if after := readZkDevice(t, pool, dev.ID); after.CompanyID != nil {
+			t.Fatalf("a rejected claim assigned company %q", strVal(after.CompanyID))
+		}
+	})
+
+	t.Run("the body is capped at 1 KiB: over is 400 bad_request with no claim, at the cap is accepted", func(t *testing.T) {
+		const capBytes = 1 << 10
+		over := seedZkDevice(t, pool, zkSeed{})
+		for name, body := range map[string]string{
+			"padded object": "{}" + strings.Repeat(" ", capBytes),
+			"long key":      `{"` + strings.Repeat("k", capBytes) + `":1}`,
+		} {
+			rec := doRawBody(t, h, http.MethodPost, claimPath(over.ID), ta, body)
+			if rec.Code != http.StatusBadRequest || testutil.ErrCode(t, rec) != "bad_request" {
+				t.Fatalf("%s: got %d (%s), want 400 bad_request", name, rec.Code, rec.Body.String())
+			}
+		}
+		if after := readZkDevice(t, pool, over.ID); after.CompanyID != nil {
+			t.Fatalf("an oversized body assigned company %q", strVal(after.CompanyID))
+		}
+
+		atCap := seedZkDevice(t, pool, zkSeed{})
+		rec := doRawBody(t, h, http.MethodPost, claimPath(atCap.ID), ta, "{}"+strings.Repeat(" ", capBytes-2))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("a body of exactly 1 KiB: got %d (%s), want 200", rec.Code, rec.Body.String())
+		}
+		if got := strVal(readZkDevice(t, pool, atCap.ID).CompanyID); got != a.CompanyID {
+			t.Fatalf("company = %q, want A", got)
+		}
+	})
+
+	t.Run("a device claimed by another company is 404 and keeps its owner", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{companyID: &b.CompanyID, name: "B only"})
+		rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), ta, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d (%s), want 404", rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "not_found" {
+			t.Fatalf("error.code = %q, want not_found", code)
+		}
+		if after := readZkDevice(t, pool, dev.ID); !sameZkDevice(after, dev) {
+			t.Fatalf("ownership changed: %+v -> %+v", dev, after)
+		}
+	})
+
+	t.Run("claiming a device the company already owns is 404 and changes nothing", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{companyID: &a.CompanyID})
+		if rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), ta, nil); rec.Code != http.StatusNotFound {
+			t.Fatalf("got %d, want 404", rec.Code)
+		}
+		if after := readZkDevice(t, pool, dev.ID); !sameZkDevice(after, dev) {
+			t.Fatalf("row changed: %+v -> %+v", dev, after)
+		}
+	})
+
+	t.Run("a nonexistent or malformed id is 404", func(t *testing.T) {
+		for _, id := range []string{uuid.NewString(), "not-a-uuid"} {
+			if rec := testutil.Do(t, h, http.MethodPost, claimPath(id), ta, nil); rec.Code != http.StatusNotFound {
+				t.Fatalf("id %q: got %d, want 404", id, rec.Code)
+			}
+		}
+	})
+
+	t.Run("non-admin roles get 403 and the device stays unclaimed", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{})
+		for _, role := range []string{"empleado", "manager", "rrhh"} {
+			rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), a.TokenAs(t, signer, role), nil)
+			if rec.Code != http.StatusForbidden || testutil.ErrCode(t, rec) != "forbidden" {
+				t.Fatalf("%s: got %d (%s), want 403 forbidden", role, rec.Code, rec.Body.String())
+			}
+		}
+		// The gate runs before the id and the body are looked at.
+		rec := doRawBody(t, h, http.MethodPost, claimPath("not-a-uuid"), a.TokenAs(t, signer, "empleado"), `garbage`)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("got %d, want 403 before any validation", rec.Code)
+		}
+		if after := readZkDevice(t, pool, dev.ID); after.CompanyID != nil {
+			t.Fatalf("a non-admin claimed the device for %q", strVal(after.CompanyID))
+		}
+	})
+
+	t.Run("no token is 401", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{})
+		if rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), "", nil); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("got %d, want 401", rec.Code)
+		}
+	})
+
+	t.Run("claim is POST only", func(t *testing.T) {
+		dev := seedZkDevice(t, pool, zkSeed{})
+		for _, m := range []string{http.MethodGet, http.MethodPatch, http.MethodDelete, http.MethodPut} {
+			rec := testutil.Do(t, h, m, claimPath(dev.ID), ta, map[string]any{})
+			if rec.Code != http.StatusMethodNotAllowed && rec.Code != http.StatusNotFound {
+				t.Fatalf("%s: got %d, want 404 or 405", m, rec.Code)
+			}
+		}
+		if after := readZkDevice(t, pool, dev.ID); after.CompanyID != nil {
+			t.Fatal("a non-POST request claimed the device")
+		}
+	})
+}
+
+// TestZktecoDevices_ConcurrentClaimHasExactlyOneWinner makes the race
+// deterministic instead of hoping two goroutines collide: the first claim is
+// parked inside a BEFORE UPDATE trigger AFTER it has taken the row lock, the
+// second is then observed blocked on that lock (pg_blocking_pids, no sleeps),
+// and only then is the first released. A claim that checked ownership in a
+// separate statement would hand the device to both; the guarded UPDATE
+// re-evaluates company_id IS NULL once the lock frees and returns no row.
+func TestZktecoDevices_ConcurrentClaimHasExactlyOneWinner(t *testing.T) {
+	// Isolated schema: the hold trigger must never fire for another test.
+	pool, _ := testutil.IsolatedSchema(t)
+	h, signer := testutil.Server(t, pool)
+
+	a := testutil.Company(t, pool, "ZkRaceA")
+	b := testutil.Company(t, pool, "ZkRaceB")
+	ta, tb := a.Token(t, signer), b.Token(t, signer)
+	dev := seedZkDevice(t, pool, zkSeed{})
+
+	holderPID, release := parkPatchesInTrigger(t, pool, "zkteco_devices", "company_id", a.CompanyID)
+	var wg sync.WaitGroup
+	defer func() {
+		release()
+		wg.Wait()
+	}()
+
+	first := serveAsync(h, &wg, authedRequest(http.MethodPost, claimPath(dev.ID), ta, ""))
+	firstPID := waitUntilBlockedBy(t, pool, holderPID) // A's UPDATE holds the row lock, parked in the trigger
+
+	second := serveAsync(h, &wg, authedRequest(http.MethodPost, claimPath(dev.ID), tb, ""))
+	waitUntilBlockedBy(t, pool, firstPID) // B's UPDATE is queued behind A's row lock
+
+	release()
+	wg.Wait()
+
+	if first.Code != http.StatusOK {
+		t.Fatalf("first claim got %d (%s), want 200", first.Code, first.Body.String())
+	}
+	if second.Code != http.StatusNotFound {
+		t.Fatalf("second claim got %d (%s), want 404", second.Code, second.Body.String())
+	}
+	if got := strVal(readZkDevice(t, pool, dev.ID).CompanyID); got != a.CompanyID {
+		t.Fatalf("owner = %q, want the first claimer A", got)
+	}
+}
+
+// TestZktecoDevices_ParallelClaimsNeverBothSucceed is the unparked companion:
+// many admins fire at once, released together by a barrier, and whichever
+// order the scheduler picks, exactly one 200 comes back.
+func TestZktecoDevices_ParallelClaimsNeverBothSucceed(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	const claimers = 8
+	dev := seedZkDevice(t, pool, zkSeed{})
+	tokens := make([]string, claimers)
+	owners := map[string]bool{}
+	for i := range tokens {
+		c := testutil.Company(t, pool, "ZkParallel"+uuid.NewString()[:6])
+		tokens[i] = c.Token(t, signer)
+		owners[c.CompanyID] = true
+	}
+
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	recs := make([]int, claimers)
+	for i := range tokens {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, authedRequest(http.MethodPost, claimPath(dev.ID), tokens[i], ""))
+			recs[i] = rec.Code
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	wins, misses := 0, 0
+	for _, code := range recs {
+		switch code {
+		case http.StatusOK:
+			wins++
+		case http.StatusNotFound:
+			misses++
+		default:
+			t.Fatalf("unexpected status %d in %v", code, recs)
+		}
+	}
+	if wins != 1 || misses != claimers-1 {
+		t.Fatalf("statuses = %v, want exactly one 200 and %d 404", recs, claimers-1)
+	}
+	if got := strVal(readZkDevice(t, pool, dev.ID).CompanyID); !owners[got] {
+		t.Fatalf("owner %q is not one of the claimers", got)
+	}
 }
