@@ -204,34 +204,39 @@ func TestCedulaExistsElsewhere(t *testing.T) {
 	}
 }
 
-func TestUpsertUnknownPin_IncrementsAttempts(t *testing.T) {
+func TestUpsertUnknownPin_IncrementsAttemptsPerDevice(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
 	q := db.New(pool)
 	pin := "UP-" + uuid.NewString()[:10]
+	snA, snB := "SN-A-"+uuid.NewString()[:8], "SN-B-"+uuid.NewString()[:8]
 	t.Cleanup(func() { _, _ = pool.Exec(context.Background(), `DELETE FROM zkteco_unknown_pins WHERE pin = $1`, pin) })
 
-	for i, sn := range []string{"SN-A", "SN-B", "SN-C"} {
+	upsert := func(sn string) {
+		t.Helper()
 		if err := q.UpsertUnknownPin(ctx, db.UpsertUnknownPinParams{Pin: pin, SerialNumber: pgtype.Text{String: sn, Valid: true}}); err != nil {
-			t.Fatalf("upsert %d: %v", i, err)
+			t.Fatalf("upsert %s: %v", sn, err)
 		}
 	}
-	var attempts int
-	var serial *string
-	var seen bool
-	if err := pool.QueryRow(ctx,
-		`SELECT attempts, serial_number, last_seen > now() - interval '1 minute' FROM zkteco_unknown_pins WHERE pin = $1`, pin,
-	).Scan(&attempts, &serial, &seen); err != nil {
-		t.Fatalf("read pin: %v", err)
+	for i := 0; i < 3; i++ {
+		upsert(snA)
 	}
-	if attempts != 3 {
-		t.Errorf("attempts = %d, want 3 (the literal-1 bug)", attempts)
+	upsert(snB)
+
+	attemptsOf := func(sn string) (attempts int, seen bool) {
+		t.Helper()
+		if err := pool.QueryRow(ctx,
+			`SELECT attempts, last_seen > now() - interval '1 minute' FROM zkteco_unknown_pins WHERE pin = $1 AND serial_number = $2`,
+			pin, sn).Scan(&attempts, &seen); err != nil {
+			t.Fatalf("read pin on %s: %v", sn, err)
+		}
+		return attempts, seen
 	}
-	if str(serial) != "SN-C" {
-		t.Errorf("serial_number = %s, want latest SN-C", str(serial))
+	if n, seen := attemptsOf(snA); n != 3 || !seen {
+		t.Errorf("device A: attempts = %d seen = %v, want 3 and a fresh last_seen (the literal-1 bug)", n, seen)
 	}
-	if !seen {
-		t.Error("last_seen was not refreshed")
+	if n, _ := attemptsOf(snB); n != 1 {
+		t.Errorf("device B: attempts = %d, want 1: another device's counter must not be shared", n)
 	}
 }
 

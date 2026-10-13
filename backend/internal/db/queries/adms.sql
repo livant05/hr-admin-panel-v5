@@ -29,13 +29,14 @@ SELECT EXISTS (
 ) AS exists_elsewhere;
 
 -- name: UpsertUnknownPin :exec
+-- One row per (serial_number, pin) since migration 0012, so the same PIN on
+-- two devices is two rows and a tenant never shares a counter with another.
 -- attempts increments on every conflict (the Edge Function wrote a literal 1).
 INSERT INTO zkteco_unknown_pins (pin, serial_number, attempts, last_seen)
 VALUES (sqlc.arg('pin'), sqlc.arg('serial_number'), 1, now())
-ON CONFLICT (pin) DO UPDATE
+ON CONFLICT (serial_number, pin) DO UPDATE
 SET attempts = zkteco_unknown_pins.attempts + 1,
-    last_seen = now(),
-    serial_number = EXCLUDED.serial_number;
+    last_seen = now();
 
 -- name: IngestCheckIn :execrows
 -- The employee must belong to the company ($1) or nothing is written. The

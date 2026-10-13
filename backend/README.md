@@ -252,7 +252,10 @@ already yours all answer `404` and the response never says who owns it.
 
 `GET /api/zkteco_unknown_pins` is admin only (`403` otherwise, checked before any query validation).
 The table has no `company_id`, because an unresolved PIN has no employee and therefore no company, so
-every admin sees the same global list. Filter `resolved` (`true` or `false`; an empty or other value is
+tenancy comes from the device that punched it: the list joins `zkteco_devices` on `serial_number` and
+returns only pins of devices claimed by the caller's company (pins of other companies' devices and of
+unclaimed devices are never returned). Since migration `0012` a pin is unique per `(serial_number, pin)`,
+so the same PIN on two companies' devices is two rows. Filter `resolved` (`true` or `false`; an empty or other value is
 `400 validation_failed`), `_limit`/`_offset`, newest `last_seen` first. It is read-only.
 
 ## Attendance: created_after and ordering

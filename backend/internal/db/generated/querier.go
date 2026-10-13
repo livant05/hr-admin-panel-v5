@@ -411,7 +411,12 @@ type Querier interface {
 	// Rows with company_id NULL (the unclaimed pool) never match company_id = $1.
 	ListZktecoDevices(ctx context.Context, arg ListZktecoDevicesParams) ([]ZktecoDevice, error)
 	// zkteco_unknown_pins has no company_id (an unresolved PIN has no employee,
-	// hence no company); the caller must be gated by requireAdmin.
+	// hence no company). Tenancy comes from the device that punched the PIN: only
+	// rows whose serial_number belongs to a device of the caller's company are
+	// returned, so pins of other tenants' devices and of unclaimed devices (or
+	// with a NULL serial) never match. The caller must also be gated by
+	// requireAdmin. zkteco_devices.serial_number is UNIQUE, so the join never
+	// duplicates a pin.
 	ListZktecoUnknownPins(ctx context.Context, arg ListZktecoUnknownPinsParams) ([]ZktecoUnknownPin, error)
 	// The write path below locks rows so the last-active-admin guard holds under
 	// concurrency (design D6). Callers MUST run LockActiveAdmins first and
@@ -528,6 +533,8 @@ type Querier interface {
 	// a run. total_earned is `b` and is NOT the sum of the income columns here
 	// (design R4f, pinned by TestPayrollRun_TotalEarnedInvariant).
 	UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayrollRunPayRecordParams) (UpsertPayrollRunPayRecordRow, error)
+	// One row per (serial_number, pin) since migration 0012, so the same PIN on
+	// two devices is two rows and a tenant never shares a counter with another.
 	// attempts increments on every conflict (the Edge Function wrote a literal 1).
 	UpsertUnknownPin(ctx context.Context, arg UpsertUnknownPinParams) error
 }

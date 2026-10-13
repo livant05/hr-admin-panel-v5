@@ -145,23 +145,36 @@ func (q *Queries) ListZktecoDevices(ctx context.Context, arg ListZktecoDevicesPa
 }
 
 const listZktecoUnknownPins = `-- name: ListZktecoUnknownPins :many
-SELECT id, pin, serial_number, attempts, resolved, last_seen, created_at
-FROM zkteco_unknown_pins
-WHERE ($1::boolean IS NULL OR resolved = $1)
-ORDER BY last_seen DESC NULLS LAST, id DESC
-LIMIT $3 OFFSET $2
+SELECT p.id, p.pin, p.serial_number, p.attempts, p.resolved, p.last_seen, p.created_at
+FROM zkteco_unknown_pins p
+JOIN zkteco_devices d ON d.serial_number = p.serial_number
+WHERE d.company_id = $1
+  AND ($2::boolean IS NULL OR p.resolved = $2)
+ORDER BY p.last_seen DESC NULLS LAST, p.id DESC
+LIMIT $4 OFFSET $3
 `
 
 type ListZktecoUnknownPinsParams struct {
-	Resolved pgtype.Bool `json:"resolved"`
-	Offset   int32       `json:"offset"`
-	Limit    int32       `json:"limit"`
+	CompanyID pgtype.UUID `json:"company_id"`
+	Resolved  pgtype.Bool `json:"resolved"`
+	Offset    int32       `json:"offset"`
+	Limit     int32       `json:"limit"`
 }
 
 // zkteco_unknown_pins has no company_id (an unresolved PIN has no employee,
-// hence no company); the caller must be gated by requireAdmin.
+// hence no company). Tenancy comes from the device that punched the PIN: only
+// rows whose serial_number belongs to a device of the caller's company are
+// returned, so pins of other tenants' devices and of unclaimed devices (or
+// with a NULL serial) never match. The caller must also be gated by
+// requireAdmin. zkteco_devices.serial_number is UNIQUE, so the join never
+// duplicates a pin.
 func (q *Queries) ListZktecoUnknownPins(ctx context.Context, arg ListZktecoUnknownPinsParams) ([]ZktecoUnknownPin, error) {
-	rows, err := q.db.Query(ctx, listZktecoUnknownPins, arg.Resolved, arg.Offset, arg.Limit)
+	rows, err := q.db.Query(ctx, listZktecoUnknownPins,
+		arg.CompanyID,
+		arg.Resolved,
+		arg.Offset,
+		arg.Limit,
+	)
 	if err != nil {
 		return nil, err
 	}
