@@ -66,3 +66,29 @@ func TestLoadRateConfig_RejectsInvalidValuesNamingTheVariable(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadRateConfig_RejectsTheRenamedLoginEnvVar(t *testing.T) {
+	tests := []struct {
+		name string
+		env  map[string]string
+	}{
+		{"old name alone", map[string]string{"AUTH_SUCCESS_RATE_PER_MIN": "60"}},
+		{"old name next to the new one", map[string]string{
+			"AUTH_SUCCESS_RATE_PER_MIN": "60",
+			"AUTH_ATTEMPT_RATE_PER_MIN": "60",
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadRateConfig(envFrom(tt.env))
+			if err == nil {
+				t.Fatal("the old variable must fail startup, not fall back silently")
+			}
+			for _, want := range []string{"AUTH_SUCCESS_RATE_PER_MIN", "AUTH_ATTEMPT_RATE_PER_MIN"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("error %q must name %s", err, want)
+				}
+			}
+		})
+	}
+}

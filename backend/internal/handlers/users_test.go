@@ -775,7 +775,23 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 			t.Fatalf("reset admins: %v", err)
 		}
 
-		codes := make([]int, 2)
+		// Requests are built on the test goroutine; the racing goroutines only
+		// serve them and record the recorder, so no t.Fatalf / testutil.Do
+		// ever runs off the test goroutine.
+		reqs := make([]*http.Request, len(ids))
+		recs := make([]*httptest.ResponseRecorder, len(ids))
+		for i := range ids {
+			// Alternate role/status demotion so both guard paths race.
+			payload, err := json.Marshal(bodies[(round+i)%2])
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			reqs[i] = httptest.NewRequest(http.MethodPatch, "/api/users/"+ids[i], bytes.NewReader(payload))
+			reqs[i].Header.Set("Content-Type", "application/json")
+			reqs[i].Header.Set("Authorization", "Bearer "+tok)
+			recs[i] = httptest.NewRecorder()
+		}
+
 		start := make(chan struct{})
 		var wg sync.WaitGroup
 		for i := range ids {
@@ -783,12 +799,15 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 			go func(i int) {
 				defer wg.Done()
 				<-start
-				// Alternate role/status demotion so both guard paths race.
-				codes[i] = patchUser(t, h, tok, ids[i], bodies[(round+i)%2]).Code
+				h.ServeHTTP(recs[i], reqs[i])
 			}(i)
 		}
 		close(start)
 		wg.Wait()
+		codes := make([]int, len(recs))
+		for i, rec := range recs {
+			codes[i] = rec.Code
+		}
 
 		if n := countActiveAdmins(t, pool, c.CompanyID); n < 1 {
 			t.Fatalf("round %d: company left with %d active admins (codes %v)", round, n, codes)
