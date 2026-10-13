@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // ATTLOG parsing for the ZKTeco ADMS push protocol. The wire format is
@@ -29,7 +30,9 @@ const (
 const (
 	// maxATTLOGLines caps the non-empty lines accepted in one request.
 	maxATTLOGLines = 10000
-	// maxPINLength is the longest accepted employee PIN (cedula).
+	// maxPINLength is the longest accepted employee PIN (cedula), in BYTES:
+	// cedulas are ASCII, so a multibyte PIN is short on characters but long on
+	// bytes on purpose. It also bounds the pin persisted as last_pin.
 	maxPINLength = 32
 	// attlogMinFields is the minimum tab-separated field count of a line.
 	attlogMinFields = 4
@@ -65,7 +68,12 @@ type reject struct {
 // else, so the caller can refuse the request before any write.
 func parseATTLOG(body string) (punches []punch, rejects []reject, tooMany bool) {
 	lines := 0
-	for _, raw := range strings.Split(body, "\n") {
+	// Walk the body one line at a time (no up-front split) so a request far
+	// over the cap is abandoned right after line maxATTLOGLines+1 instead of
+	// materializing every line first.
+	for rest := body; rest != ""; {
+		var raw string
+		raw, rest, _ = strings.Cut(rest, "\n")
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "" {
 			continue
@@ -84,12 +92,32 @@ func parseATTLOG(body string) (punches []punch, rejects []reject, tooMany bool) 
 	return punches, rejects, false
 }
 
+// boundedPIN makes the first field of a line safe to persist in the TEXT
+// last_pin column of zkteco_ingest_rejections: invalid UTF-8 and NUL bytes
+// (both rejected by PostgreSQL, which would fail the whole batch) are dropped,
+// and the result is cut to maxPINLength BYTES, backing off to a rune boundary
+// so a multibyte character is never split. A line without a tab is the whole
+// garbage line in its first field, which is why the bound matters.
+func boundedPIN(s string) string {
+	s = strings.ReplaceAll(strings.ToValidUTF8(s, ""), "\x00", "")
+	if len(s) <= maxPINLength {
+		return s
+	}
+	cut := maxPINLength
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
 func parseATTLOGLine(line string) (punch, reject, bool) {
 	fields := strings.Split(line, "\t")
 	pin := strings.TrimSpace(fields[0])
-	malformed := reject{Reason: reasonMalformed, PIN: pin}
+	malformed := reject{Reason: reasonMalformed, PIN: boundedPIN(pin)}
 
-	if len(fields) < attlogMinFields || pin == "" || len(pin) > maxPINLength {
+	// maxPINLength counts bytes (cedulas are ASCII). A pin that boundedPIN
+	// would alter (invalid UTF-8, NUL, too long) is malformed, never resolved.
+	if len(fields) < attlogMinFields || pin == "" || boundedPIN(pin) != pin {
 		return punch{}, malformed, false
 	}
 	at, err := time.Parse(attlogTimeLayout, strings.TrimSpace(fields[1]))

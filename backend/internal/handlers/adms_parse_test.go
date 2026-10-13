@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +85,34 @@ func TestParseATTLOG_Lines(t *testing.T) {
 		{
 			name:        "pin over 32 chars is malformed",
 			body:        strings.Repeat("9", 33) + "\t2026-03-02 08:00:00\t0\t0",
-			wantRejects: []reject{{Reason: reasonMalformed, PIN: strings.Repeat("9", 33)}},
+			wantRejects: []reject{{Reason: reasonMalformed, PIN: strings.Repeat("9", 32)}},
+		},
+		{
+			name: "garbage line without a tab keeps only its first 32 bytes as the pin",
+			body: strings.Repeat("g", 100),
+			wantRejects: []reject{
+				{Reason: reasonMalformed, PIN: strings.Repeat("g", 32)},
+			},
+		},
+		{
+			name:        "a pin is cut at a rune boundary, never inside a multibyte character",
+			body:        strings.Repeat("9", 31) + "é\t2026-03-02 08:00:00\t0\t0",
+			wantRejects: []reject{{Reason: reasonMalformed, PIN: strings.Repeat("9", 31)}},
+		},
+		{
+			name:        "a multibyte pin that fits in 32 bytes is accepted",
+			body:        strings.Repeat("é", 16) + "\t2026-03-02 08:00:00\t0\t0",
+			wantPunches: []punch{{PIN: strings.Repeat("é", 16), At: attTime(t, "2026-03-02 08:00:00"), Kind: punchIn}},
+		},
+		{
+			name:        "a pin with a NUL byte is malformed and the NUL is dropped from the stored pin",
+			body:        "10\x0001\t2026-03-02 08:00:00\t0\t0",
+			wantRejects: []reject{{Reason: reasonMalformed, PIN: "1001"}},
+		},
+		{
+			name:        "a pin with invalid UTF-8 is malformed and the bad bytes are dropped",
+			body:        "10\xff01\t2026-03-02 08:00:00\t0\t0",
+			wantRejects: []reject{{Reason: reasonMalformed, PIN: "1001"}},
 		},
 		{
 			name:        "pin of exactly 32 chars is accepted",
@@ -151,5 +179,28 @@ func TestParseATTLOG_LineCap(t *testing.T) {
 	}
 	if punches != nil || rejects != nil {
 		t.Fatalf("tooMany must return nothing to process, got %d punches %d rejects", len(punches), len(rejects))
+	}
+}
+
+// TestParseATTLOG_StopsScanningAtTheCap pins CO-S5a-6: a body far beyond the
+// cap is abandoned as soon as the cap is exceeded, instead of being split
+// into one string per line first. The body is 1,000,000 short lines; splitting
+// it would allocate a 16 MB slice of line headers alone, while the early stop
+// stays within the first 10,001 lines.
+func TestParseATTLOG_StopsScanningAtTheCap(t *testing.T) {
+	body := strings.Repeat("x\n", 1_000_000)
+
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	punches, rejects, tooMany := parseATTLOG(body)
+	runtime.ReadMemStats(&after)
+
+	if !tooMany || punches != nil || rejects != nil {
+		t.Fatalf("tooMany=%v punches=%d rejects=%d, want tooMany and nothing to process", tooMany, len(punches), len(rejects))
+	}
+	const budget = 4 << 20
+	if got := after.TotalAlloc - before.TotalAlloc; got > budget {
+		t.Fatalf("parsing allocated %d bytes, want under %d: the body is being split before the cap applies", got, budget)
 	}
 }
