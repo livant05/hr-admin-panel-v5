@@ -14,8 +14,8 @@ OPS-1 to OPS-10.
    are still open (see [Go-live blockers](#go-live-blockers-ops-1-real-device-entry-criteria)).
    Without a device you may rehearse every other step, but you may not repoint production devices.
 2. **The API refuses to start in production while the seed admin is active.** With
-   `APP_ENV=production`, `cmd/api` exits 1 and logs `seed credential active` if any active user has
-   the committed seed password hash. Step 6 removes it; the guard is the backstop.
+   `APP_ENV=production`, `cmd/api` exits 1 and logs `seed credential present` if any user row, active
+   **or inactive**, has the committed seed password hash. Step 6 removes it; the guard is the backstop.
 3. **Rollback stays possible for at least 14 days.** The Supabase project and the deployed Edge
    Function must stay live until the stabilization window ends (step 13).
 
@@ -33,7 +33,7 @@ OPS-1 to OPS-10.
 | 7 | Import: dry run, then real run | OPS-7 | Report has no invalid rows, CSV is mode 0600 |
 | 8 | Distribute temporary passwords | OPS-7 | Every user has received theirs, CSV deleted |
 | 9 | Claim imported devices | OPS-8 | `zkteco_devices` has no `NULL` company |
-| 10 | Deploy with `APP_ENV=production` | OPS-9 | API stays up, no `seed credential active` |
+| 10 | Deploy with `APP_ENV=production` | OPS-9 | API stays up, no `seed credential present` |
 | 11 | Repoint devices | OPS-8 | A real punch from a claimed device lands in attendance |
 | 12 | Run the E2E checklist | OPS-9 | Every item ticked, including demo mode |
 | 13 | Stabilization window, 14 days minimum | OPS-10 | Day 14 reached with no rollback |
@@ -54,7 +54,8 @@ deferred on 2026-10-12 because no device is available yet; they stay open, not w
 
 **Why it blocks.** The parser reads the in/out code from field index 3
 (`attlogCodeIndex = 3` in `backend/internal/handlers/adms_parse.go`). That index was inherited from
-the Edge Function (`parts[3]` in `supabase/functions/zkteco-adms/index.ts`, line 78). Published
+the Edge Function (`parts[3]`, line 78 of `supabase/functions/zkteco-adms/index.ts`, now deleted from the
+working tree; read it with `git show 4a741fa:supabase/functions/zkteco-adms/index.ts`). Published
 ADMS documentation lists the ATTLOG fields as:
 
 ```text
@@ -318,7 +319,7 @@ Supabase export with a temporary password. This is why step 2 matters: if the ad
 the export, you would lock yourself out.
 
 ```sql
--- Preflight: lists the seed credential. Must show it before, and nothing after.
+-- Preflight: lists the seed credential (any status; inactive rows count). Must show it before, and nothing after.
 SELECT id, email, status FROM users
 WHERE password_hash = '$2a$10$d8UdlIbA4nESHywDqYk6h.L2W6qk9YEUiPqNnUm5qgQmKKGAwk9Q.';
 
@@ -339,7 +340,9 @@ SQL
 
 Run the `DELETE` the same way, then run the preflight again. No table references `users(id)`, so
 the delete is safe. **Cutover is not declared done until the preflight returns zero rows**; step 10 enforces
-it at startup.
+it at startup, and it also refuses an inactive row (setting `status='inactive'` is not a substitute
+for the delete). With any `APP_ENV` other than `production` the guard is skipped and the log has one
+`seed guard skipped` line with the value it saw; if you expected production, that line means a typo.
 
 ### 7. Import: dry run, then real run `[USER-OPS]` (OPS-7)
 
@@ -411,7 +414,7 @@ docker compose exec nginx nginx -s reload
 curl -s http://<host>/api/health
 ```
 
-3. Confirm the startup guard: the backend log must **not** contain `seed credential active`. If it
+3. Confirm the startup guard: the backend log must **not** contain `seed credential present`. If it
    does, the container exits 1; go back to step 6.
 
 ### 11. Repoint devices `[USER-OPS]` (OPS-8)
@@ -462,6 +465,13 @@ call the rollback and what happens to data entered in Go meanwhile.
 **demo mode**. Use a private window so no old session leaks in. Items marked "no request" are
 verified in the browser DevTools Network tab.
 
+The session lifecycle is also covered by an automated harness that runs the real functions from
+`hr_admin_panel.html` against a fake fetch (`node tools/session/harness.mjs`, exit code 1 on failure):
+login success and failures (401, 429 with `Retry-After`, network), register auto-login, logout with no
+request, expired, malformed and valid tokens on load, one toast on concurrent 401s, and demo mode
+with zero requests. Run it before the checklist; the items marked "browser-only" below are what it
+cannot see (real DOM, nginx headers, timers, layout).
+
 ### Real mode
 
 - [ ] **Login:** valid email and password lands in the app; the Network tab shows `POST /api/auth/login`
@@ -469,7 +479,8 @@ verified in the browser DevTools Network tab.
 - [ ] **Login failure:** a wrong password shows "Credenciales inválidas"; an unknown email shows the same
       text; neither is treated as an expired session.
 - [ ] **Login rate limit:** more than 10 failed attempts in a minute from one address returns 429 and the
-      screen shows how long to wait.
+      screen shows "Demasiados intentos, intenta en N s" (browser-only: the seconds come from the
+      `Retry-After` header, so check that nginx passes the header through and the number is plausible).
 - [ ] **Register:** "Registrar nueva empresa" creates the company and lands in the app already logged in
       as the new admin, with no second login step.
 - [ ] **Logout:** returns to the login view, removes the session keys from `localStorage`, and sends **no
@@ -478,7 +489,17 @@ verified in the browser DevTools Network tab.
       reload: the login view appears and **no API call** is made.
 - [ ] **401 mid-session:** invalidate the token while logged in (change `JWT_SECRET` in a test
       environment, or edit the stored token), trigger any action: you are returned to login with a
-      single "Sesión expirada" toast.
+      single "Sesión expirada" toast. (browser-only) Also confirm the screen you were on does not stay
+      stuck on a spinner, any modal that was open is gone or harmless, and the Network tab shows no
+      further attendance polling requests once the login view is up.
+- [ ] **Old Supabase session (browser-only):** in a browser that was logged in before the flip, reload
+      the new build. The stored Supabase token is not accepted by Go: you get the login view (or, if its
+      `exp` is still in the future, one "Sesión expirada" toast on the first Go call). Either way log in
+      again and the app works; no loop of toasts.
+- [ ] **Login view layout (browser-only):** the login view shows "Modo Demo" under "Registrar nueva
+      empresa"; there is no way to reach a blank screen (no setup screen on first load once S7c is
+      deployed). The error line under the password field is visible for a wrong password and the
+      "Entrar" button returns from its spinner.
 - [ ] **Persistence per screen:** on each screen below, create or edit a record, reload the page, and
       confirm it comes back from the server with its server id:
   - [ ] Employees and attendance
@@ -493,7 +514,7 @@ verified in the browser DevTools Network tab.
 - [ ] **Non-admin:** a non-admin user cannot manage users, edit roles or claim devices (the API answers
       403; the ZKTeco screen shows "Solo administradores").
 - [ ] **Tenant isolation:** two companies cannot see each other's rows.
-- [ ] **Startup guard:** the backend log has no `seed credential active`, and the seed login
+- [ ] **Startup guard:** the backend log has no `seed credential present`, and the seed login
       (`livan.05@hotmail.com` / `Admin123`) is rejected.
 
 ### Demo mode (regression)
@@ -506,6 +527,51 @@ Demo mode must behave exactly as before the change and make **no network request
 - [ ] Recruitment, Users, ZKTeco and Attendance screens load their demo data; edits stay local.
 - [ ] ZKTeco "Probar conexión" explains that it is unavailable in demo mode.
 - [ ] Logout returns to the login view with **no request**.
+- [ ] (browser-only) On the login view "Modo Demo" turns into "Salir del modo demo" once demo is on;
+      pressing it returns to real mode, `localStorage.hr_demo` is gone, and a reload shows the real
+      login with no demo banner or data.
+- [ ] (browser-only) Reload while inside the demo app: you stay in demo (no expiry check on the fake
+      token, no login redirect).
+
+---
+
+## Supabase removal grep gate (SR-1)
+
+Run from the repository root. Both commands must print **nothing** and exit 1 (`rg` exit code 1 =
+no match). SR-1 is about *application* code, so the gate names the runtime paths explicitly instead
+of scanning the whole tree.
+
+```bash
+# Gate A: browser app and deploy files. Any mention at all is a failure.
+rg -n -i 'supabase|/auth/v1|/rest/v1|apikey|hr_go_tables|swciybuhetkfrtpyjvgb|DEFAULT_URL|DEFAULT_KEY|saveConfig|showSQLSchema|\bA\.(url|key)\b' \
+  hr_admin_panel.html backend/nginx backend/docker-compose.yml backend/Dockerfile \
+  backend/env.example backend/Makefile
+
+# Gate B: Go runtime. Endpoints, keys and env names of Supabase must not appear.
+rg -n -i '/auth/v1|/rest/v1|apikey|supabase\.co|supabase_|supabase-js|hr_go_tables' \
+  backend/cmd/api backend/internal --glob '!backend/internal/importer/**'
+```
+
+**Deliberately not scanned (and why):**
+
+| Path | Why it may name Supabase |
+|------|--------------------------|
+| `backend/cmd/import/`, `backend/internal/importer/` | The importer reads a Supabase **export** (JSON files) and says so. It never talks to Supabase. |
+| `backend/migrations/` | SQL history and comments (`0001_init.sql` is the Supabase schema, ported). |
+| `docs/`, `CHANGELOG.md`, `openspec/`, `odd/`, `backend/README.md` | Documentation and history, including this runbook and the importer procedure. |
+| `README.md`, `schema.sql` (repository root) | Legacy documentation and the original Supabase schema kept as reference. Not loaded by any runtime. |
+| `tools/` | Test harnesses. `tools/session/harness.mjs` asserts that **no** request goes to Supabase. |
+| Comments in `backend/internal/**` (outside gate B's patterns) | Historical notes such as "replaces Supabase's RLS" or "parity with the retired Edge Function". They are comments, not references. |
+
+Gate B is deliberately narrower than gate A: the bare word "Supabase" appears in Go comments that
+describe history, so only endpoints, header names, hostnames and env var names are forbidden there.
+
+**Deleting `supabase/` does not undeploy anything.** The `supabase/` directory held the source of
+the `zkteco-adms` Edge Function. Removing it from the repository does **not** remove the deployed
+function or the Supabase project: both must stay live for the 14-day stabilization window (step
+13). Recover the source with `git log --diff-filter=D -- supabase/` and
+`git show <sha>^:supabase/functions/zkteco-adms/index.ts`. The commit that introduced it is
+`4a741fa`, so `git show 4a741fa:supabase/functions/zkteco-adms/index.ts` works at any time.
 
 ---
 
