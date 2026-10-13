@@ -182,7 +182,13 @@ func (a *API) ClaimZktecoDevice(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
 		return
 	}
-	if len(bytes.TrimSpace(raw)) > 0 {
+	if trimmed := bytes.TrimSpace(raw); len(trimmed) > 0 {
+		// Only an object is a valid body: JSON null would otherwise decode into
+		// the empty struct without error.
+		if trimmed[0] != '{' {
+			writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+			return
+		}
 		dec := json.NewDecoder(bytes.NewReader(raw))
 		dec.DisallowUnknownFields()
 		if err := dec.Decode(&req); err != nil {

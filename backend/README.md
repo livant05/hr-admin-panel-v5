@@ -245,7 +245,7 @@ with the `id` filter.
 heartbeated without a company, so an admin can recognize the serial number before claiming. It takes
 `_limit`/`_offset` only. `POST /api/zkteco_devices/{id}/claim` (admin only) assigns an unclaimed device
 to the caller's company and returns a one-element array. The company always comes from the token: the
-body is optional and must be an empty object, so a `company_id` (or any key) is `400 bad_request`. The
+body is optional and must be an empty object, so a `company_id` (or any key), `null` or a non-object is `400 bad_request`; the body is capped at 1 KiB (a larger one is also `400 bad_request`). The
 claim is one `UPDATE ... WHERE id = $2 AND company_id IS NULL`, so two concurrent claims serialize on
 the row and exactly one gets `200`. A device that does not exist, belongs to another company or is
 already yours all answer `404` and the response never says who owns it.
