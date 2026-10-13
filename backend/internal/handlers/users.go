@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,6 +20,12 @@ import (
 const (
 	roleAdmin    = "admin"
 	roleEmpleado = "empleado"
+)
+
+// Values of users.status.
+const (
+	statusActive   = "active"
+	statusInactive = "inactive"
 )
 
 const (
@@ -68,7 +75,7 @@ func (a *API) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := a.Queries.ListUsers(r.Context(), db.ListUsersParams{
 		CompanyID: companyID, // $1 — from ctx, never from a query param
-		Column2:   id,
+		ID:        id,
 		Role:      optionalTextFilter(p.Filters["role"]),
 		Status:    optionalTextFilter(p.Filters["status"]),
 		Limit:     p.Limit,
@@ -210,6 +217,216 @@ func (a *API) CreateUser(w http.ResponseWriter, r *http.Request) {
 		userResponse:      userResponse(row),
 		TemporaryPassword: password,
 	}})
+}
+
+// updateUserRequest is all-optional: a nil field is left as it is. It has no
+// company_id, id, password or password_hash field, so DisallowUnknownFields
+// turns any attempt to set them into a 400. Passwords are never changed here.
+type updateUserRequest struct {
+	Email     *string `json:"email"`
+	FirstName *string `json:"first_name"`
+	LastName  *string `json:"last_name"`
+	Role      *string `json:"role"`
+	Status    *string `json:"status"`
+}
+
+// errLastActiveAdmin is returned when a change would leave a company with no
+// active admin (UM-3, UM-4).
+var errLastActiveAdmin = errors.New("company must keep at least one active admin")
+
+// userChange is a planned mutation of a locked user row: the role and status
+// the row will have afterwards (for the last-admin guard) and the write that
+// produces them. A nil write means "nothing to store".
+type userChange struct {
+	role, status string
+	write        func(q *db.Queries) (userResponse, error)
+}
+
+// changeUser runs one user mutation under the last-active-admin guard.
+//
+// Locking order is the whole point (design D6). The company's active admins
+// are locked first, in id order, and the target row second. Counting admins
+// without locks lets two requests that each demote a different admin both see
+// "two admins" and both commit; locking the target first would let the same two
+// requests wait on each other's row. With one global order, concurrent
+// requests serialize on the first admin row and the loser re-reads the
+// committed state when its lock is granted.
+func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, plan func(cur db.GetUserForUpdateRow) userChange) (userResponse, error) {
+	tx, err := a.Pool.Begin(ctx)
+	if err != nil {
+		return userResponse{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := a.Queries.WithTx(tx)
+
+	admins, err := q.LockActiveAdmins(ctx, companyID)
+	if err != nil {
+		return userResponse{}, err
+	}
+	cur, err := q.GetUserForUpdate(ctx, db.GetUserForUpdateParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		return userResponse{}, err // pgx.ErrNoRows: absent or another tenant's -> 404
+	}
+
+	change := plan(cur)
+	wasActiveAdmin := cur.Role == roleAdmin && cur.Status == statusActive
+	staysActiveAdmin := change.role == roleAdmin && change.status == statusActive
+	if wasActiveAdmin && !staysActiveAdmin && len(admins) <= 1 {
+		return userResponse{}, errLastActiveAdmin
+	}
+
+	out := userResponse(cur)
+	if change.write != nil {
+		if out, err = change.write(q); err != nil {
+			return userResponse{}, err
+		}
+	}
+	return out, tx.Commit(ctx)
+}
+
+// writeUserChangeErr maps changeUser failures: the guard is a 409 conflict,
+// everything else follows the shared database mapping.
+func (a *API) writeUserChangeErr(w http.ResponseWriter, err error, op string) {
+	if errors.Is(err, errLastActiveAdmin) {
+		writeErrCode(w, http.StatusConflict, codeConflict, errLastActiveAdmin.Error())
+		return
+	}
+	a.writeDBErr(w, err, op)
+}
+
+// PATCH /api/users/{id} — admin only. Changes name, email, role or status
+// within the caller's company; refuses any change that would leave it without
+// an active admin.
+func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
+		return
+	}
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	var req updateUserRequest
+	if !decodeAuthBody(w, r, &req) {
+		return
+	}
+
+	fields := map[string]string{}
+	var email, firstName, lastName, role, status string
+	if req.Email != nil {
+		if email = normalizeEmail(*req.Email); !plausibleEmail(email) {
+			fields["email"] = "a valid address of at most 254 characters"
+		}
+	}
+	if req.FirstName != nil {
+		if firstName = strings.TrimSpace(*req.FirstName); utf8.RuneCountInString(firstName) > maxUserName {
+			fields["first_name"] = "at most 100 characters"
+		}
+	}
+	if req.LastName != nil {
+		if lastName = strings.TrimSpace(*req.LastName); utf8.RuneCountInString(lastName) > maxUserName {
+			fields["last_name"] = "at most 100 characters"
+		}
+	}
+	if req.Status != nil {
+		if status = strings.TrimSpace(*req.Status); status != statusActive && status != statusInactive {
+			fields["status"] = "must be active or inactive"
+		}
+	}
+	if req.Role != nil {
+		role = strings.TrimSpace(*req.Role)
+		if role == "" {
+			fields["role"] = "must be admin, empleado or an existing role"
+		}
+	}
+	if len(fields) == 0 && req.Role != nil {
+		known, err := a.roleAssignable(r, companyID, role)
+		if err != nil {
+			a.writeDBErr(w, err, "validate user role")
+			return
+		}
+		if !known {
+			fields["role"] = "must be admin, empleado or an existing role"
+		}
+	}
+	if len(fields) > 0 {
+		writeFieldErr(w, fields)
+		return
+	}
+
+	row, err := a.changeUser(r.Context(), companyID, id, func(cur db.GetUserForUpdateRow) userChange {
+		p := db.UpdateUserParams{
+			CompanyID: companyID, // $1 — from ctx, never from req
+			ID:        id,
+			Email:     cur.Email,
+			Role:      cur.Role,
+			FirstName: cur.FirstName,
+			LastName:  cur.LastName,
+			Status:    cur.Status,
+		}
+		if req.Email != nil {
+			p.Email = pgtype.Text{String: email, Valid: true}
+		}
+		if req.FirstName != nil {
+			p.FirstName = optionalText(firstName)
+		}
+		if req.LastName != nil {
+			p.LastName = optionalText(lastName)
+		}
+		if req.Role != nil {
+			p.Role = role
+		}
+		if req.Status != nil {
+			p.Status = status
+		}
+		return userChange{role: p.Role, status: p.Status, write: func(q *db.Queries) (userResponse, error) {
+			updated, err := q.UpdateUser(r.Context(), p) // 23505 on lower(email) -> 409
+			return userResponse(updated), err
+		}}
+	})
+	if err != nil {
+		a.writeUserChangeErr(w, err, "update user")
+		return
+	}
+	writeRows(w, http.StatusOK, []userResponse{row})
+}
+
+// DELETE /api/users/{id} — admin only. Soft delete: the row stays with
+// status 'inactive' and can no longer log in. Deleting an already-inactive
+// user succeeds without writing; deleting the last active admin is a 409.
+func (a *API) DeleteUser(w http.ResponseWriter, r *http.Request) {
+	companyID, ok := a.tenant(w, r)
+	if !ok {
+		return
+	}
+	if !requireAdmin(w, r) {
+		return
+	}
+	id, err := stringToUUID(r.PathValue("id"))
+	if err != nil {
+		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+		return
+	}
+
+	_, err = a.changeUser(r.Context(), companyID, id, func(cur db.GetUserForUpdateRow) userChange {
+		if cur.Status == statusInactive {
+			return userChange{role: cur.Role, status: cur.Status} // idempotent: nothing to write
+		}
+		return userChange{role: cur.Role, status: statusInactive, write: func(q *db.Queries) (userResponse, error) {
+			row, err := q.DeactivateUser(r.Context(), db.DeactivateUserParams{CompanyID: companyID, ID: id})
+			return userResponse(row), err
+		}}
+	})
+	if err != nil {
+		a.writeUserChangeErr(w, err, "delete user")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // roleAssignable reports whether role may be given to a user of companyID:

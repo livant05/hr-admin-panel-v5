@@ -10,9 +10,11 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/auth"
 	"github.com/livant05/rrhh-go/internal/handlers"
@@ -133,6 +135,51 @@ func TestUsers_CrossTenantLeak(t *testing.T) {
 	t.Run("no token is 401", func(t *testing.T) {
 		if rec := testutil.Do(t, h, http.MethodGet, "/api/users", "", nil); rec.Code != http.StatusUnauthorized {
 			t.Fatalf("got %d, want 401", rec.Code)
+		}
+	})
+
+	t.Run("patch other tenant user is 404 and the row is unchanged", func(t *testing.T) {
+		before := snapshotUser(t, pool, bUserID)
+		for _, body := range []map[string]any{
+			{"role": "admin"},
+			{"status": "inactive"},
+			{"first_name": "Hijacked", "email": uniqueEmail("hijack")},
+		} {
+			rec := testutil.Do(t, h, http.MethodPatch, "/api/users/"+bUserID, ta, body)
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("patch %v: expected 404 (never 403), got %d (%s)", body, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "not_found" {
+				t.Fatalf("error.code = %q, want not_found", code)
+			}
+			assertNoHashLeak(t, rec.Body.String())
+		}
+		if after := snapshotUser(t, pool, bUserID); after != before {
+			t.Fatalf("cross-tenant patch changed the row:\nbefore %+v\nafter  %+v", before, after)
+		}
+	})
+
+	t.Run("delete other tenant user is 404 and the row is unchanged", func(t *testing.T) {
+		before := snapshotUser(t, pool, bUserID)
+		rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+bUserID, ta, nil)
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("expected 404 (never 403/204), got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if after := snapshotUser(t, pool, bUserID); after != before {
+			t.Fatalf("cross-tenant delete changed the row:\nbefore %+v\nafter  %+v", before, after)
+		}
+		if before.Status != "active" {
+			t.Fatalf("fixture must start active, got %q", before.Status)
+		}
+	})
+
+	t.Run("owner can still patch its own user", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, "/api/users/"+bUserID, tb, map[string]any{"first_name": "Renamed"})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("owner patch: got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if got := snapshotUser(t, pool, bUserID).FirstName; got != "Renamed" {
+			t.Fatalf("first_name = %q, want Renamed", got)
 		}
 	})
 }
@@ -535,4 +582,506 @@ func TestUsers_NoPasswordHashInAnyResponseBody(t *testing.T) {
 		}
 		assertNoHashLeak(t, body)
 	}
+}
+
+// userSnapshot is every column of a users row, hash included, so "unchanged"
+// means byte-identical.
+type userSnapshot struct {
+	CompanyID, Email, Role, FirstName, LastName, Status, PasswordHash, CreatedAt string
+}
+
+func snapshotUser(t *testing.T, pool *pgxpool.Pool, id string) userSnapshot {
+	t.Helper()
+	var u userSnapshot
+	err := pool.QueryRow(context.Background(),
+		`SELECT company_id::text, coalesce(email,''), role, coalesce(first_name,''), coalesce(last_name,''),
+		        status, password_hash, created_at::text
+		 FROM users WHERE id = $1`, id,
+	).Scan(&u.CompanyID, &u.Email, &u.Role, &u.FirstName, &u.LastName, &u.Status, &u.PasswordHash, &u.CreatedAt)
+	if err != nil {
+		t.Fatalf("snapshot user %s: %v", id, err)
+	}
+	return u
+}
+
+// seedUserAs inserts a user with an explicit role and status and a real
+// password hash (so login tests can use it).
+func seedUserAs(t *testing.T, pool *pgxpool.Pool, tn testutil.Tenant, role, status string) (id, email string) {
+	t.Helper()
+	id = seedLoginUser(t, pool, tn, uniqueEmail(role), "correct-horse", status)
+	if _, err := pool.Exec(context.Background(), `UPDATE users SET role = $2 WHERE id = $1`, id, role); err != nil {
+		t.Fatalf("set role: %v", err)
+	}
+	return id, snapshotUser(t, pool, id).Email
+}
+
+func countActiveAdmins(t *testing.T, pool *pgxpool.Pool, companyID string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM users WHERE company_id = $1 AND role = 'admin' AND status = 'active'`, companyID,
+	).Scan(&n); err != nil {
+		t.Fatalf("count admins: %v", err)
+	}
+	return n
+}
+
+func patchUser(t *testing.T, h http.Handler, token, id string, body any) *httptest.ResponseRecorder {
+	t.Helper()
+	return testutil.Do(t, h, http.MethodPatch, "/api/users/"+id, token, body)
+}
+
+func TestUsers_NonAdminIsForbiddenOnPatchAndDelete(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "UsersNonAdminWriteCo")
+	userID, _ := seedUserAs(t, pool, c, "empleado", "active")
+	before := snapshotUser(t, pool, userID)
+
+	for _, role := range []string{"empleado", "manager"} {
+		tok := c.TokenAs(t, signer, role)
+		calls := []struct {
+			name, method, path string
+			body               any
+		}{
+			{"patch role", http.MethodPatch, "/api/users/" + userID, map[string]any{"role": "admin"}},
+			{"patch with unknown field is still 403, not 400", http.MethodPatch, "/api/users/" + userID, map[string]any{"password": "x"}},
+			{"delete", http.MethodDelete, "/api/users/" + userID, nil},
+			{"delete unknown id is still 403, not 404", http.MethodDelete, "/api/users/" + uuid.NewString(), nil},
+		}
+		for _, call := range calls {
+			rec := testutil.Do(t, h, call.method, call.path, tok, call.body)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("%s as %s: got %d, want 403 (%s)", call.name, role, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "forbidden" {
+				t.Fatalf("%s as %s: error.code = %q, want forbidden", call.name, role, code)
+			}
+		}
+	}
+	if after := snapshotUser(t, pool, userID); after != before {
+		t.Fatalf("a forbidden write changed the row:\nbefore %+v\nafter  %+v", before, after)
+	}
+}
+
+// UM-3: a change that would leave the company with zero active admins is
+// refused with 409 and leaves the row untouched.
+func TestUsers_PatchRefusesToRemoveTheLastActiveAdmin(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "UsersLastAdminCo") // exactly one active admin: c.UserID
+	tok := c.Token(t, signer)
+
+	t.Run("demoting the only admin is 409 and unchanged", func(t *testing.T) {
+		for _, body := range []map[string]any{
+			{"role": "empleado"},
+			{"role": "empleado", "first_name": "Also renamed"},
+			{"status": "inactive"},
+			{"role": "empleado", "status": "inactive"},
+		} {
+			before := snapshotUser(t, pool, c.UserID)
+			rec := patchUser(t, h, tok, c.UserID, body)
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("patch %v: got %d, want 409 (%s)", body, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "conflict" {
+				t.Fatalf("error.code = %q, want conflict", code)
+			}
+			if after := snapshotUser(t, pool, c.UserID); after != before {
+				t.Fatalf("patch %v changed the row:\nbefore %+v\nafter  %+v", body, before, after)
+			}
+		}
+		if n := countActiveAdmins(t, pool, c.CompanyID); n != 1 {
+			t.Fatalf("active admins = %d, want 1", n)
+		}
+	})
+
+	t.Run("changes that keep the admin active are allowed", func(t *testing.T) {
+		for _, body := range []map[string]any{
+			{"first_name": "Renamed"},
+			{"role": "admin", "status": "active"},
+			{"email": uniqueEmail("renamed-admin")},
+		} {
+			if rec := patchUser(t, h, tok, c.UserID, body); rec.Code != http.StatusOK {
+				t.Fatalf("patch %v: got %d (%s)", body, rec.Code, rec.Body.String())
+			}
+		}
+	})
+
+	t.Run("an inactive admin does not count as a second admin", func(t *testing.T) {
+		seedUserAs(t, pool, c, "admin", "inactive")
+		if rec := patchUser(t, h, tok, c.UserID, map[string]any{"role": "empleado"}); rec.Code != http.StatusConflict {
+			t.Fatalf("got %d, want 409: an inactive admin cannot keep the company administered", rec.Code)
+		}
+	})
+
+	t.Run("a non-admin target is never blocked by the guard", func(t *testing.T) {
+		id, _ := seedUserAs(t, pool, c, "empleado", "active")
+		for _, body := range []map[string]any{{"status": "inactive"}, {"role": "empleado", "status": "active"}} {
+			if rec := patchUser(t, h, tok, id, body); rec.Code != http.StatusOK {
+				t.Fatalf("patch %v: got %d (%s)", body, rec.Code, rec.Body.String())
+			}
+		}
+	})
+
+	t.Run("with two active admins one can be demoted, the survivor cannot", func(t *testing.T) {
+		second, _ := seedUserAs(t, pool, c, "admin", "active")
+		if rec := patchUser(t, h, tok, second, map[string]any{"role": "empleado"}); rec.Code != http.StatusOK {
+			t.Fatalf("demote one of two admins: got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if got := testutil.DecodeRows[userRow](t, patchUser(t, h, tok, second, map[string]any{"role": "admin"}))[0].Role; got != "admin" {
+			t.Fatalf("re-promote role = %q, want admin", got)
+		}
+		if rec := patchUser(t, h, tok, c.UserID, map[string]any{"status": "inactive"}); rec.Code != http.StatusOK {
+			t.Fatalf("deactivate one of two admins: got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if rec := patchUser(t, h, tok, second, map[string]any{"status": "inactive"}); rec.Code != http.StatusConflict {
+			t.Fatalf("deactivate the survivor: got %d, want 409", rec.Code)
+		}
+		if n := countActiveAdmins(t, pool, c.CompanyID); n != 1 {
+			t.Fatalf("active admins = %d, want 1", n)
+		}
+	})
+
+	t.Run("promoting a user frees the previous admin to be demoted", func(t *testing.T) {
+		c2 := testutil.Company(t, pool, "UsersPromoteCo")
+		tok2 := c2.Token(t, signer)
+		next, _ := seedUserAs(t, pool, c2, "empleado", "active")
+		if rec := patchUser(t, h, tok2, next, map[string]any{"role": "admin"}); rec.Code != http.StatusOK {
+			t.Fatalf("promote: got %d", rec.Code)
+		}
+		if rec := patchUser(t, h, tok2, c2.UserID, map[string]any{"role": "empleado"}); rec.Code != http.StatusOK {
+			t.Fatalf("demote original admin after promotion: got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+}
+
+// The guard must hold under concurrency: two admins demoting each other at the
+// same time must never leave the company without an active admin. A COUNT
+// without row locks passes the single-request tests above and fails here.
+func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "UsersRaceCo")
+	tok := c.Token(t, signer)
+	second, _ := seedUserAs(t, pool, c, "admin", "active")
+	ids := [2]string{c.UserID, second}
+
+	bodies := []map[string]any{{"role": "empleado"}, {"status": "inactive"}}
+	const rounds = 25
+	for round := 0; round < rounds; round++ {
+		if _, err := pool.Exec(context.Background(),
+			`UPDATE users SET role = 'admin', status = 'active' WHERE id = ANY($1)`, ids[:]); err != nil {
+			t.Fatalf("reset admins: %v", err)
+		}
+
+		// Requests are built on the test goroutine; the racing goroutines only
+		// serve them and record the recorder, so no t.Fatalf / testutil.Do
+		// ever runs off the test goroutine.
+		reqs := make([]*http.Request, len(ids))
+		recs := make([]*httptest.ResponseRecorder, len(ids))
+		for i := range ids {
+			// Alternate role/status demotion so both guard paths race.
+			payload, err := json.Marshal(bodies[(round+i)%2])
+			if err != nil {
+				t.Fatalf("marshal body: %v", err)
+			}
+			reqs[i] = httptest.NewRequest(http.MethodPatch, "/api/users/"+ids[i], bytes.NewReader(payload))
+			reqs[i].Header.Set("Content-Type", "application/json")
+			reqs[i].Header.Set("Authorization", "Bearer "+tok)
+			recs[i] = httptest.NewRecorder()
+		}
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for i := range ids {
+			wg.Add(1)
+			go func(i int) {
+				defer wg.Done()
+				<-start
+				h.ServeHTTP(recs[i], reqs[i])
+			}(i)
+		}
+		close(start)
+		wg.Wait()
+		codes := make([]int, len(recs))
+		for i, rec := range recs {
+			codes[i] = rec.Code
+		}
+
+		if n := countActiveAdmins(t, pool, c.CompanyID); n < 1 {
+			t.Fatalf("round %d: company left with %d active admins (codes %v)", round, n, codes)
+		}
+		ok, conflict := 0, 0
+		for _, code := range codes {
+			switch code {
+			case http.StatusOK:
+				ok++
+			case http.StatusConflict:
+				conflict++
+			default:
+				t.Fatalf("round %d: unexpected status %v (a deadlock or server error must not escape)", round, codes)
+			}
+		}
+		if ok != 1 || conflict != 1 {
+			t.Fatalf("round %d: statuses %v, want exactly one 200 and one 409", round, codes)
+		}
+	}
+}
+
+func TestUsers_PatchValidatesAndReturnsTheUpdatedRow(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	a := testutil.Company(t, pool, "UsersPatchA")
+	b := testutil.Company(t, pool, "UsersPatchB")
+	ta, tb := a.Token(t, signer), b.Token(t, signer)
+	if rec := testutil.Do(t, h, http.MethodPost, "/api/roles", ta, map[string]any{"name": "Supervisor", "permissions": map[string]any{}}); rec.Code != http.StatusCreated {
+		t.Fatalf("seed role in A: got %d", rec.Code)
+	}
+	if rec := testutil.Do(t, h, http.MethodPost, "/api/roles", tb, map[string]any{"name": "OnlyInB", "permissions": map[string]any{}}); rec.Code != http.StatusCreated {
+		t.Fatalf("seed role in B: got %d", rec.Code)
+	}
+	id, _ := seedUserAs(t, pool, a, "empleado", "active")
+	otherID, otherEmail := seedUserAs(t, pool, a, "empleado", "active")
+
+	t.Run("updates fields, normalizes email and returns an array with the DTO", func(t *testing.T) {
+		newEmail := "  New." + uuid.NewString()[:6] + "@Corp.TEST "
+		rec := patchUser(t, h, ta, id, map[string]any{
+			"first_name": "  Luisa ", "last_name": "Gomez", "email": newEmail, "role": "Supervisor", "status": "inactive",
+		})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		assertNoHashLeak(t, rec.Body.String())
+		var arr []json.RawMessage
+		if err := json.Unmarshal(rec.Body.Bytes(), &arr); err != nil || len(arr) != 1 {
+			t.Fatalf("want a one-element array (A3), got %s", rec.Body.String())
+		}
+		assertKeys(t, arr[0], userKeys)
+		got := testutil.DecodeRows[userRow](t, rec)[0]
+		want := userRow{
+			ID: id, CompanyID: a.CompanyID, Email: strings.ToLower(strings.TrimSpace(newEmail)),
+			Role: "Supervisor", FirstName: "Luisa", LastName: "Gomez", Status: "inactive",
+		}
+		want.CreatedAt = got.CreatedAt
+		if got != want {
+			t.Fatalf("got %+v, want %+v", got, want)
+		}
+		if s := snapshotUser(t, pool, id); s.Email != want.Email || s.Role != "Supervisor" || s.Status != "inactive" {
+			t.Fatalf("not persisted: %+v", s)
+		}
+	})
+
+	t.Run("omitted fields are left alone and an empty body is a no-op", func(t *testing.T) {
+		before := snapshotUser(t, pool, otherID)
+		if rec := patchUser(t, h, ta, otherID, map[string]any{}); rec.Code != http.StatusOK {
+			t.Fatalf("empty body: got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if rec := patchUser(t, h, ta, otherID, map[string]any{"last_name": "Solo"}); rec.Code != http.StatusOK {
+			t.Fatalf("partial body: got %d", rec.Code)
+		}
+		after := snapshotUser(t, pool, otherID)
+		before.LastName = "Solo"
+		if after != before {
+			t.Fatalf("partial patch touched other columns:\nwant %+v\ngot  %+v", before, after)
+		}
+	})
+
+	t.Run("an empty name clears it and the password hash is never touched", func(t *testing.T) {
+		before := snapshotUser(t, pool, otherID)
+		if rec := patchUser(t, h, ta, otherID, map[string]any{"first_name": ""}); rec.Code != http.StatusOK {
+			t.Fatalf("got %d", rec.Code)
+		}
+		after := snapshotUser(t, pool, otherID)
+		if after.FirstName != "" || after.PasswordHash != before.PasswordHash || after.PasswordHash == "" {
+			t.Fatalf("first_name %q, hash changed=%v", after.FirstName, after.PasswordHash != before.PasswordHash)
+		}
+	})
+
+	rejected := []struct {
+		name  string
+		body  map[string]any
+		field string
+	}{
+		{"unknown role", map[string]any{"role": "superuser"}, "role"},
+		{"role that exists only in another company", map[string]any{"role": "OnlyInB"}, "role"},
+		{"role differing in case from a custom role", map[string]any{"role": "supervisor"}, "role"},
+		{"empty role", map[string]any{"role": ""}, "role"},
+		{"invalid status", map[string]any{"status": "banana"}, "status"},
+		{"empty status", map[string]any{"status": ""}, "status"},
+		{"email without @", map[string]any{"email": "not-an-email"}, "email"},
+		{"empty email", map[string]any{"email": ""}, "email"},
+		{"email over 254 chars", map[string]any{"email": strings.Repeat("a", 250) + "@x.test"}, "email"},
+		{"last_name over 100 runes", map[string]any{"last_name": strings.Repeat("ñ", 101)}, "last_name"},
+	}
+	for _, tc := range rejected {
+		t.Run("rejects "+tc.name, func(t *testing.T) {
+			before := snapshotUser(t, pool, otherID)
+			rec := patchUser(t, h, ta, otherID, tc.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("got %d, want 400 (%s)", rec.Code, rec.Body.String())
+			}
+			var env struct {
+				Error struct {
+					Code   string            `json:"code"`
+					Fields map[string]string `json:"fields"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+			if env.Error.Code != "validation_failed" || env.Error.Fields[tc.field] == "" {
+				t.Fatalf("want validation_failed with fields.%s, got %s", tc.field, rec.Body.String())
+			}
+			if after := snapshotUser(t, pool, otherID); after != before {
+				t.Fatalf("rejected patch changed the row: %+v -> %+v", before, after)
+			}
+		})
+	}
+
+	t.Run("rejects fields the client must never set", func(t *testing.T) {
+		before := snapshotUser(t, pool, otherID)
+		for _, body := range []string{
+			`{"company_id":"` + b.CompanyID + `"}`, `{"password":"hunter2hunter2"}`, `{"password_hash":"x"}`,
+			`{"id":"` + uuid.NewString() + `"}`, `{"created_at":"2020-01-01T00:00:00Z"}`,
+			`{"role":"empleado"} {"role":"admin"}`, `not json`, ``,
+		} {
+			req := httptest.NewRequest(http.MethodPatch, "/api/users/"+otherID, strings.NewReader(body))
+			req.Header.Set("Authorization", "Bearer "+ta)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("body %q: got %d, want 400 (%s)", body, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "bad_request" {
+				t.Fatalf("body %q: error.code = %q, want bad_request", body, code)
+			}
+		}
+		if after := snapshotUser(t, pool, otherID); after != before {
+			t.Fatalf("rejected patch changed the row")
+		}
+	})
+
+	t.Run("email already used is 409 in any case and company, row unchanged", func(t *testing.T) {
+		bEmail := uniqueEmail("taken-b")
+		seedLoginUser(t, pool, b, bEmail, "correct-horse", "active")
+		before := snapshotUser(t, pool, otherID)
+		idEmail := snapshotUser(t, pool, id).Email // the first subtest renamed it
+		for _, taken := range []string{idEmail, strings.ToUpper(idEmail), bEmail, strings.ToUpper(bEmail)} {
+			rec := patchUser(t, h, ta, otherID, map[string]any{"email": taken})
+			if rec.Code != http.StatusConflict {
+				t.Fatalf("email %q: got %d, want 409 (%s)", taken, rec.Code, rec.Body.String())
+			}
+			if code := testutil.ErrCode(t, rec); code != "conflict" {
+				t.Fatalf("error.code = %q, want conflict", code)
+			}
+		}
+		if after := snapshotUser(t, pool, otherID); after != before {
+			t.Fatalf("conflicting patch changed the row")
+		}
+	})
+
+	t.Run("re-sending a user's own email in another case is not a conflict", func(t *testing.T) {
+		if rec := patchUser(t, h, ta, otherID, map[string]any{"email": strings.ToUpper(otherEmail)}); rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("malformed and unknown ids are 404", func(t *testing.T) {
+		for _, bad := range []string{"not-a-uuid", uuid.NewString()} {
+			if rec := patchUser(t, h, ta, bad, map[string]any{"first_name": "x"}); rec.Code != http.StatusNotFound {
+				t.Fatalf("id %q: got %d, want 404", bad, rec.Code)
+			}
+		}
+	})
+}
+
+// UM-4: DELETE deactivates, never removes; the user can no longer log in.
+func TestUsers_DeleteIsSoftIdempotentAndBlocksLogin(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "UsersDeleteCo")
+	tok := c.Token(t, signer)
+	id, email := seedUserAs(t, pool, c, "empleado", "active")
+	bystanderID, _ := seedUserAs(t, pool, c, "empleado", "active")
+
+	if login := postLogin(t, h, email, "correct-horse"); login.Code != http.StatusOK {
+		t.Fatalf("precondition: login before delete = %d", login.Code)
+	}
+	before := snapshotUser(t, pool, id)
+	bystander := snapshotUser(t, pool, bystanderID)
+
+	rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+id, tok, nil)
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("delete: got %d body %q, want 204 with no body", rec.Code, rec.Body.String())
+	}
+	after := snapshotUser(t, pool, id)
+	if after.Status != "inactive" {
+		t.Fatalf("status = %q, want inactive (row must remain)", after.Status)
+	}
+	before.Status = "inactive"
+	if after != before {
+		t.Fatalf("soft delete changed more than status:\nwant %+v\ngot  %+v", before, after)
+	}
+	if got := snapshotUser(t, pool, bystanderID); got != bystander {
+		t.Fatalf("delete touched another user: %+v", got)
+	}
+
+	if login := postLogin(t, h, email, "correct-horse"); login.Code != http.StatusUnauthorized {
+		t.Fatalf("login after delete = %d, want 401", login.Code)
+	}
+
+	t.Run("deleted user is still readable as inactive", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodGet, "/api/users/"+id, tok, nil)
+		if rec.Code != http.StatusOK || testutil.DecodeRow[userRow](t, rec).Status != "inactive" {
+			t.Fatalf("get after delete: %d %s", rec.Code, rec.Body.String())
+		}
+	})
+
+	t.Run("deleting again is 204 and changes nothing", func(t *testing.T) {
+		for i := 0; i < 2; i++ {
+			if rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+id, tok, nil); rec.Code != http.StatusNoContent {
+				t.Fatalf("re-delete %d: got %d, want 204", i, rec.Code)
+			}
+		}
+		if got := snapshotUser(t, pool, id); got != after {
+			t.Fatalf("re-delete changed the row: %+v", got)
+		}
+	})
+
+	t.Run("malformed and unknown ids are 404", func(t *testing.T) {
+		for _, bad := range []string{"not-a-uuid", uuid.NewString()} {
+			if rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+bad, tok, nil); rec.Code != http.StatusNotFound {
+				t.Fatalf("id %q: got %d, want 404", bad, rec.Code)
+			}
+		}
+	})
+
+	t.Run("the last active admin cannot be deleted", func(t *testing.T) {
+		adminBefore := snapshotUser(t, pool, c.UserID)
+		rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+c.UserID, tok, nil)
+		if rec.Code != http.StatusConflict {
+			t.Fatalf("got %d, want 409 (%s)", rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "conflict" {
+			t.Fatalf("error.code = %q, want conflict", code)
+		}
+		if got := snapshotUser(t, pool, c.UserID); got != adminBefore {
+			t.Fatalf("refused delete changed the row")
+		}
+	})
+
+	t.Run("with a second active admin an admin can be deleted, then the survivor cannot", func(t *testing.T) {
+		second, _ := seedUserAs(t, pool, c, "admin", "active")
+		if rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+second, tok, nil); rec.Code != http.StatusNoContent {
+			t.Fatalf("delete one of two admins: got %d", rec.Code)
+		}
+		if rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+c.UserID, tok, nil); rec.Code != http.StatusConflict {
+			t.Fatalf("delete the survivor: got %d, want 409", rec.Code)
+		}
+		if n := countActiveAdmins(t, pool, c.CompanyID); n != 1 {
+			t.Fatalf("active admins = %d, want 1", n)
+		}
+	})
 }
