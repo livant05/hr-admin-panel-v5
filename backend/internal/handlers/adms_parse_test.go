@@ -204,3 +204,24 @@ func TestParseATTLOG_StopsScanningAtTheCap(t *testing.T) {
 		t.Fatalf("parsing allocated %d bytes, want under %d: the body is being split before the cap applies", got, budget)
 	}
 }
+
+// TestRejectionReasons_CoversEveryConstant keeps the exported list in step
+// with the reason constants (the migration test reads its reasons from it).
+func TestRejectionReasons_CoversEveryConstant(t *testing.T) {
+	got := map[string]bool{}
+	for _, r := range RejectionReasons() {
+		if got[r] {
+			t.Errorf("reason %q listed twice", r)
+		}
+		got[r] = true
+	}
+	want := []string{reasonDeviceUnclaimed, reasonNotFound, reasonTenantMismatch, reasonAmbiguous, reasonNoCheckin, reasonMalformed, reasonUnsupportedCode}
+	for _, r := range want {
+		if !got[r] {
+			t.Errorf("reason %q missing from RejectionReasons()", r)
+		}
+	}
+	if len(got) != len(want) {
+		t.Errorf("RejectionReasons() has %d entries, want %d", len(got), len(want))
+	}
+}

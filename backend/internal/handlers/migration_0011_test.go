@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/livant05/rrhh-go/internal/handlers"
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
 
@@ -88,13 +89,19 @@ func TestMigration0011_RejectionsTableShape(t *testing.T) {
 	}
 }
 
-// TestMigration0011_ReasonCheck pins the closed reason set: every documented
-// reason inserts; anything else violates the CHECK (SQLSTATE 23514).
+// TestMigration0011_ReasonCheck pins the closed reason set: every reason the
+// code can persist (handlers.RejectionReasons) inserts; anything else violates the CHECK (SQLSTATE 23514).
 func TestMigration0011_ReasonCheck(t *testing.T) {
 	pool, _ := testutil.IsolatedSchema(t)
 	ctx := context.Background()
 
-	for _, reason := range []string{"device_unclaimed", "not_found", "tenant_mismatch", "ambiguous", "no_checkin", "malformed", "unsupported_code"} {
+	// The reasons come from the Go constants, so a reason added to the code
+	// without a matching CHECK change fails here instead of at runtime.
+	reasons := handlers.RejectionReasons()
+	if len(reasons) == 0 {
+		t.Fatal("handlers.RejectionReasons() is empty: nothing would be checked")
+	}
+	for _, reason := range reasons {
 		if _, err := pool.Exec(ctx,
 			`INSERT INTO zkteco_ingest_rejections (serial_number, reason) VALUES ('SN1', $1)`, reason); err != nil {
 			t.Errorf("reason %q rejected: %v", reason, err)

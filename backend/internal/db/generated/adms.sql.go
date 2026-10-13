@@ -183,6 +183,11 @@ func (q *Queries) ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmplo
 }
 
 const upsertDeviceHeartbeat = `-- name: UpsertDeviceHeartbeat :one
+/*
+ * ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+ * idempotency guarantees below are binding). These queries are deliberately
+ * separate from UpsertAttendanceLog, which overwrites time_out.
+ */
 
 INSERT INTO zkteco_devices (serial_number, status, last_seen)
 VALUES ($1, 'online', now())
@@ -196,9 +201,6 @@ type UpsertDeviceHeartbeatRow struct {
 	CompanyID pgtype.UUID `json:"company_id"`
 }
 
-// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
-// idempotency guarantees below are binding). These queries are deliberately
-// separate from UpsertAttendanceLog, which overwrites time_out.
 // Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 // and refreshes a known one. company_id is NEVER part of the SET list, so a
 // heartbeat can not change ownership.

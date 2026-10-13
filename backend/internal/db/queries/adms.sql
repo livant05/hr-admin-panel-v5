@@ -1,6 +1,8 @@
--- ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
--- idempotency guarantees below are binding). These queries are deliberately
--- separate from UpsertAttendanceLog, which overwrites time_out.
+/*
+ * ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+ * idempotency guarantees below are binding). These queries are deliberately
+ * separate from UpsertAttendanceLog, which overwrites time_out.
+ */
 
 -- name: UpsertDeviceHeartbeat :one
 -- Self-registers an unknown serial into the unclaimed pool (company_id NULL)

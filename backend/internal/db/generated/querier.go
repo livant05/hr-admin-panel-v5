@@ -517,9 +517,6 @@ type Querier interface {
 	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
-	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
-	// idempotency guarantees below are binding). These queries are deliberately
-	// separate from UpsertAttendanceLog, which overwrites time_out.
 	// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
 	// and refreshes a known one. company_id is NEVER part of the SET list, so a
 	// heartbeat can not change ownership.

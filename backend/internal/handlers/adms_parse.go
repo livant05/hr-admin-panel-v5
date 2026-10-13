@@ -20,6 +20,11 @@ import (
 const (
 	reasonDeviceUnclaimed = "device_unclaimed"
 	reasonNotFound        = "not_found"
+	// reasonTenantMismatch stays allowed by the CHECK constraint but is never
+	// persisted: a cedula that exists only in another company is stored exactly
+	// like reasonNotFound (CO-S5a-1), so counters visible to a tenant never
+	// reveal that a cedula exists elsewhere. The distinction lives only in a
+	// server log line.
 	reasonTenantMismatch  = "tenant_mismatch"
 	reasonAmbiguous       = "ambiguous"
 	reasonNoCheckin       = "no_checkin"
@@ -27,12 +32,33 @@ const (
 	reasonUnsupportedCode = "unsupported_code"
 )
 
+// rejectionReasons is the closed set of reason values, in a stable order.
+var rejectionReasons = []string{
+	reasonDeviceUnclaimed, reasonNotFound, reasonTenantMismatch, reasonAmbiguous,
+	reasonNoCheckin, reasonMalformed, reasonUnsupportedCode,
+}
+
+// RejectionReasons returns the reasons a rejection counter can carry. It is
+// exported so the migration test can check the CHECK constraint against the Go
+// constants instead of repeating the list by hand.
+func RejectionReasons() []string {
+	return append([]string(nil), rejectionReasons...)
+}
+
+// Request limits (design D11, PROVISIONAL until a real-device check). They are
+// sized together: a legitimate device pushes the punches recorded since its
+// last acknowledgement, normally a handful of lines and a few thousand after a
+// long outage. A line is about 40-60 bytes, so maxATTLOGLines lines are well
+// under the 2 MiB body cap enforced by the HTTP handler; the byte cap is the
+// outer bound, the line cap keeps per-request database work bounded.
 const (
 	// maxATTLOGLines caps the non-empty lines accepted in one request.
 	maxATTLOGLines = 10000
 	// maxPINLength is the longest accepted employee PIN (cedula), in BYTES:
 	// cedulas are ASCII, so a multibyte PIN is short on characters but long on
-	// bytes on purpose. It also bounds the pin persisted as last_pin.
+	// bytes on purpose. The value leaves margin over the longest cedula
+	// formats in use (a dashed Panamanian cedula is about 9-13 bytes). It also
+	// bounds the pin persisted as last_pin.
 	maxPINLength = 32
 	// attlogMinFields is the minimum tab-separated field count of a line.
 	attlogMinFields = 4
