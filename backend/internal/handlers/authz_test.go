@@ -300,3 +300,56 @@ func TestAuthz_PermissionGrantedMissingRoleFailsClosed(t *testing.T) {
 		t.Fatalf("expected a lookup error to fail closed, got granted")
 	}
 }
+
+// requireAdminResult drives a.requireAdmin through a real
+// signer.Middleware-wrapped mux, exactly as a production route would.
+func requireAdminResult(t *testing.T, signer *auth.Signer, role string) *httptest.ResponseRecorder {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /test", func(w http.ResponseWriter, r *http.Request) {
+		if requireAdmin(w, r) {
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+	tok, err := signer.Sign("user-1", "11111111-1111-1111-1111-111111111111", role)
+	if err != nil {
+		t.Fatalf("sign token: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/test", nil)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	rec := httptest.NewRecorder()
+	signer.Middleware(mux).ServeHTTP(rec, req)
+	return rec
+}
+
+// TestRequireAdmin pins design D5: only the JWT role "admin" passes, every
+// other role (including one that holds a permissions row) gets the A2 403
+// envelope before any data access. No database is involved (Queries is nil).
+func TestRequireAdmin(t *testing.T) {
+	signer := auth.NewSigner(authzTestSecret, time.Hour)
+
+	t.Run("admin passes", func(t *testing.T) {
+		rec := requireAdminResult(t, signer, "admin")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("admin must pass, got %d (body=%s)", rec.Code, rec.Body.String())
+		}
+	})
+
+	for _, role := range []string{"empleado", "manager", "Admin", "administrator", ""} {
+		t.Run("role "+role+" is forbidden", func(t *testing.T) {
+			rec := requireAdminResult(t, signer, role)
+			if rec.Code != http.StatusForbidden {
+				t.Fatalf("role %q: got %d, want 403", role, rec.Code)
+			}
+			if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+				t.Fatalf("Content-Type = %q, want application/json", ct)
+			}
+			var env struct {
+				Error struct{ Code string } `json:"error"`
+			}
+			if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil || env.Error.Code != "forbidden" {
+				t.Fatalf("body = %s, want error.code=forbidden (err=%v)", rec.Body.String(), err)
+			}
+		})
+	}
+}
