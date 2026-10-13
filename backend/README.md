@@ -261,6 +261,50 @@ unclaimed devices are never returned). Since migration `0012` a pin is unique pe
 so the same PIN on two companies' devices is two rows. Filter `resolved` (`true` or `false`; an empty or other value is
 `400 validation_failed`), `_limit`/`_offset`, newest `last_seen` first. It is read-only.
 
+## ZKTeco ADMS device endpoints (PROVISIONAL, gated by OPS-1)
+
+> **Provisional.** The paths, response bodies, option text, the `/iclock/devicecmd` route and the
+> 600 requests/minute limit mirror the retired Supabase Edge Function and have not been checked against a
+> real device. They are gated by OPS-1 (real-device check): do not repoint production devices to the Go
+> server before it. What is binding is the behavior below, not the wire format.
+
+Devices push to `http://<host>/iclock/...` with no JWT. The routes live on the outer mux, outside `/api/`,
+so they do not change the auth of any `/api/*` route. nginx routes `/iclock/` to the backend
+(`client_max_body_size 2m`).
+
+| Request | Reply |
+|---|---|
+| `GET /iclock/cdata?SN=<serial>&options=all` | `200` option text (`GET OPTION ...`); heartbeat |
+| `GET /iclock/getrequest?SN=<serial>` | `200 OK`; heartbeat (no command is ever pending) |
+| `POST /iclock/cdata?SN=<serial>&table=ATTLOG` | `200 OK: <n>` with `n` = punches recorded |
+| `POST /iclock/cdata?SN=<serial>&table=<anything else>` | `200 OK`, nothing processed |
+| `POST /iclock/devicecmd?SN=<serial>` | `200 OK`, nothing written |
+
+- `SN` (or `sn`) must match `^[A-Za-z0-9_-]{1,64}$`, otherwise `400` and nothing is written. An unknown
+  serial self-registers as an unclaimed device (`company_id` NULL, online); a heartbeat never changes
+  `company_id`. An admin claims the device (`POST /api/zkteco_devices/{id}/claim`).
+- Attendance is written only for **claimed** devices, and the PIN is resolved against the employees of the
+  device's company only. A punch from an unclaimed device is counted `device_unclaimed` and answered
+  `OK: 0`, so the device does not retry it forever.
+- Check-in (codes 0/4) keeps the earliest time and never clears `time_out`; check-out (1/5) keeps the
+  latest time and needs an existing check-in (`no_checkin` otherwise). Check-ins of a batch are applied
+  before its check-outs, so line order does not matter, and re-pushing a batch is idempotent.
+- Rejected punches are counted per `(serial_number, reason)` in `zkteco_ingest_rejections` (operator SQL
+  only, no API yet). Reasons: `device_unclaimed`, `not_found`, `ambiguous`, `no_checkin`, `malformed`,
+  `unsupported_code`. A cedula that exists only in another company is stored exactly like `not_found`
+  (counter and unknown PIN), so nothing tenant-visible reveals that it exists elsewhere; only the
+  `adms_batch` server log line carries a `tenant_mismatch` count, never a PIN or cedula. This deviates
+  from the original spec text, which stored `tenant_mismatch` (decision CO-S5a-1).
+- Unresolved PINs are upserted per `(serial_number, pin)` with `attempts + 1`.
+- Limits (error replies use the JSON error envelope; devices read only the status): body over 2 MiB or
+  more than 10,000 non-empty lines is `413` with no writes at all (not even the heartbeat); the per-client
+  rate limit (`ADMS_RATE_PER_MIN`, default 600, keyed on the client IP behind a trusted proxy) answers `429`
+  with `Retry-After`. Devices behind one customer NAT share one bucket.
+- Every database write of one POST happens in one transaction; a database error rolls the whole request
+  back and answers `500`, so the device retries and idempotency makes the retry safe.
+- Existing volumes do not run new migrations: apply `0011` and `0012` by hand with
+  `psql -v ON_ERROR_STOP=1 -f migrations/<file>` before using these endpoints.
+
 ## Attendance: created_after and ordering
 
 `GET /api/attendance_logs` also takes `created_after=<RFC 3339 timestamp>` and returns only rows whose

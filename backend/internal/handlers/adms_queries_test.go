@@ -60,6 +60,7 @@ func admsSerial(t *testing.T, pool *pgxpool.Pool) string {
 		ctx := context.Background()
 		_, _ = pool.Exec(ctx, `DELETE FROM zkteco_devices WHERE serial_number = $1`, sn)
 		_, _ = pool.Exec(ctx, `DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1`, sn)
+		_, _ = pool.Exec(ctx, `DELETE FROM zkteco_unknown_pins WHERE serial_number = $1`, sn)
 	})
 	return sn
 }
