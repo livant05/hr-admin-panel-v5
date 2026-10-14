@@ -73,7 +73,7 @@ function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updRe
   el('att-date').value = '2026-10-14';
   el('att-in').value = '08:00'; el('att-out').value = '17:00'; el('att-st').value = 'present';
   // date_from/date_to behave like the API (inclusive range); every other key is an exact match
-  const pick = (rows, flt) => rows.filter((r) => Object.entries(flt || {}).every(([k, v]) =>
+  const pick = (rows, flt) => !Array.isArray(rows) ? rows : rows.filter((r) => Object.entries(flt || {}).every(([k, v]) =>
     k === 'date_from' ? r.date >= v : k === 'date_to' ? r.date <= v : r[k] === v));
   const sandbox = {
     A: { companyId: 'c1', demo },
@@ -217,6 +217,18 @@ test('monthly export with no logs that month warns and downloads nothing', async
   await e.run('exportAttReport()');
   assert.equal(e.downloads.length, 0);
   assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+test('monthly report and export show a failed read as an error, not as an empty month', async () => {
+  const fail = { error: { code: 'internal', message: 'internal error' } };
+  const e = makeEnv({ logs: fail, emps: EMPS });
+  e.el('att-r-month').value = '10'; e.el('att-r-year').value = '2026';
+  await e.run('exportAttReport()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts.map((t) => t.type), ['danger']);
+  assert.match(e.toasts[0].msg, /error interno del servidor/);
+  await e.run('loadAttReport()');
+  assert.match(e.el('att-rep-content').innerHTML, /No se pudo cargar la asistencia del mes: error interno del servidor/);
 });
 
 let failed = 0;

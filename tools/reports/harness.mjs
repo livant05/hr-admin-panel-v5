@@ -61,6 +61,7 @@ const srcs = [
   extractMaybeAsync(html, 'function exportAllCSV('),
   optional('function csvCell('),
   optional('function csvText('),
+  extractFunction(html, 'function apiErrMsg('),
   extractFunction(html, 'function hwCalc('),
 ].join('\n');
 
@@ -79,7 +80,7 @@ const OTS = [
   { id: 'o3', company_id: 'c1', employee_id: 'e2', employee_name: 'Luis Gomez', date: '2026-10-01', hours: 3, amount: 30 },
 ];
 
-function makeEnv({ bals = BALS, ots = OTS, atts = [], emps = [], type = 'vac' } = {}) {
+function makeEnv({ bals = BALS, ots = OTS, atts = [], emps = [], type = 'vac', fail = false } = {}) {
   const queries = [];
   const charts = [], toasts = [], downloads = [];
   const els = {};
@@ -89,6 +90,7 @@ function makeEnv({ bals = BALS, ots = OTS, atts = [], emps = [], type = 'vac' } 
     A: { companyId: 'c1', demo: false },
     DS: { leave_balances: [], overtime_logs: [], attendance_logs: [], employees: [] },
     TS: '2026-10-14',
+    API_FIELD_ES: {}, API_CONFLICT_ES: {},
     escHtml, fmt,
     daysTo: () => null,
     renderRptChart: (labels, data, label) => charts.push({ labels, data, label }),
@@ -97,7 +99,7 @@ function makeEnv({ bals = BALS, ots = OTS, atts = [], emps = [], type = 'vac' } 
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
       sel: async (tbl, flt) => { queries.push({ tbl, flt }); const rows = { employees: emps, leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
-      selAll: async (tbl, flt) => { queries.push({ tbl, flt }); const rows = { employees: emps, leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
+      selAll: async (tbl, flt) => { queries.push({ tbl, flt }); if (fail) return { error: { code: 'internal', message: 'internal error' } }; const rows = { employees: emps, leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
     },
     document: { getElementById: el },
   };
@@ -240,6 +242,17 @@ test('CSV exports neutralize text cells that a spreadsheet would run as a formul
   const lines = e.downloads[0].csv.split('\n');
   assert.equal(lines[1], '"\'=HYPERLINK(""http://evil"",""x"")","2026-10-02","1","regular","10","\'+cmd"');
   assert.equal(lines[2], '"\'@SUM(A1)","2026-10-03","2","regular","-5","\'-nota"', 'a numeric -5 stays a number; text starting with - is neutralized');
+});
+
+test('exports report a failed read as an error, never as "Sin datos"', async () => {
+  for (const fn of ['exportOTCSV', 'exportAttCSV', 'exportAllCSV']) {
+    const e = makeEnv({ fail: true });
+    await e.run(fn + '()');
+    assert.equal(e.downloads.length, 0, fn);
+    assert.equal(e.toasts.length, 1, fn);
+    assert.equal(e.toasts[0].type, 'danger', fn);
+    assert.match(e.toasts[0].msg, /error interno del servidor/, fn);
+  }
 });
 
 let failed = 0;

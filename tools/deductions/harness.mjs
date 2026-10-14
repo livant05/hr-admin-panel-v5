@@ -73,7 +73,7 @@ function makeEnv({ deds = API_DEDS, bals = API_BALS, insResult = null, updResult
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '', innerHTML: '', style: { display: 'none' }, classList: { add() {} } });
   el('liq-emp').value = 'e1';
-  const pick = (rows, flt) => rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v));
+  const pick = (rows, flt) => !Array.isArray(rows) ? rows : rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v));
   const sandbox = {
     A: { companyId: 'c1', demo: false },
     DS: { deductions: [], leave_balances: [] },
@@ -215,6 +215,14 @@ test('loadLiqEmp hides the installments box when the employee has none (unchange
   const e = makeEnv({ deds: [] });
   await e.run('loadLiqEmp()');
   assert.equal(e.el('liq-ded-wrap').style.display, 'none');
+});
+
+test('renderDedTable shows a failed read as an error, not as "Sin deducciones"', async () => {
+  const e = makeEnv({ deds: { error: { code: 'internal', message: 'internal error' } } });
+  await e.run('renderDedTable()');
+  const tb = e.el('ded-tbody').innerHTML;
+  assert.doesNotMatch(tb, /Sin deducciones/);
+  assert.match(tb, /No se pudieron cargar las deducciones: error interno del servidor/);
 });
 
 let failed = 0;

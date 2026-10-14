@@ -264,6 +264,16 @@ test('demo mode: Supa.sel exact-match filters and company scoping are unchanged'
   assert.deepEqual(ids(e.sandbox.__r), [], 'other companies stay out');
 });
 
+test('exportVacCSV (real mode) reports a failed read as an error, never as "Sin datos"', async () => {
+  const e = makeEnv();
+  e.respondWith(async () => res(500, { error: { code: 'internal', message: 'internal error' } }));
+  await e.run('exportVacCSV()');
+  assert.equal(e.downloads.length, 0);
+  assert.equal(e.toasts.length, 1);
+  assert.equal(e.toasts[0].type, 'danger');
+  assert.match(e.toasts[0].msg, /error interno del servidor/);
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try { await fn(); console.log('ok   ' + name); }

@@ -2921,11 +2921,13 @@ function initAttRepSelectors() {
 async function attMonthLogs(mo, yr) {
   var ym=yr+'-'+(mo<10?'0':'')+mo, last=new Date(yr,mo,0).getDate();
   var res=await Supa.selAll('attendance_logs',{date_from:ym+'-01',date_to:ym+'-'+last});
+  if(res&&res.error) return res; // callers show the failure instead of an empty month
   return (Array.isArray(res)?res:[]).filter(function(l){ return String(l.date||'').slice(0,7)===ym; });
 }
 async function loadAttReport() {
   var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
   var logs=await attMonthLogs(mo,yr);
+  if(logs.error){ var rcE=document.getElementById('att-rep-content'); if(rcE) rcE.innerHTML='<div class="col-12"><div class="alert alert-danger py-2 mb-3">'+escHtml(apiErrMsg(logs.error,'No se pudo cargar la asistencia del mes'))+'</div></div>'; return; }
   var empRes=await Supa.selAll('employees',{status:'active'});
   var byEmp={};
   (Array.isArray(empRes)?empRes:[]).filter(function(e){ return e.status==='active'; }).forEach(function(e){
@@ -2938,6 +2940,7 @@ async function loadAttReport() {
 async function exportAttCSV() {
   // Today's logs from the API (DS is empty outside demo mode; Supa reads DS itself in demo)
   var logs=await Supa.selAll('attendance_logs',{date:TS});
+  if(logs&&logs.error){ toast(apiErrMsg(logs.error,'No se pudo exportar'),'danger'); return; }
   if(!Array.isArray(logs)||!logs.length){ toast('Sin datos','warning'); return; }
   var csv=csvText([['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })));
   downCSV(csv,'asistencia.csv'); toast('Exportado 📥');
@@ -2945,6 +2948,7 @@ async function exportAttCSV() {
 async function exportAttReport() {
   var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
   var logs=await attMonthLogs(mo,yr);
+  if(logs.error){ toast(apiErrMsg(logs.error,'No se pudo exportar'),'danger'); return; }
   if(!logs.length){ toast('Sin datos','warning'); return; }
   var csv=csvText([['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })));
   downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥');
@@ -3062,6 +3066,7 @@ function fullCalcVac() { var s=gv('vc-sdate'), e=gv('vc-edate'), used=parseInt(g
 async function exportVacCSV() {
   // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
   var rows=await Supa.selAll('leave_balances');
+  if(rows&&rows.error){ toast(apiErrMsg(rows.error,'No se pudo exportar'),'danger'); return; }
   if(!Array.isArray(rows)||!rows.length){ toast('Sin datos','warning'); return; }
   var csv=csvText([['Empleado','Año','Ganados','Usados','Saldo']].concat(rows.map(function(b){ return [b.employee_name,b.year,b.earned_days,b.used_days,b.remaining_days]; })));
   downCSV(csv,'vacaciones.csv'); toast('Exportado 📥');
@@ -3657,6 +3662,7 @@ async function delOT(id) {
 async function exportOTCSV() {
   // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
   var logs=await Supa.selAll('overtime_logs');
+  if(logs&&logs.error){ toast(apiErrMsg(logs.error,'No se pudo exportar'),'danger'); return; }
   if(!Array.isArray(logs)||!logs.length){ toast('Sin datos','warning'); return; }
   var csv=csvText([['Empleado','Fecha','Horas','Tipo','Valor','Notas']].concat(logs.map(function(l){ return [l.employee_name,l.date,l.hours,l.type,l.amount,l.notes]; })));
   downCSV(csv,'horas_extras.csv'); toast('Exportado 📥');
@@ -3716,6 +3722,9 @@ async function renderDedTable() {
   // From the API: outside demo mode DS.deductions is emptied at sign-in and
   // never refilled (Supa reads DS itself in demo mode)
   var res=await Supa.selAll('deductions');
+  var tb0=document.getElementById('ded-tbody');
+  // A failed read must not look like "no deductions": that would invite re-registering them
+  if(res&&res.error){ if(tb0) tb0.innerHTML='<tr><td colspan="10" class="text-center p-3 text-danger">'+escHtml(apiErrMsg(res.error,'No se pudieron cargar las deducciones'))+'</td></tr>'; return; }
   // DELETE is a soft delete (status 'cancelled'): those rows are gone for the user
   var deds=(Array.isArray(res)?res:[]).filter(function(d){ return d.status!=='cancelled'; });
   var tb=document.getElementById('ded-tbody');
@@ -4806,6 +4815,7 @@ async function exportAllCSV(){
   // From the API (DS.employees is never filled outside demo mode; Supa reads DS itself in demo).
   // Fields the server redacts for the caller's role arrive as null and export empty.
   var emps=await Supa.selAll('employees');
+  if(emps&&emps.error){ toast(apiErrMsg(emps.error,'No se pudo exportar'),'danger'); return; }
   if(!Array.isArray(emps)||!emps.length){ toast('Sin datos','warning'); return; }
   var hdr=['Nombre','Apellido','Cédula','Cargo','Departamento','Salario','Ingreso','Estado','Email','Teléfono','Contrato','SS'];
   var csv=csvText([hdr].concat(emps.map(function(e){ return [e.first_name,e.last_name,e.cedula,e.position,e.department,e.salary,e.start_date,e.status,e.email,e.phone,e.contract_type,e.ss_number]; })));
