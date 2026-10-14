@@ -42,7 +42,7 @@ Known consequence: cross-module widgets (dashboard "presentes hoy", "resumen pla
 ## Tasks
 - [x] T1 — route-level permission gate: wrapper usable in `routes.go` (`a.perm(key, h)` / any-of variant), apply the map above to every protected route except employees reads; a route-table test that fails if a protected route has no classification (gated / open-by-design / admin). Table-driven tests: non-admin without key -> 403, with key -> not 403, admin -> not 403, for each module. (route: delegated writer; trigger: 2+ non-trivial files + preparation reading)
 - [x] T2 — employees read redaction for roles without `employees`/`payroll` (list and get), tests for redacted vs full vs admin. (route: delegated writer, same worker context)
-- [ ] T3 — README authz section updated with the map; full suite + `go vet`. (route: inline with T2 writer)
+- [x] T3 — README authz section updated with the map; full suite + `go vet`. (route: inline with T2 writer)
 
 ## Acceptance criteria
 - Every protected route is classified; the classification test fails on an unclassified new route.
@@ -67,5 +67,9 @@ Forecast ~550-700 authored lines (mostly tests). Strategy: `ask-on-risk` (defaul
 - RED: `TestEmployees_ReadRedactsSensitiveFields/list_redacts...` and `/get_redacts...` failed, e.g. `list as nokey: salary = 1500.00, want null`, `cedula = "8-123-456", want null` (all 8 fields, roles nokey/empfalse/ghost); the "shows everything" subtests passed on the base as expected.
 - GREEN: all 4 subtests pass; full suite `go test ./... -count=1` ok, `go vet` clean.
 
+### T2 hash: a279676. T3 (commit subject: `docs(api): document server-side module permissions`)
+- README: new "Module permissions (server-side)" section with the route map and employees redaction; recruitment sections no longer say "any authenticated role".
+- Verification: `go build ./... && go vet ./...` clean; `go test ./... -count=1` all packages ok (see final report).
+
 ## Next step
-T3.
+User review; push / PR is the user's decision.

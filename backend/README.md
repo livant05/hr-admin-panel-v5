@@ -153,6 +153,43 @@ and the middleware does not re-check the user's row on each request (design D17)
 alone does not end the current session within the day. A cache-backed per-request status check in
 the auth middleware is the follow-up if this window becomes unacceptable.
 
+## Module permissions (server-side)
+
+The frontend hides modules a role cannot use; the API enforces the same keys from `roles.permissions`
+(`routes.go`, `protectedRoutes`). The JWT role `admin` always passes. Any other role needs a truthy
+module key (a module whose sub-keys are all off is denied); a missing role row or key is
+`403 forbidden`, fail-closed. The gate runs before the handler, so a denied caller learns nothing
+from validation errors. Every protected route carries a classification and
+`TestRoutes_EveryProtectedRouteIsClassified` fails when a route is added without one.
+
+| Resource | Read | Write |
+|---|---|---|
+| `me`, `companies`, `roles` | any authenticated | `roles` writes: admin (in handler) |
+| `departments`, `positions`, `branches` | any authenticated | `settings` |
+| `users`, `zkteco_devices` claim/unclaimed, `zkteco_unknown_pins` | admin (in handler) | admin (in handler) |
+| `zkteco_devices` list / rename | any authenticated | any authenticated |
+| `employees` | any authenticated, sensitive fields redacted (below) | `employees` |
+| `evaluations`, `uniforms` | `employees` | `employees` |
+| `attendance_logs` | `attendance` | `attendance` |
+| `leave_balances`, `leave_requests` | `vacations` | `vacations` |
+| `medical_records` | `medical` (in handler) | `medical` (in handler) |
+| `overtime_logs` | `overtime` | `overtime` |
+| `deductions` | `deductions` | `deductions` |
+| `payroll_history` (incl. `calculate`) | `payroll` | `payroll` |
+| `liquidation_history` (incl. `calculate`) | `liquidation` | `liquidation` |
+| `employee_pay_records` (incl. `bases`) | `payroll` or `liquidation` | `liquidation` |
+| `document_templates`, `generated_documents` | `documents` | `documents` |
+| `job_postings`, `candidates`, `applications` | `recruitment` | `recruitment` |
+
+**Employees redaction.** `GET /api/employees` and `GET /api/employees/{id}` stay open so the
+directory and birthday calendar keep working, but for a role holding neither `employees` nor
+`payroll` the response returns JSON `null` for `salary`, `hourly_rate`, `cedula`, `ss_number`,
+`address`, `emergency_contact`, `emergency_phone` and `emergency_relation`. `phone` and
+`birth_date` stay visible. Admin and permitted roles see every field.
+
+Cross-module widgets (dashboard attendance today, payroll summary, notifications) come back empty
+for roles without that module; the frontend already treats a failed load as empty.
+
 ## Companies (own company, read only)
 
 `GET /api/companies` returns a one-element array with the caller's own company and
@@ -161,7 +198,7 @@ is `404` on the by-id route and `[]` as a list filter. There are no write routes
 
 ## Recruitment: job postings
 
-`/api/job_postings` is tenant-scoped and open to any authenticated role. `GET` lists (filters `id`,
+`/api/job_postings` is tenant-scoped and requires the `recruitment` permission. `GET` lists (filters `id`,
 `status`; `_limit`/`_offset`; any other parameter, including `_order`, an empty or unknown `status` is `400 validation_failed`),
 `GET /{id}` returns one posting (another company's id is `404`), and `POST` creates one and returns a
 one-element array. Body fields: `title` (required, trimmed, at most 200 characters), `department`,
@@ -183,8 +220,8 @@ DELETE, but it never blocks an application insert.
 
 ## Recruitment: candidates
 
-`/api/candidates` follows the same rules as job postings: tenant-scoped, open to any authenticated
-role, `GET` lists (filter `id`; `_limit`/`_offset`; any other parameter is `400 validation_failed`),
+`/api/candidates` follows the same rules as job postings: tenant-scoped, requires the `recruitment`
+permission, `GET` lists (filter `id`; `_limit`/`_offset`; any other parameter is `400 validation_failed`),
 `GET /{id}` returns one candidate (another company's id is `404`) and `POST` creates one and returns a
 one-element array. Body fields: `full_name` (required, trimmed, at most 200 characters), `email`,
 `phone`, `nationality` (absent or `null` stores the default `Panameña`; a blank string is kept as
@@ -202,7 +239,7 @@ but never blocked by a patch.
 
 ## Recruitment: applications
 
-`/api/applications` is tenant-scoped and open to any authenticated role. `GET` lists (filters `id`,
+`/api/applications` is tenant-scoped and requires the `recruitment` permission. `GET` lists (filters `id`,
 `job_posting_id`, `candidate_id`, `stage`; `_limit`/`_offset`; any other parameter, a malformed uuid or
 an empty or unknown stage is `400 validation_failed` with `fields.stage`), `GET /{id}` returns one application (another company's id
 is `404`) and `POST` creates one and returns a one-element array. Body fields: `job_posting_id` and
