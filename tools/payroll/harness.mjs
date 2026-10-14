@@ -214,14 +214,15 @@ test('savePayrollRun: a double click sends ONE request and the button is disable
   assert.equal(e.toasts.filter((t) => t.type === 'danger').length, 0);
 });
 
-test('savePayrollRun: server 409 -> danger toast with the server message, no success toast, button re-enabled', async () => {
+test('savePayrollRun: server 409 -> Spanish danger toast (not the English server text), no success toast, button re-enabled', async () => {
   const e = makeEnv();
   e.run("_prRows = [{b:100,isr:1,net:90,tot:110}]");
   e.ctl.insResult = async () => ({ error: { code: 'conflict', message: 'this month already has payroll in a different period type' } });
   await e.run('savePayrollRun()');
   assert.equal(e.toasts.length, 1);
   assert.equal(e.toasts[0].type, 'danger');
-  assert.match(e.toasts[0].msg, /different period type/);
+  assert.match(e.toasts[0].msg, /Este mes ya tiene planilla/);
+  assert.doesNotMatch(e.toasts[0].msg, /different period type/);
   assert.equal(e.el('pr-save-btn').disabled, false);
   // and a later click works again
   e.ctl.insResult = async () => [{ id: 'h2' }];

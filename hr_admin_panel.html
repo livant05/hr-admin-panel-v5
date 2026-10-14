@@ -3272,7 +3272,7 @@ async function savePayrollRun() {
     // and, in the same transaction, upserts one employee_pay_records row per
     // active employee (origin='run') for this period.
     var r=await Supa.ins('payroll_history',{period:period,month:mo,year:yr,month_name:MONTHS[mo-1],employee_count:_prRows.length,total_bruto:sums.b,total_isr:sums.isr,total_neto:sums.net,total_empresa:sums.tot});
-    if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la planilla'),'danger'); return; }
+    if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la planilla',{conflict:function(){ return 'Este mes ya tiene planilla con otro tipo de período (mensual o quincenas). Eliminá esa corrida y sus registros antes de volver a correrla.'; }}),'danger'); return; }
     toast('Guardado en historial — también se registraron los períodos de cada empleado en el historial de planilla'); loadPayrollHistory();
   } finally {
     _prSaving=false;
