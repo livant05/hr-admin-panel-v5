@@ -49,6 +49,12 @@ function between(startMarker, endMarker) {
   return html.slice(s, e);
 }
 
+// exportVacCSV may or may not be declared async; keep the keyword if present.
+function extractMaybeAsync(src, header) {
+  const fn = extractFunction(src, header);
+  const at = src.indexOf(header);
+  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
+}
 const supaSrc = between('var Supa = {', '\n};\n') + '\n};\n';
 const fieldsSrc = between('var API_FIELD_ES=', '};') + '};';
 const srcs = [
@@ -57,6 +63,7 @@ const srcs = [
   extractFunction(html, 'function apiErrMsg('),
   extractFunction(html, 'async function saveLeaveReq('),
   extractFunction(html, 'async function approveLeave('),
+  extractMaybeAsync(html, 'function exportVacCSV('),
 ].join('\n');
 
 const res = (status, body) => ({
@@ -66,13 +73,14 @@ const res = (status, body) => ({
 });
 
 function makeEnv({ demo = false } = {}) {
-  const calls = [], toasts = [], reloads = [];
+  const calls = [], toasts = [], reloads = [], downloads = [];
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '' });
   const server = { respond: () => { throw new Error('unexpected fetch'); } };
   const sandbox = {
     A: { session: { access_token: 't' }, demo, companyId: 'c1' },
-    DS: { employees: [{ id: 'e1', company_id: 'c1', first_name: 'Ana', last_name: 'Pérez' }], leave_requests: [] },
+    DS: { employees: [{ id: 'e1', company_id: 'c1', first_name: 'Ana', last_name: 'Pérez' }], leave_requests: [], leave_balances: [] },
+    downCSV: (csv, name) => downloads.push({ csv, name }),
     A_goUrl: '',
     JSON, Object, Array, Number, String, Math, Promise, parseInt, Error, Date,
     fetch: async (url, opts = {}) => {
@@ -90,7 +98,7 @@ function makeEnv({ demo = false } = {}) {
     el('vn-days').value = '5'; el('vn-type').value = 'vacaciones'; el('vn-notes').value = 'n';
   };
   return {
-    sandbox, calls, toasts, reloads, fill,
+    sandbox, calls, toasts, reloads, downloads, fill,
     run: (code) => vm.runInContext(code, sandbox),
     respondWith: (fn) => { server.respond = fn; },
   };
@@ -181,6 +189,42 @@ test('demo mode: request is stored locally as pending with zero network calls', 
   assert.equal(rows[0].status, 'pending');
   assert.equal(rows[0].employee_id, 'e1');
   assert.deepEqual(e.toasts, [{ msg: SENT, type: 'success' }]);
+});
+
+const BAL_ROWS = [
+  { id: 'b1', company_id: 'c1', employee_id: 'e1', employee_name: 'Ana Pérez', year: 2025, earned_days: 30, used_days: 25, remaining_days: 5 },
+  { id: 'b2', company_id: 'c1', employee_id: 'e2', employee_name: 'Luis "Lucho" Gómez', year: 2026, earned_days: 15, used_days: 0, remaining_days: null },
+];
+
+test('exportVacCSV (real mode) exports the balances from the API, not the empty DS', async () => {
+  const e = makeEnv();
+  e.respondWith(async (url) => (url.startsWith('/api/leave_balances') ? res(200, BAL_ROWS) : res(404, {})));
+  await e.run('exportVacCSV()');
+  assert.equal(e.downloads.length, 1);
+  const { csv, name } = e.downloads[0];
+  assert.equal(name, 'vacaciones.csv');
+  const lines = csv.split('\n');
+  assert.equal(lines[0], '"Empleado","Año","Ganados","Usados","Saldo"');
+  assert.equal(lines[1], '"Ana Pérez","2025","30","25","5"');
+  assert.equal(lines[2], '"Luis ""Lucho"" Gómez","2026","15","0",""', 'quotes doubled, null empty');
+  assert.deepEqual(e.toasts, [{ msg: 'Exportado 📥', type: 'success' }]);
+});
+
+test('exportVacCSV with no balances warns and downloads nothing', async () => {
+  const e = makeEnv();
+  e.respondWith(async (url) => (url.startsWith('/api/leave_balances') ? res(200, []) : res(404, {})));
+  await e.run('exportVacCSV()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+test('exportVacCSV in demo mode exports the local store (no network)', async () => {
+  const e = makeEnv({ demo: true });
+  e.sandbox.DS.leave_balances = [BAL_ROWS[0]];
+  e.respondWith(() => { throw new Error('demo must not fetch'); });
+  await e.run('exportVacCSV()');
+  assert.equal(e.calls.length, 0);
+  assert.equal(e.downloads[0].csv.split('\n')[1], '"Ana Pérez","2025","30","25","5"');
 });
 
 let failed = 0;

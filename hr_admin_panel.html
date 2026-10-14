@@ -3008,7 +3008,13 @@ async function saveLeaveReq() {
 }
 async function approveLeave(id,approve) { var r=await Supa.upd('leave_requests',id,{status:approve?'approved':'rejected'}); if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo actualizar la solicitud'),'danger'); return; } toast(approve?'✅ Aprobada':'❌ Rechazada',approve?'success':'danger'); loadVacations(); }
 function fullCalcVac() { var s=gv('vc-sdate'), e=gv('vc-edate'), used=parseInt(gv('vc-used'))||0; if(!s||!e) return; var dw=Math.floor((new Date(e)-new Date(s))/86400000), earned=Math.floor(dw/11), rem=Math.max(0,earned-used); document.getElementById('vc-r1').textContent=dw; document.getElementById('vc-r2').textContent=earned; document.getElementById('vc-r3').textContent=rem; }
-function exportVacCSV() { var rows=DS.leave_balances.filter(function(b){ return b.company_id===A.companyId; }); var csv=[['Empleado','Año','Ganados','Usados','Saldo']].concat(rows.map(function(b){ return [b.employee_name,b.year,b.earned_days,b.used_days,b.remaining_days]; })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'vacaciones.csv'); toast('Exportado 📥'); }
+async function exportVacCSV() {
+  // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
+  var rows=await Supa.selAll('leave_balances');
+  if(!Array.isArray(rows)||!rows.length){ toast('Sin datos','warning'); return; }
+  var csv=[['Empleado','Año','Ganados','Usados','Saldo']].concat(rows.map(function(b){ return [b.employee_name,b.year,b.earned_days,b.used_days,b.remaining_days]; })).map(function(r){ return r.map(function(x){ return '"'+String(x!=null?x:'').split('"').join('""')+'"'; }).join(','); }).join('\n');
+  downCSV(csv,'vacaciones.csv'); toast('Exportado 📥');
+}
 
 // ════════════════ PAYROLL ════════════════════════════════════
 function initPRSelectors() {
