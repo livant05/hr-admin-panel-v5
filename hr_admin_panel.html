@@ -3594,7 +3594,13 @@ function renderOTTable() {
   if(tf) tf.innerHTML=logs.length?'<td colspan="4" class="text-right pr-total-row"><strong>Total Horas Extras</strong></td><td class="text-success pr-total-row"><strong>'+fmt(tot)+'</strong></td><td colspan="2"></td>':'';
 }
 async function delOT(id) { await Supa.del('overtime_logs',id); toast('Eliminado','info'); renderOTTable(); }
-function exportOTCSV() { var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; }); var csv=[['Empleado','Fecha','Horas','Tipo','Valor','Notas']].concat(logs.map(function(l){ return [l.employee_name,l.date,l.hours,l.type,l.amount,l.notes||'']; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'horas_extras.csv'); toast('Exportado 📥'); }
+async function exportOTCSV() {
+  // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
+  var logs=await Supa.selAll('overtime_logs');
+  if(!Array.isArray(logs)||!logs.length){ toast('Sin datos','warning'); return; }
+  var csv=[['Empleado','Fecha','Horas','Tipo','Valor','Notas']].concat(logs.map(function(l){ return [l.employee_name,l.date,l.hours,l.type,l.amount,l.notes]; })).map(function(r){ return r.map(function(x){ return '"'+String(x!=null?x:'').split('"').join('""')+'"'; }).join(','); }).join('\n');
+  downCSV(csv,'horas_extras.csv'); toast('Exportado 📥');
+}
 
 // ════════════════ DEDUCTIONS ═════════════════════════════════
 async function loadDed() {

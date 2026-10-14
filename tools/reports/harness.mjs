@@ -2,8 +2,8 @@
 //
 // Drives the REAL report pieces of hr_admin_panel.html: the "Vacaciones" and
 // "Horas Extras" reports (loadReport with rpt-type=vac / ot_summary) and the
-// "días de vacaciones sin usar" alert (calcAlerts), in a node:vm sandbox with
-// fake Supa/DOM. Sources are
+// "días de vacaciones sin usar" alert (calcAlerts), and the overtime CSV export
+// (exportOTCSV), in a node:vm sandbox with fake Supa/DOM. Sources are
 // sliced out of the HTML by name and executed as written.
 //
 // Outside demo mode DS is emptied at sign-in and never refilled, so they must
@@ -43,12 +43,19 @@ function extractFunction(src, header) {
   }
   throw new Error(`unbalanced braces after ${header}`);
 }
+// exportOTCSV may or may not be declared async; keep the keyword if present.
+function extractMaybeAsync(src, header) {
+  const fn = extractFunction(src, header);
+  const at = src.indexOf(header);
+  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
+}
 const optional = (header) => (html.includes(header) ? extractFunction(html, header) : '');
 
 const srcs = [
   optional('function vacTotalsByEmployee('),
   extractFunction(html, 'async function loadReport('),
   extractFunction(html, 'async function calcAlerts('),
+  extractMaybeAsync(html, 'function exportOTCSV('),
 ].join('\n');
 
 const fmt = (v) => 'B/. ' + Number(v || 0).toFixed(2);
@@ -67,7 +74,7 @@ const OTS = [
 ];
 
 function makeEnv({ bals = BALS, ots = OTS, type = 'vac' } = {}) {
-  const charts = [];
+  const charts = [], toasts = [], downloads = [];
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '', innerHTML: '', textContent: '' });
   el('rpt-type').value = type;
@@ -77,6 +84,8 @@ function makeEnv({ bals = BALS, ots = OTS, type = 'vac' } = {}) {
     escHtml, fmt,
     daysTo: () => null,
     renderRptChart: (labels, data, label) => charts.push({ labels, data, label }),
+    downCSV: (csv, name) => downloads.push({ csv, name }),
+    toast: (msg, type) => toasts.push({ msg, type: type || 'success' }),
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
       sel: async (tbl) => ({ employees: [], leave_requests: [], leave_balances: bals, overtime_logs: ots }[tbl] || []),
@@ -86,7 +95,7 @@ function makeEnv({ bals = BALS, ots = OTS, type = 'vac' } = {}) {
   };
   vm.createContext(sandbox);
   vm.runInContext(srcs, sandbox);
-  return { el, charts, run: (c) => vm.runInContext(c, sandbox) };
+  return { el, charts, toasts, downloads, run: (c) => vm.runInContext(c, sandbox) };
 }
 
 const tests = [];
@@ -138,6 +147,26 @@ test('Horas Extras report with no overtime shows an empty table and a zero total
   await e.run('loadReport()');
   assert.equal(e.el('rpt-tbody').innerHTML, '');
   assert.match(e.el('rpt-tfoot').innerHTML, /B\/\. 0\.00/);
+});
+
+test('exportOTCSV exports the overtime logs from the API, not the empty DS', async () => {
+  const e = makeEnv({ ots: [OTS[0], { id: 'o4', company_id: 'c1', employee_name: 'Luis "Lucho" Gomez', date: '2026-10-02', hours: 0, type: 'nocturno', amount: null, notes: null }] });
+  await e.run('exportOTCSV()');
+  assert.equal(e.downloads.length, 1);
+  const { csv, name } = e.downloads[0];
+  assert.equal(name, 'horas_extras.csv');
+  const lines = csv.split('\n');
+  assert.equal(lines[0], '"Empleado","Fecha","Horas","Tipo","Valor","Notas"');
+  assert.equal(lines[1], '"Ana Diaz","2026-09-02","2.1","","21.5",""');
+  assert.equal(lines[2], '"Luis ""Lucho"" Gomez","2026-10-02","0","nocturno","",""', 'quotes doubled, 0 kept, null empty');
+  assert.deepEqual(e.toasts, [{ msg: 'Exportado 📥', type: 'success' }]);
+});
+
+test('exportOTCSV with no overtime warns and downloads nothing', async () => {
+  const e = makeEnv({ ots: [] });
+  await e.run('exportOTCSV()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
 });
 
 let failed = 0;
