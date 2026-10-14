@@ -71,5 +71,16 @@ Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked
 - RDD assess base a32cede: medium, 63 lines, `review_due: false` (`under_budget`). Dev backend rebuilt.
 - R3 (concurrent-demotion test timing) left open.
 
+## Delivery (2026-10-13)
+User chose Feature Branch Chain on tracker #33 (`feat/rrhh-go-auth-cutover`). Slices, each targeting its parent; this document covers S9a/S9b, `odd/tasks/server-permissions.md` covers S8a-S8c:
+| PR | Branch | Commits | +/- |
+|---|---|---|---|
+| #63 | `auth-cutover/s8a-route-permissions` | 0b8582c | +638/-179 (`size:exception`) |
+| #64 | `auth-cutover/s8b-employee-redaction` | a279676..4dbf222 | +229/-8 |
+| #65 | `auth-cutover/s8c-frontend-permissions` | da55313..3a57996 | +287/-20 |
+| #66 | `auth-cutover/s9a-session-check` | 306efda | +613/-67 (`size:exception`) |
+| #67 | `auth-cutover/s9b-server-logout` | b147637..ef2d881 + this record | +361/-27 |
+No repository CI besides the skipped Supabase Preview. Nothing merged.
+
 ## Next step
-R3 optional; delivery (PR chain) is the user's decision.
+Human review and merge down the chain into the tracker; R3 optional.
