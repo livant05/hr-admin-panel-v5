@@ -2097,7 +2097,12 @@ var Supa = {
     flt = flt || {};
     if (A.demo) {
       var rows = (DS[tbl]||[]).filter(function(r){ return r.company_id === A.companyId; });
-      Object.keys(flt).forEach(function(k){ rows = rows.filter(function(r){ return r[k] === flt[k]; }); });
+      // date_from/date_to are an inclusive range on r.date, as in the API; every other key is an exact match
+      Object.keys(flt).forEach(function(k){ rows = rows.filter(function(r){
+        if (k === 'date_from') return String(r.date||'') >= flt[k];
+        if (k === 'date_to') return String(r.date||'') <= flt[k];
+        return r[k] === flt[k];
+      }); });
       return rows;
     }
     return this.gres(await fetch(this.goUrl+'/api/'+tbl+this.gq(flt), {headers:this.ghdr()}));
@@ -2899,9 +2904,7 @@ function initAttRepSelectors() {
 // getMonth() in Panama (UTC-5) puts in the previous month.
 async function attMonthLogs(mo, yr) {
   var ym=yr+'-'+(mo<10?'0':'')+mo, last=new Date(yr,mo,0).getDate();
-  // Demo-mode Supa matches every filter key against a row field, so the range only goes to the API
-  var range=A.demo?{}:{date_from:ym+'-01',date_to:ym+'-'+last};
-  var res=await Supa.selAll('attendance_logs',range);
+  var res=await Supa.selAll('attendance_logs',{date_from:ym+'-01',date_to:ym+'-'+last});
   return (Array.isArray(res)?res:[]).filter(function(l){ return String(l.date||'').slice(0,7)===ym; });
 }
 async function loadAttReport() {
