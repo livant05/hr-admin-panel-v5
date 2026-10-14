@@ -3634,8 +3634,12 @@ async function saveDed() {
   });
   toast('Deducción guardada'); renderDedTable();
 }
-function renderDedTable() {
-  var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId; });
+async function renderDedTable() {
+  // From the API: outside demo mode DS.deductions is emptied at sign-in and
+  // never refilled (Supa reads DS itself in demo mode)
+  var res=await Supa.selAll('deductions');
+  // DELETE is a soft delete (status 'cancelled'): those rows are gone for the user
+  var deds=(Array.isArray(res)?res:[]).filter(function(d){ return d.status!=='cancelled'; });
   var tb=document.getElementById('ded-tbody');
   if(tb) tb.innerHTML=deds.length?deds.map(function(d){
     return '<tr>'
@@ -3652,8 +3656,25 @@ function renderDedTable() {
       +'</tr>';
   }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin deducciones. Registrá una o importá desde PayDay.</td></tr>';
 }
-async function saldaDed(id) { await Supa.upd('deductions',id,{status:'paid',remaining:0}); toast('Marcada como saldada'); renderDedTable(); }
-async function delDed(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('deductions',id); toast('Eliminada','info'); renderDedTable(); }
+async function saldaDed(id) {
+  // PATCH /api/deductions/{id} replaces every editable column, so the whole
+  // row goes back with only status and remaining changed
+  var rows=await Supa.sel('deductions',{id:id}), d=Array.isArray(rows)?rows[0]:null;
+  if(!d){ toast('No se encontró la deducción','danger'); return; }
+  var body={};
+  ['employee_name','type','description','total_amount','quota','start_date','cedula','acreedor_nombre','acreedor_codigo',
+   'tipo_pago','centro_costo','prioridad','end_date','periodo','numero_planilla'].forEach(function(k){ if(d[k]!==undefined) body[k]=d[k]; });
+  body.status='paid'; body.remaining=0;
+  var r=await Supa.upd('deductions',id,body);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo marcar como saldada'),'danger'); return; }
+  toast('Marcada como saldada'); renderDedTable();
+}
+async function delDed(id) {
+  if(!confirm('¿Eliminar?')) return;
+  var r=await Supa.del('deductions',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la deducción'),'danger'); return; }
+  toast('Eliminada','info'); renderDedTable();
+}
 async function exportDedCSV() {
   var deds=await Supa.sel('deductions');
   if(!Array.isArray(deds)||!deds.length){toast('Sin datos','warning');return;}
@@ -3747,11 +3768,12 @@ async function loadLiqEmp() {
   var vacEl=document.getElementById('liq-vac'); if(vacEl&&bal) vacEl.value=bal.remaining_days||0;
   // Auto-fill sal30 from employee salary
   var sal30El=document.getElementById('liq-sal30'); if(sal30El&&e.salary) sal30El.value=(e.salary||0).toFixed(2);
-  var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
+  var dedRes=await Supa.sel('deductions',{employee_id:empId,status:'active'});
+  var deds=(Array.isArray(dedRes)?dedRes:[]).filter(function(d){ return d.employee_id===empId&&d.status==='active'; });
   var wrap=document.getElementById('liq-ded-wrap'), list=document.getElementById('liq-ded-list');
   if(wrap&&list){
     if(deds.length){
-      list.innerHTML=deds.map(function(d){ return '<div class="form-check py-1"><input class="form-check-input liq-ded-check" type="checkbox" id="ldc-'+d.id+'" value="'+d.id+'" data-quota="'+escHtml(d.quota)+'" data-desc="'+escHtml(d.description||d.type)+'" onchange="calcLiq()"><label class="form-check-label" for="ldc-'+d.id+'">'+escHtml(d.description||d.type)+' — Cuota: <strong>B/. '+fmt(d.quota)+'</strong></label></div>'; }).join('');
+      list.innerHTML=deds.map(function(d){ return '<div class="form-check py-1"><input class="form-check-input liq-ded-check" type="checkbox" id="ldc-'+d.id+'" value="'+d.id+'" data-quota="'+escHtml(d.quota)+'" data-desc="'+escHtml(d.description||d.type)+'" onchange="calcLiq()"><label class="form-check-label" for="ldc-'+d.id+'">'+escHtml(d.description||d.type)+' — Cuota: <strong>'+fmt(d.quota)+'</strong></label></div>'; }).join('');
       wrap.style.display='';
     } else { wrap.style.display='none'; }
   }
