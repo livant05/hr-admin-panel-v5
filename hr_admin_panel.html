@@ -2722,7 +2722,12 @@ async function showEmpProfile(id) {
   var emps=await Supa.sel('employees');
   var e=Array.isArray(emps)?emps.find(function(x){ return x.id===id; }):null;
   if(!e) return;
-  var bal=DS.leave_balances.find(function(b){ return b.employee_id===id&&b.company_id===A.companyId; });
+  // Leave balances come from the API (DS is empty outside demo mode): one row
+  // per year with no carry-over, so the profile sums every year, as the
+  // liquidation does
+  var balRes=await Supa.sel('leave_balances',{employee_id:id});
+  var bals=(Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===id; });
+  var bal=bals.length?bals.reduce(function(s,b){ return {remaining_days:s.remaining_days+(Number(b.remaining_days)||0),earned_days:s.earned_days+(Number(b.earned_days)||0)}; },{remaining_days:0,earned_days:0}):null;
   // Planilla tab estimate, via the server preview endpoint (design R4e) --
   // prCalc was deleted in slice 3h. The preview only covers ACTIVE
   // employees for the current month (ListPayrollRunInputs' WHERE clause),
@@ -2748,7 +2753,7 @@ async function showEmpProfile(id) {
     +'<div class="col-6 mt-2"><small class="text-muted d-block">Ingreso</small><strong>'+escHtml(e.start_date||'—')+'</strong></div>'
     +'<div class="col-6 mt-2"><small class="text-muted d-block">Antigüedad</small><strong>'+seniStr(e.start_date)+'</strong></div>'
     +'<div class="col-12 mt-2"><small class="text-muted d-block">Vacaciones saldo</small>'
-    +(bal?'<strong>'+bal.remaining_days+' días de '+bal.earned_days+' ganados</strong><div class="progress mt-1" style="height:5px"><div class="progress-bar bg-success" style="width:'+Math.round(bal.remaining_days/bal.earned_days*100)+'%"></div></div>':'<strong>Sin registro</strong>')
+    +(bal?'<strong>'+bal.remaining_days+' días de '+bal.earned_days+' ganados</strong><div class="progress mt-1" style="height:5px"><div class="progress-bar bg-success" style="width:'+(bal.earned_days>0?Math.round(bal.remaining_days/bal.earned_days*100):0)+'%"></div></div>':'<strong>Sin registro</strong>')
     +'</div></div></div>'
     +'<div class="tab-pane fade" id="mp-plan"><table class="table table-sm mb-0">'
     +'<tr><td>Salario Bruto</td><td class="text-right"><strong>'+fmt(pr.b)+'</strong></td></tr>'
