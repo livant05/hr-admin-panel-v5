@@ -1885,8 +1885,15 @@ var A = {
 };
 
 // ════════════════ DEMO DATA ══════════════════════════════════
-var TD = new Date(), TS = TD.toISOString().split('T')[0];
-function fy(d){ var r=new Date(TD); r.setDate(r.getDate()+d); return r.toISOString().split('T')[0]; }
+// "Today" is the Panama date (UTC-5, no DST; the zone the backend scheduler
+// uses), not the UTC date: from 19:00 in Panama the UTC date is already tomorrow.
+function panamaDate(d) {
+  var p={};
+  new Intl.DateTimeFormat('en-US',{timeZone:'America/Panama',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d).forEach(function(x){ p[x.type]=x.value; });
+  return p.year+'-'+p.month+'-'+p.day;
+}
+var TD = new Date(), TS = panamaDate(TD);
+function fy(d){ return panamaDate(new Date(TD.getTime()+d*86400000)); }
 var DS = {
   companies:[{id:'co1',name:'Empresa Demo S.A.'}],
   users:[{id:'u1',email:'admin@demo.com',company_id:'co1',role:'admin',first_name:'Admin',last_name:'Demo',status:'active'}],
