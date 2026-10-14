@@ -4768,10 +4768,13 @@ function exportBackup(){
   downJSON(backup,'backup_'+A.companyName.replace(/\s+/g,'_')+'_'+TS+'.json');
   toast('✅ Backup exportado');
 }
-function exportAllCSV(){
-  var emps=DS.employees.filter(function(e){ return e.company_id===A.companyId; });
+async function exportAllCSV(){
+  // From the API (DS.employees is never filled outside demo mode; Supa reads DS itself in demo).
+  // Fields the server redacts for the caller's role arrive as null and export empty.
+  var emps=await Supa.selAll('employees');
+  if(!Array.isArray(emps)||!emps.length){ toast('Sin datos','warning'); return; }
   var hdr=['Nombre','Apellido','Cédula','Cargo','Departamento','Salario','Ingreso','Estado','Email','Teléfono','Contrato','SS'];
-  var csv=[hdr].concat(emps.map(function(e){ return [e.first_name,e.last_name,e.cedula||'',e.position||'',e.department||'',e.salary||'',e.start_date||'',e.status||'',e.email||'',e.phone||'',e.contract_type||'',e.ss_number||'']; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n');
+  var csv=[hdr].concat(emps.map(function(e){ return [e.first_name,e.last_name,e.cedula,e.position,e.department,e.salary,e.start_date,e.status,e.email,e.phone,e.contract_type,e.ss_number]; })).map(function(r){ return r.map(function(x){ return '"'+String(x!=null?x:'').split('"').join('""')+'"'; }).join(','); }).join('\n');
   downCSV(csv,'empleados_completo_'+TS+'.csv'); toast('✅ CSV exportado');
 }
 function importBackup(evt){
