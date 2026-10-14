@@ -3764,8 +3764,13 @@ async function loadLiqEmp() {
   if(!e){ info.style.display='none'; return; }
   info.style.display='';
   info.innerHTML='<strong>'+escHtml(e.first_name+' '+e.last_name)+'</strong> · '+escHtml(e.position||'—')+' · Ingreso: '+escHtml(e.start_date||'—')+' · Antigüedad: <strong>'+seniStr(e.start_date)+'</strong> · Salario: <strong>'+fmt(e.salary||0)+'</strong>';
-  var bal=DS.leave_balances.find(function(b){ return b.employee_id===empId&&b.company_id===A.companyId; });
-  var vacEl=document.getElementById('liq-vac'); if(vacEl&&bal) vacEl.value=bal.remaining_days||0;
+  // Leave balances come from the API (DS is empty outside demo mode): one row
+  // per year with no carry-over, and every unused day is owed at termination,
+  // so the proposal is the sum over all years (still editable)
+  var balRes=await Supa.sel('leave_balances',{employee_id:empId});
+  var bals=(Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===empId; });
+  var vacEl=document.getElementById('liq-vac');
+  if(vacEl&&bals.length) vacEl.value=bals.reduce(function(s,b){ return s+(Number(b.remaining_days)||0); },0);
   // Auto-fill sal30 from employee salary
   var sal30El=document.getElementById('liq-sal30'); if(sal30El&&e.salary) sal30El.value=(e.salary||0).toFixed(2);
   var dedRes=await Supa.sel('deductions',{employee_id:empId,status:'active'});
