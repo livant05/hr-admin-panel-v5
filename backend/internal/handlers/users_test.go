@@ -191,7 +191,7 @@ func TestUsers_NonAdminIsForbiddenOnReadAndCreate(t *testing.T) {
 	userID := seedLoginUser(t, pool, c, uniqueEmail("na"), "correct-horse", "active")
 
 	for _, role := range []string{"empleado", "manager"} {
-		tok := c.TokenAs(t, signer, role)
+		tok := c.TokenAs(t, pool, signer, role)
 		calls := []struct {
 			name, method, path string
 			body               any
@@ -572,7 +572,7 @@ func TestUsers_NoPasswordHashInAnyResponseBody(t *testing.T) {
 		"users 404":   testutil.Do(t, h, http.MethodGet, "/api/users/"+uuid.NewString(), admin, nil).Body.String(),
 		"users 400":   postUser(t, h, admin, map[string]any{"password": "x"}).Body.String(),
 		"users 409":   postUser(t, h, admin, newUserBody(email)).Body.String(),
-		"users 403":   testutil.Do(t, h, http.MethodGet, "/api/users", c.TokenAs(t, signer, "empleado"), nil).Body.String(),
+		"users 403":   testutil.Do(t, h, http.MethodGet, "/api/users", c.TokenAs(t, pool, signer, "empleado"), nil).Body.String(),
 		"users post":  postUser(t, h, admin, newUserBody(uniqueEmail("xc2b"))).Body.String(),
 		"users query": testutil.Do(t, h, http.MethodGet, "/api/users?role=empleado", admin, nil).Body.String(),
 	}
@@ -639,7 +639,7 @@ func TestUsers_NonAdminIsForbiddenOnPatchAndDelete(t *testing.T) {
 	before := snapshotUser(t, pool, userID)
 
 	for _, role := range []string{"empleado", "manager"} {
-		tok := c.TokenAs(t, signer, role)
+		tok := c.TokenAs(t, pool, signer, role)
 		calls := []struct {
 			name, method, path string
 			body               any
@@ -735,7 +735,13 @@ func TestUsers_PatchRefusesToRemoveTheLastActiveAdmin(t *testing.T) {
 		if rec := patchUser(t, h, tok, c.UserID, map[string]any{"status": "inactive"}); rec.Code != http.StatusOK {
 			t.Fatalf("deactivate one of two admins: got %d (%s)", rec.Code, rec.Body.String())
 		}
-		if rec := patchUser(t, h, tok, second, map[string]any{"status": "inactive"}); rec.Code != http.StatusConflict {
+		// The caller just deactivated itself, so its token is dead (session
+		// check); the survivor acts with its own.
+		survivorTok, err := signer.Sign(second, c.CompanyID, "admin", 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec := patchUser(t, h, survivorTok, second, map[string]any{"status": "inactive"}); rec.Code != http.StatusConflict {
 			t.Fatalf("deactivate the survivor: got %d, want 409", rec.Code)
 		}
 		if n := countActiveAdmins(t, pool, c.CompanyID); n != 1 {
@@ -769,6 +775,7 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 
 	bodies := []map[string]any{{"role": "empleado"}, {"status": "inactive"}}
 	const rounds = 25
+	guardRaced := 0
 	for round := 0; round < rounds; round++ {
 		if _, err := pool.Exec(context.Background(),
 			`UPDATE users SET role = 'admin', status = 'active' WHERE id = ANY($1)`, ids[:]); err != nil {
@@ -812,20 +819,32 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 		if n := countActiveAdmins(t, pool, c.CompanyID); n < 1 {
 			t.Fatalf("round %d: company left with %d active admins (codes %v)", round, n, codes)
 		}
-		ok, conflict := 0, 0
+		ok, conflict, lost := 0, 0, 0
 		for _, code := range codes {
 			switch code {
 			case http.StatusOK:
 				ok++
 			case http.StatusConflict:
 				conflict++
+			case http.StatusForbidden, http.StatusUnauthorized:
+				// The caller is itself one of the two admins: when the other
+				// request's demotion commits before this request's session
+				// check, the caller is correctly refused (role/status come
+				// from the database on every request).
+				lost++
 			default:
 				t.Fatalf("round %d: unexpected status %v (a deadlock or server error must not escape)", round, codes)
 			}
 		}
-		if ok != 1 || conflict != 1 {
-			t.Fatalf("round %d: statuses %v, want exactly one 200 and one 409", round, codes)
+		if ok != 1 || conflict+lost != 1 {
+			t.Fatalf("round %d: statuses %v, want exactly one 200 and one refusal", round, codes)
 		}
+		if conflict == 1 {
+			guardRaced++
+		}
+	}
+	if guardRaced == 0 {
+		t.Fatalf("no round reached the last-admin guard with both requests in flight; the race is not being exercised")
 	}
 }
 

@@ -296,7 +296,7 @@ func TestRoles_WritesAreAdminOnly(t *testing.T) {
 	admin := c.Token(t, signer)
 	for _, role := range []string{"empleado", "manager"} {
 		t.Run(role, func(t *testing.T) {
-			tok := c.TokenAs(t, signer, role)
+			tok := c.TokenAs(t, pool, signer, role)
 
 			seed := testutil.Do(t, h, http.MethodPost, "/api/roles", admin, map[string]any{
 				"name": "Gate-" + role, "permissions": map[string]any{"dashboard": true},

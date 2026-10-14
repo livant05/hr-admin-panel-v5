@@ -247,14 +247,14 @@ source of truth, then re-export.
 
 Postgres runs `docker-entrypoint-initdb.d` **only on a fresh volume**. An existing volume keeps
 its old schema, and the dev volume was found missing `0005` to `0009`, so assume yours is too.
-Apply **every migration missing on the volume, in order**, not just `0010` to `0012`. Files
+Apply **every migration missing on the volume, in order**, not just `0010` to `0013`. Files
 `0005` and later are idempotent, so applying one that is already present is harmless.
 
 ```sh
 cd backend
 for f in 0005_lookup_unique 0006_phase2_columns 0007_phase3_payroll 0008_phase4_hr_records \
          0009_medical_permission 0010_users_email_lower_unique 0011_zkteco_ingestion \
-         0012_zkteco_tenant_scoping; do
+         0012_zkteco_tenant_scoping 0013_users_token_version; do
   echo "applying $f"
   docker compose exec -T postgres \
     psql -U rrhh_go -d rrhh_go -v ON_ERROR_STOP=1 -f "/docker-entrypoint-initdb.d/$f.sql" \
@@ -270,6 +270,10 @@ violate them, and `0010` fails on duplicate emails (step 3).
 (`uq_zkteco_unknown_pins_serial_pin`). Without it, every ATTLOG batch that contains an unknown PIN
 fails with SQL error `42P10` and rolls the whole batch back (CO-S5b-3). There is no startup
 check for this, so verify explicitly.
+
+`0013` adds `users.token_version`, which the API reads on **every authenticated request**
+(session check). Apply it **before** starting the new binary: without the column every
+protected route answers 500.
 
 **Verify** by comparing the catalog with `backend/migrations/`. Every row must be `true`. Note:
 `0009` reads `true` on an empty `roles` table whether or not it ran; that is harmless, since
@@ -295,7 +299,9 @@ SELECT m.file, m.applied FROM (VALUES
   ('0011_zkteco_ingestion',
      to_regclass('zkteco_ingest_rejections') IS NOT NULL),
   ('0012_zkteco_tenant_scoping',
-     to_regclass('uq_zkteco_unknown_pins_serial_pin') IS NOT NULL AND to_regclass('idx_emp_cedula') IS NOT NULL)
+     to_regclass('uq_zkteco_unknown_pins_serial_pin') IS NOT NULL AND to_regclass('idx_emp_cedula') IS NOT NULL),
+  ('0013_users_token_version',
+     EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'token_version'))
 ) AS m(file, applied)
 ORDER BY m.file;
 ```

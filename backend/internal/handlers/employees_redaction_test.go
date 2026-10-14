@@ -80,7 +80,7 @@ func TestEmployees_ReadRedactsSensitiveFields(t *testing.T) {
 	for _, kind := range []string{"list", "get"} {
 		t.Run(kind+" redacts for roles without employees or payroll", func(t *testing.T) {
 			for _, role := range []string{"nokey", "empfalse", "ghost"} {
-				row := fetch(t, kind, c.TokenAs(t, signer, role))
+				row := fetch(t, kind, c.TokenAs(t, pool, signer, role))
 				for _, f := range []string{"salary", "hourly_rate", "cedula", "ss_number", "address", "emergency_contact", "emergency_phone", "emergency_relation"} {
 					if raw, ok := row[f]; !ok || string(raw) != "null" {
 						t.Errorf("%s as %s: %s = %s, want null", kind, role, f, raw)
@@ -98,8 +98,8 @@ func TestEmployees_ReadRedactsSensitiveFields(t *testing.T) {
 		t.Run(kind+" shows everything to admin, employees and payroll roles", func(t *testing.T) {
 			tokens := map[string]string{
 				"admin":   c.Token(t, signer),
-				"hasemp":  c.TokenAs(t, signer, "hasemp"),
-				"payroll": c.TokenAs(t, signer, "haspayrol"),
+				"hasemp":  c.TokenAs(t, pool, signer, "hasemp"),
+				"payroll": c.TokenAs(t, pool, signer, "haspayrol"),
 			}
 			for who, tok := range tokens {
 				row := fetch(t, kind, tok)

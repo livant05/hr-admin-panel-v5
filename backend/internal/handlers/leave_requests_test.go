@@ -220,7 +220,7 @@ func TestLeaveRequests_ApprovalRequiresPermission(t *testing.T) {
 
 	c := testutil.Company(t, pool, "LeaveReqPermCo")
 	admin := c.Token(t, signer)
-	empleado := c.TokenAs(t, signer, "empleado")
+	empleado := c.TokenAs(t, pool, signer, "empleado")
 	emp := testutil.Employee(t, pool, c, testutil.EmployeeName("Ana", "Diaz"))
 
 	createRec := testutil.Do(t, h, http.MethodPost, "/api/leave_requests", admin, map[string]any{

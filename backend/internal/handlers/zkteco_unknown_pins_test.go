@@ -86,7 +86,7 @@ func TestZktecoUnknownPins_AdminOnly(t *testing.T) {
 
 	t.Run("non-admin roles get 403 and no data", func(t *testing.T) {
 		for _, role := range []string{"empleado", "manager", "rrhh"} {
-			rec := testutil.Do(t, h, http.MethodGet, zkUnknownPinsPath, a.TokenAs(t, signer, role), nil)
+			rec := testutil.Do(t, h, http.MethodGet, zkUnknownPinsPath, a.TokenAs(t, pool, signer, role), nil)
 			if rec.Code != http.StatusForbidden {
 				t.Fatalf("%s: got %d (%s), want 403", role, rec.Code, rec.Body.String())
 			}
@@ -100,7 +100,7 @@ func TestZktecoUnknownPins_AdminOnly(t *testing.T) {
 	})
 
 	t.Run("the gate runs before query validation", func(t *testing.T) {
-		rec := testutil.Do(t, h, http.MethodGet, zkUnknownPinsPath+"?bogus=1", a.TokenAs(t, signer, "empleado"), nil)
+		rec := testutil.Do(t, h, http.MethodGet, zkUnknownPinsPath+"?bogus=1", a.TokenAs(t, pool, signer, "empleado"), nil)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("got %d, want 403 before any validation", rec.Code)
 		}

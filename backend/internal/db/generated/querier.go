@@ -343,6 +343,9 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
+	// Per-request session check (auth middleware): primary-key lookup of only the
+	// columns that decide whether a token is still honoured.
+	GetSessionUser(ctx context.Context, id pgtype.UUID) (GetSessionUserRow, error)
 	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
 	GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)

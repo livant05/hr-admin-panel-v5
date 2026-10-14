@@ -137,13 +137,15 @@ type sessionUser struct {
 	Role        string
 	FirstName   string
 	LastName    string
+	// TokenVersion is users.token_version at issue time (0 for a new user).
+	TokenVersion int32
 }
 
 // writeSession signs a token and writes the shared login/register payload
 // (A6, AUTH-1). user.user_metadata is the path the frontend's doLogin reads;
 // company_name saves it a companies lookup. It never carries a password hash.
 func (a *API) writeSession(w http.ResponseWriter, status int, u sessionUser) {
-	token, err := a.Signer.Sign(u.ID, u.CompanyID, u.Role)
+	token, err := a.Signer.Sign(u.ID, u.CompanyID, u.Role, u.TokenVersion)
 	if err != nil {
 		a.Log.Error("sign token", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "could not issue token")
@@ -212,14 +214,37 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.writeSession(w, http.StatusOK, sessionUser{
-		ID:          uuidToString(user.ID),
-		CompanyID:   uuidToString(user.CompanyID),
-		CompanyName: user.CompanyName,
-		Email:       textOrEmpty(user.Email),
-		Role:        user.Role,
-		FirstName:   textOrEmpty(user.FirstName),
-		LastName:    textOrEmpty(user.LastName),
+		ID:           uuidToString(user.ID),
+		CompanyID:    uuidToString(user.CompanyID),
+		CompanyName:  user.CompanyName,
+		Email:        textOrEmpty(user.Email),
+		Role:         user.Role,
+		FirstName:    textOrEmpty(user.FirstName),
+		LastName:     textOrEmpty(user.LastName),
+		TokenVersion: user.TokenVersion,
 	})
+}
+
+// SessionLookup is the auth middleware's per-request check: one primary-key
+// query for status, role, company and token version. Wired by Routes.
+func (a *API) SessionLookup(ctx context.Context, userID string) (auth.Session, error) {
+	id, err := stringToUUID(userID)
+	if err != nil {
+		return auth.Session{}, auth.ErrSessionNotFound
+	}
+	row, err := a.Queries.GetSessionUser(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.Session{}, auth.ErrSessionNotFound
+	}
+	if err != nil {
+		return auth.Session{}, err
+	}
+	return auth.Session{
+		Status:       row.Status,
+		Role:         row.Role,
+		CompanyID:    uuidToString(row.CompanyID),
+		TokenVersion: row.TokenVersion,
+	}, nil
 }
 
 // GET /api/me — auth-protected, proves the JWT + context wiring works end to end.

@@ -223,8 +223,8 @@ func TestRoutes_ModulePermissionGate(t *testing.T) {
 		seed("has_"+key, `{"`+key+`": true}`)
 	}
 	admin := c.Token(t, signer)
-	elsewhere := c.TokenAs(t, signer, "elsewhere")
-	norole := c.TokenAs(t, signer, "ghost")
+	elsewhere := c.TokenAs(t, pool, signer, "elsewhere")
+	norole := c.TokenAs(t, pool, signer, "ghost")
 
 	for route, class := range wantRouteClasses {
 		list, ok := strings.CutPrefix(class, "perm:")
@@ -255,7 +255,7 @@ func TestRoutes_ModulePermissionGate(t *testing.T) {
 				t.Fatalf("admin must pass the gate, got 403 (body=%s)", rec.Body.String())
 			}
 			for _, key := range accepted {
-				tok := c.TokenAs(t, signer, "has_"+key)
+				tok := c.TokenAs(t, pool, signer, "has_"+key)
 				if rec := testutil.Do(t, h, method, path, tok, nil); rec.Code == http.StatusForbidden {
 					t.Fatalf("role with %q must pass the gate, got 403 (body=%s)", key, rec.Body.String())
 				}

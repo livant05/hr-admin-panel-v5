@@ -409,6 +409,7 @@ type User struct {
 	Status       string             `json:"status"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	PasswordHash string             `json:"password_hash"`
+	TokenVersion int32              `json:"token_version"`
 }
 
 type ZktecoDevice struct {

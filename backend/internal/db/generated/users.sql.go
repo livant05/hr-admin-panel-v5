@@ -101,6 +101,33 @@ func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) 
 	return i, err
 }
 
+const getSessionUser = `-- name: GetSessionUser :one
+SELECT status, role, company_id, token_version
+FROM users
+WHERE id = $1
+`
+
+type GetSessionUserRow struct {
+	Status       string      `json:"status"`
+	Role         string      `json:"role"`
+	CompanyID    pgtype.UUID `json:"company_id"`
+	TokenVersion int32       `json:"token_version"`
+}
+
+// Per-request session check (auth middleware): primary-key lookup of only the
+// columns that decide whether a token is still honoured.
+func (q *Queries) GetSessionUser(ctx context.Context, id pgtype.UUID) (GetSessionUserRow, error) {
+	row := q.db.QueryRow(ctx, getSessionUser, id)
+	var i GetSessionUserRow
+	err := row.Scan(
+		&i.Status,
+		&i.Role,
+		&i.CompanyID,
+		&i.TokenVersion,
+	)
+	return i, err
+}
+
 const getUser = `-- name: GetUser :one
 SELECT id, company_id, email, role, first_name, last_name, status, created_at
 FROM users
@@ -177,7 +204,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 
 const getUserForLogin = `-- name: GetUserForLogin :one
 SELECT u.id, u.company_id, u.email, u.role, u.first_name, u.last_name, u.status,
-       u.password_hash, c.name AS company_name
+       u.password_hash, u.token_version, c.name AS company_name
 FROM users u
 JOIN companies c ON c.id = u.company_id
 WHERE lower(u.email) = lower($1::text)
@@ -193,6 +220,7 @@ type GetUserForLoginRow struct {
 	LastName     pgtype.Text `json:"last_name"`
 	Status       string      `json:"status"`
 	PasswordHash string      `json:"password_hash"`
+	TokenVersion int32       `json:"token_version"`
 	CompanyName  string      `json:"company_name"`
 }
 
@@ -208,6 +236,7 @@ func (q *Queries) GetUserForLogin(ctx context.Context, email string) (GetUserFor
 		&i.LastName,
 		&i.Status,
 		&i.PasswordHash,
+		&i.TokenVersion,
 		&i.CompanyName,
 	)
 	return i, err

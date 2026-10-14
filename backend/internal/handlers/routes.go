@@ -275,6 +275,6 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	// ZKTeco ADMS device endpoints: public (devices carry no JWT), outside /api/
 	// and behind ADMSLimiter. PROVISIONAL wire format, see adms.go.
 	a.admsRoutes(mux)
-	mux.Handle("/api/", signer.Middleware(protected))
+	mux.Handle("/api/", signer.Middleware(protected, a.SessionLookup))
 	return mux
 }
