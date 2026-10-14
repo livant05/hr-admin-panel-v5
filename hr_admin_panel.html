@@ -2896,7 +2896,13 @@ function loadAttReport() {
   var rc=document.getElementById('att-rep-content');
   if(rc) rc.innerHTML='<div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title">Asistencia — '+MONTHS[mo-1]+' '+yr+'</h3></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Empleado</th><th>Departamento</th><th class="text-success">Presentes</th><th class="text-warning">Tardanzas</th><th class="text-danger">Ausentes</th><th class="text-info">Permisos</th></tr></thead><tbody>'+Object.values(byEmp).map(function(r){ return '<tr><td><strong>'+escHtml(r.name)+'</strong></td><td>'+escHtml(r.dept)+'</td><td class="text-center text-success">'+r.present+'</td><td class="text-center text-warning">'+r.late+'</td><td class="text-center text-danger">'+r.absent+'</td><td class="text-center text-info">'+r.permission+'</td></tr>'; }).join('')+'</tbody></table></div></div></div></div>';
 }
-function exportAttCSV() { var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&l.date===TS; }); var csv=[['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia.csv'); toast('Exportado 📥'); }
+async function exportAttCSV() {
+  // Today's logs from the API (DS is empty outside demo mode; Supa reads DS itself in demo)
+  var logs=await Supa.selAll('attendance_logs',{date:TS});
+  if(!Array.isArray(logs)||!logs.length){ toast('Sin datos','warning'); return; }
+  var csv=[['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+String(x!=null?x:'').split('"').join('""')+'"'; }).join(','); }).join('\n');
+  downCSV(csv,'asistencia.csv'); toast('Exportado 📥');
+}
 function exportAttReport() { var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear(); var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; }); var csv=[['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥'); }
 
 async function exportPayDayReloj() {
