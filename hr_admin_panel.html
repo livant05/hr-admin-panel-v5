@@ -2893,11 +2893,19 @@ function initAttRepSelectors() {
   MONTHS.forEach(function(m,i){ var o=document.createElement('option'); o.value=i+1; o.textContent=m; if(i===TD.getMonth()) o.selected=true; ms.appendChild(o); });
   for(var y=TD.getFullYear();y>=TD.getFullYear()-2;y--){ var o=document.createElement('option'); o.value=y; if(y===TD.getFullYear()) o.selected=true; o.textContent=y; ys.appendChild(o); }
 }
-function loadAttReport() {
+async function loadAttReport() {
   var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
-  var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; });
+  // Employees and logs come from the API (DS is empty outside demo mode). The
+  // month is matched on the "YYYY-MM" text: new Date('YYYY-MM-01') is UTC
+  // midnight, which getMonth() in Panama (UTC-5) puts in the previous month.
+  var ym=yr+'-'+(mo<10?'0':'')+mo, last=new Date(yr,mo,0).getDate();
+  // Demo-mode Supa matches every filter key against a row field, so the range only goes to the API
+  var range=A.demo?{}:{date_from:ym+'-01',date_to:ym+'-'+last};
+  var logRes=await Supa.selAll('attendance_logs',range);
+  var logs=(Array.isArray(logRes)?logRes:[]).filter(function(l){ return String(l.date||'').slice(0,7)===ym; });
+  var empRes=await Supa.selAll('employees',{status:'active'});
   var byEmp={};
-  DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; }).forEach(function(e){
+  (Array.isArray(empRes)?empRes:[]).filter(function(e){ return e.status==='active'; }).forEach(function(e){
     var el=logs.filter(function(l){ return l.employee_id===e.id; });
     byEmp[e.id]={name:e.first_name+' '+e.last_name,dept:e.department||'—',present:el.filter(function(l){ return l.status==='present'; }).length,late:el.filter(function(l){ return l.status==='late'; }).length,absent:el.filter(function(l){ return l.status==='absent'; }).length,permission:el.filter(function(l){ return l.status==='permission'; }).length};
   });
