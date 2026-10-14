@@ -408,8 +408,12 @@ type Querier interface {
 	// work_type=0 as FALSY, so 0 must fall back to the legacy status check. A
 	// plain COALESCE(work_type, ...) port would handle NULL but silently drop
 	// those rows.
+	// Date-based inputs (attendance, overtime) are bounded by the half-open range
+	// [start_date, end_date): the whole month for 'mensual', days 1-15 or 16-end
+	// for a quincena. The handler computes the range from the period.
 	// Deductions carry NO date filter, matching
-	// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941).
+	// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941); the caller
+	// scales the returned quota by the period factor.
 	// No LIMIT/OFFSET, deliberately departing from the P2.1 rule-7 pagination
 	// convention -- a partial payroll run is far worse than a slow one.
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)

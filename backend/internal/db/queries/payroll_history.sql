@@ -9,8 +9,12 @@
 -- work_type=0 as FALSY, so 0 must fall back to the legacy status check. A
 -- plain COALESCE(work_type, ...) port would handle NULL but silently drop
 -- those rows.
+-- Date-based inputs (attendance, overtime) are bounded by the half-open range
+-- [start_date, end_date): the whole month for 'mensual', days 1-15 or 16-end
+-- for a quincena. The handler computes the range from the period.
 -- Deductions carry NO date filter, matching
--- Supa.sel('deductions',{status:'active'}) (loadPayroll:2941).
+-- Supa.sel('deductions',{status:'active'}) (loadPayroll:2941); the caller
+-- scales the returned quota by the period factor.
 -- No LIMIT/OFFSET, deliberately departing from the P2.1 rule-7 pagination
 -- convention -- a partial payroll run is far worse than a slow one.
 SELECT
@@ -29,16 +33,16 @@ LEFT JOIN (
          ) AS absent_days
   FROM attendance_logs al
   WHERE al.company_id = $1
-    AND al.date >= make_date(sqlc.arg('year')::int, sqlc.arg('month')::int, 1)
-    AND al.date <  make_date(sqlc.arg('year')::int, sqlc.arg('month')::int, 1) + INTERVAL '1 month'
+    AND al.date >= sqlc.arg('start_date')::date
+    AND al.date <  sqlc.arg('end_date')::date
   GROUP BY al.employee_id
 ) att ON att.employee_id = e.id
 LEFT JOIN (
   SELECT ol.employee_id, SUM(COALESCE(ol.amount, 0)) AS amount
   FROM overtime_logs ol
   WHERE ol.company_id = $1
-    AND ol.date >= make_date(sqlc.arg('year')::int, sqlc.arg('month')::int, 1)
-    AND ol.date <  make_date(sqlc.arg('year')::int, sqlc.arg('month')::int, 1) + INTERVAL '1 month'
+    AND ol.date >= sqlc.arg('start_date')::date
+    AND ol.date <  sqlc.arg('end_date')::date
   GROUP BY ol.employee_id
 ) ot ON ot.employee_id = e.id
 LEFT JOIN (

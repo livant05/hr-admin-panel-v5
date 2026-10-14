@@ -230,16 +230,16 @@ LEFT JOIN (
          ) AS absent_days
   FROM attendance_logs al
   WHERE al.company_id = $1
-    AND al.date >= make_date($2::int, $3::int, 1)
-    AND al.date <  make_date($2::int, $3::int, 1) + INTERVAL '1 month'
+    AND al.date >= $2::date
+    AND al.date <  $3::date
   GROUP BY al.employee_id
 ) att ON att.employee_id = e.id
 LEFT JOIN (
   SELECT ol.employee_id, SUM(COALESCE(ol.amount, 0)) AS amount
   FROM overtime_logs ol
   WHERE ol.company_id = $1
-    AND ol.date >= make_date($2::int, $3::int, 1)
-    AND ol.date <  make_date($2::int, $3::int, 1) + INTERVAL '1 month'
+    AND ol.date >= $2::date
+    AND ol.date <  $3::date
   GROUP BY ol.employee_id
 ) ot ON ot.employee_id = e.id
 LEFT JOIN (
@@ -254,8 +254,8 @@ ORDER BY e.first_name, e.last_name
 
 type ListPayrollRunInputsParams struct {
 	CompanyID pgtype.UUID `json:"company_id"`
-	Year      int32       `json:"year"`
-	Month     int32       `json:"month"`
+	StartDate pgtype.Date `json:"start_date"`
+	EndDate   pgtype.Date `json:"end_date"`
 }
 
 type ListPayrollRunInputsRow struct {
@@ -280,12 +280,16 @@ type ListPayrollRunInputsRow struct {
 // work_type=0 as FALSY, so 0 must fall back to the legacy status check. A
 // plain COALESCE(work_type, ...) port would handle NULL but silently drop
 // those rows.
+// Date-based inputs (attendance, overtime) are bounded by the half-open range
+// [start_date, end_date): the whole month for 'mensual', days 1-15 or 16-end
+// for a quincena. The handler computes the range from the period.
 // Deductions carry NO date filter, matching
-// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941).
+// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941); the caller
+// scales the returned quota by the period factor.
 // No LIMIT/OFFSET, deliberately departing from the P2.1 rule-7 pagination
 // convention -- a partial payroll run is far worse than a slow one.
 func (q *Queries) ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error) {
-	rows, err := q.db.Query(ctx, listPayrollRunInputs, arg.CompanyID, arg.Year, arg.Month)
+	rows, err := q.db.Query(ctx, listPayrollRunInputs, arg.CompanyID, arg.StartDate, arg.EndDate)
 	if err != nil {
 		return nil, err
 	}
