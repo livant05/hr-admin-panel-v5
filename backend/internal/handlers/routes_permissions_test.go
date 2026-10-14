@@ -22,7 +22,8 @@ const zeroUUID = "00000000-0000-0000-0000-000000000001"
 //	handler   authorization enforced inside the handler (admin / medical)
 //	perm:a|b  route wrapper requires at least one of the module permissions
 var wantRouteClasses = map[string]string{
-	"GET /api/me": "open",
+	"GET /api/me":           "open",
+	"POST /api/auth/logout": "open", // authenticated, no module permission
 
 	"GET /api/departments":         "open",
 	"POST /api/departments":        "perm:settings",

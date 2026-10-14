@@ -11,6 +11,18 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const bumpUserTokenVersion = `-- name: BumpUserTokenVersion :exec
+UPDATE users
+SET token_version = token_version + 1
+WHERE id = $1
+`
+
+// Invalidates every token issued to the user (logout, role or status change).
+func (q *Queries) BumpUserTokenVersion(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, bumpUserTokenVersion, id)
+	return err
+}
+
 const createUser = `-- name: CreateUser :one
 INSERT INTO users (company_id, email, role, first_name, last_name, status, password_hash)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

@@ -24,7 +24,7 @@ Backend (`internal/auth`, `internal/handlers`, sqlc queries, new migration 0013)
 
 ## Tasks
 - [x] T1 — migration 0013 `users.token_version`; `tv` claim issued at login/register; middleware per-request check (exists, active, version match; role/company from DB); tests: deactivated user 401, demoted role applied on next request, version mismatch 401, missing `tv` treated as 0, unknown user 401. (route: delegated writer; trigger: 2+ non-trivial files)
-- [ ] T2 — `POST /api/auth/logout` bumps version (204); bump on role/status change and user delete; route classification test updated; tests for each bump path and that other users' tokens are unaffected. (route: same delegated writer)
+- [x] T2 — `POST /api/auth/logout` bumps version (204); bump on role/status change and user delete; route classification test updated; tests for each bump path and that other users' tokens are unaffected. (route: same delegated writer)
 - [ ] T3 — frontend `doLogout` calls `POST /api/auth/logout` best-effort (local clear always happens, no error toast if offline), harness test; README auth section. (route: same delegated writer)
 
 ## Acceptance criteria
@@ -36,7 +36,7 @@ Backend (`internal/auth`, `internal/handlers`, sqlc queries, new migration 0013)
 Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked on `fix/server-permissions`.
 
 ## Progress / evidence
-### T1 (commit hash recorded in the T2 entry; a commit cannot contain its own hash)
+### T1 — commit 306efda `fix(auth): check user status, role and token version on every request`
 - Route: delegated writer. TDD: on (source: orchestrator brief), runner `go test`.
 - Design: `auth.Signer.Middleware(next, lookup auth.SessionLookup)`; `SessionLookup func(ctx, userID) (auth.Session, error)` is injected, nil panics at construction (no JWT-only mode). `handlers.API.SessionLookup` implements it with sqlc `GetSessionUser` (PK lookup: status, role, company_id, token_version) and is wired in `Routes`. Not found / non-UUID subject -> 401, lookup error -> 500 (fail closed). Token without `tv` decodes as 0.
 - `Signer.Sign` now takes the token version; login uses `users.token_version`, register 0. `testutil.TokenAs(t, pool, signer, role)` now inserts a fresh user holding the role (role comes from the DB row).
@@ -45,5 +45,12 @@ Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked
 - RED: `go test ./internal/auth ./internal/handlers` failed to compile: `undefined: auth.Session`, `undefined: auth.SessionLookup`, `undefined: auth.ErrSessionNotFound`, `too many arguments in call to signer.Sign`, `too many arguments in call to ...Middleware` (new tests: TestMiddleware_SessionChecks, TestSessionCheck_*).
 - GREEN: `go test ./... -count=1` all packages ok; `go vet ./...` clean.
 
+### T2 (commit hash recorded in the T3 entry)
+- Route: same delegated writer. `POST /api/auth/logout` is a protected `open` route (behind the middleware; login/register stay public), 204. `changeUser` bumps `token_version` (sqlc `BumpUserTokenVersion`) in the same transaction when a PATCH actually changes role or status, and on a DELETE that deactivates; renames, unchanged values and repeat deletes do not bump.
+- Classification: `POST /api/auth/logout` added to `wantRouteClasses` as `open`.
+- Test adaptations: survivor token signed with its current version; the concurrent-demotion test resets `token_version` each round.
+- RED: `TestRoutes_EveryProtectedRouteIsClassified` (map entry without a registered route: POST /api/auth/logout); `TestLogout_InvalidatesEveryTokenOfTheCallerOnly` and `TestLogout_NonAdminRoleNeedsNoModulePermission` (got 404); `TestUserAdmin_BumpsTokenVersionOnRoleOrStatusChange` (role change: version = 0, want 1); `TestUserAdmin_DeleteBumpsTokenVersion` (delete: version = 0, want 1).
+- GREEN: `go test ./... -count=1` all ok; `go vet ./...` clean; concurrent-demotion test stable over -count=8.
+
 ## Next step
-T2.
+T3.

@@ -29,6 +29,8 @@ type Querier interface {
 	// One call per (serial, reason) per batch. A NULL last_pin keeps the previous
 	// value.
 	AddIngestRejections(ctx context.Context, arg AddIngestRejectionsParams) error
+	// Invalidates every token issued to the user (logout, role or status change).
+	BumpUserTokenVersion(ctx context.Context, id pgtype.UUID) error
 	// Soft delete (design Q3): exportDedCSV already reads status==='cancelled'
 	// -> "¿Cancelada? SI", and saldaDed already writes 'paid' -- the status
 	// value already exists and is already consumed by the frontend. Mirrors

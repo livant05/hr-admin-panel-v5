@@ -247,6 +247,22 @@ func (a *API) SessionLookup(ctx context.Context, userID string) (auth.Session, e
 	}, nil
 }
 
+// POST /api/auth/logout — authenticated, no module permission. Bumps the
+// caller's token_version, so every token the user holds (this device and any
+// other) is rejected from the next request on.
+func (a *API) Logout(w http.ResponseWriter, r *http.Request) {
+	id, err := stringToUUID(auth.UserIDFromContext(r.Context()))
+	if err != nil {
+		writeErrCode(w, http.StatusUnauthorized, codeUnauthorized, "invalid token subject")
+		return
+	}
+	if err := a.Queries.BumpUserTokenVersion(r.Context(), id); err != nil {
+		a.writeDBErr(w, err, "logout")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // GET /api/me — auth-protected, proves the JWT + context wiring works end to end.
 func (a *API) Me(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromContext(r.Context())

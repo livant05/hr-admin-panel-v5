@@ -240,6 +240,9 @@ var errLastActiveAdmin = errors.New("company must keep at least one active admin
 type userChange struct {
 	role, status string
 	write        func(q *db.Queries) (userResponse, error)
+	// revoke bumps the user's token_version in the same transaction as write,
+	// so tokens issued under the old role or status stop working at once.
+	revoke bool
 }
 
 // changeUser runs one user mutation under the last-active-admin guard.
@@ -279,6 +282,11 @@ func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, plan fu
 	if change.write != nil {
 		if out, err = change.write(q); err != nil {
 			return userResponse{}, err
+		}
+		if change.revoke {
+			if err = q.BumpUserTokenVersion(ctx, id); err != nil {
+				return userResponse{}, err
+			}
 		}
 	}
 	return out, tx.Commit(ctx)
@@ -384,7 +392,10 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		if req.Status != nil {
 			p.Status = status
 		}
-		return userChange{role: p.Role, status: p.Status, write: func(q *db.Queries) (userResponse, error) {
+		// Only an actual role or status change revokes: a rename or an
+		// unchanged value keeps the user signed in.
+		revoke := p.Role != cur.Role || p.Status != cur.Status
+		return userChange{role: p.Role, status: p.Status, revoke: revoke, write: func(q *db.Queries) (userResponse, error) {
 			updated, err := q.UpdateUser(r.Context(), p) // 23505 on lower(email) -> 409
 			return userResponse(updated), err
 		}}
@@ -417,7 +428,7 @@ func (a *API) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		if cur.Status == statusInactive {
 			return userChange{role: cur.Role, status: cur.Status} // idempotent: nothing to write
 		}
-		return userChange{role: cur.Role, status: statusInactive, write: func(q *db.Queries) (userResponse, error) {
+		return userChange{role: cur.Role, status: statusInactive, revoke: true, write: func(q *db.Queries) (userResponse, error) {
 			row, err := q.DeactivateUser(r.Context(), db.DeactivateUserParams{CompanyID: companyID, ID: id})
 			return userResponse(row), err
 		}}

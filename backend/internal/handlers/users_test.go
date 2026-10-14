@@ -737,7 +737,8 @@ func TestUsers_PatchRefusesToRemoveTheLastActiveAdmin(t *testing.T) {
 		}
 		// The caller just deactivated itself, so its token is dead (session
 		// check); the survivor acts with its own.
-		survivorTok, err := signer.Sign(second, c.CompanyID, "admin", 0)
+		// Re-promoting it earlier bumped its version, so sign for the current one.
+		survivorTok, err := signer.Sign(second, c.CompanyID, "admin", tokenVersionOf(t, pool, second))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -778,7 +779,7 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 	guardRaced := 0
 	for round := 0; round < rounds; round++ {
 		if _, err := pool.Exec(context.Background(),
-			`UPDATE users SET role = 'admin', status = 'active' WHERE id = ANY($1)`, ids[:]); err != nil {
+			`UPDATE users SET role = 'admin', status = 'active', token_version = 0 WHERE id = ANY($1)`, ids[:]); err != nil {
 			t.Fatalf("reset admins: %v", err)
 		}
 

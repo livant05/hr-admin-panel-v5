@@ -75,6 +75,7 @@ func (a *API) perm(keys []string, h http.HandlerFunc) http.HandlerFunc {
 func (a *API) protectedRoutes() []routeSpec {
 	return []routeSpec{
 		{"GET /api/me", open, a.Me},
+		{"POST /api/auth/logout", open, a.Logout}, // authenticated; behind the middleware, unlike login/register
 
 		{"GET /api/departments", open, a.ListDepartments},
 		{"POST /api/departments", need("settings"), a.CreateDepartment},

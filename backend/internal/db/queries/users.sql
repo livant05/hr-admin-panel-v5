@@ -72,3 +72,9 @@ UPDATE users
 SET status = 'inactive'
 WHERE id = $2 AND company_id = $1
 RETURNING id, company_id, email, role, first_name, last_name, status, created_at;
+
+-- name: BumpUserTokenVersion :exec
+-- Invalidates every token issued to the user (logout, role or status change).
+UPDATE users
+SET token_version = token_version + 1
+WHERE id = $1;
