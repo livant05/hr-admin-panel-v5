@@ -1,11 +1,21 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/livant05/rrhh-go/internal/auth"
+	db "github.com/livant05/rrhh-go/internal/db/generated"
+	"github.com/livant05/rrhh-go/internal/handlers"
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
 
@@ -119,5 +129,52 @@ func TestEmployees_ReadRedactsSensitiveFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// rolesLookupFails delegates to the real pool but fails the GetRoleByName
+// query, so only the role permission lookup errors while the employee rows
+// still load.
+type rolesLookupFails struct{ db.DBTX }
+
+type failedRow struct{ err error }
+
+func (r failedRow) Scan(...any) error { return r.err }
+
+func (f rolesLookupFails) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "name: GetRoleByName") {
+		return failedRow{errors.New("roles lookup unavailable")}
+	}
+	return f.DBTX.QueryRow(ctx, sql, args...)
+}
+
+// TestEmployees_ReadFailsLoudlyWhenThePermissionLookupFails pins that a
+// failed role lookup is a 500, never a silently redacted 200: the PATCH is a
+// full-column replace, so a permitted user saving a record that came back
+// with null salary/cedula would overwrite the real values.
+func TestEmployees_ReadFailsLoudlyWhenThePermissionLookupFails(t *testing.T) {
+	pool := testutil.Pool(t)
+	c := testutil.Company(t, pool, "EmpRedactFail")
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeSalary(1500))
+	seedMedRole(t, pool, c, "hasempfail", `{"employees": true}`)
+
+	signer := auth.NewSigner(testutil.TestSecret, time.Hour)
+	var logs bytes.Buffer
+	api := handlers.New(pool, signer, slog.New(slog.NewTextHandler(&logs, nil)))
+	token := c.TokenAs(t, pool, signer, "hasempfail")
+	api.Queries = db.New(rolesLookupFails{pool})
+	h := api.Routes(signer)
+
+	for _, path := range []string{"/api/employees", "/api/employees/" + emp.ID} {
+		rec := testutil.Do(t, h, http.MethodGet, path, token, nil)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("%s: expected 500 when the role lookup fails, got %d (body=%s)", path, rec.Code, rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), "8-") || strings.Contains(rec.Body.String(), `"salary"`) {
+			t.Fatalf("%s: the failed response must not carry employee data: %s", path, rec.Body.String())
+		}
+	}
+	if !strings.Contains(logs.String(), "roles lookup unavailable") {
+		t.Fatalf("the lookup failure must be logged, got log: %q", logs.String())
 	}
 }
