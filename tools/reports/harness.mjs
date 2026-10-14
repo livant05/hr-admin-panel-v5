@@ -1,12 +1,13 @@
 // tools/reports/harness.mjs
 //
-// Drives the REAL vacation pieces of hr_admin_panel.html: the "Vacaciones"
-// report (loadReport with rpt-type=vac) and the "días de vacaciones sin usar"
-// alert (calcAlerts), in a node:vm sandbox with fake Supa/DOM. Sources are
+// Drives the REAL report pieces of hr_admin_panel.html: the "Vacaciones" and
+// "Horas Extras" reports (loadReport with rpt-type=vac / ot_summary) and the
+// "días de vacaciones sin usar" alert (calcAlerts), in a node:vm sandbox with
+// fake Supa/DOM. Sources are
 // sliced out of the HTML by name and executed as written.
 //
-// Outside demo mode DS.leave_balances is emptied at sign-in and never
-// refilled, so both must read the balances from the API. leave_balances holds
+// Outside demo mode DS is emptied at sign-in and never refilled, so they must
+// read leave balances and overtime logs from the API. leave_balances holds
 // one row per employee and year with no carry-over, so both show one total per
 // employee summed over every year (the rule used by the liquidation and the
 // profile).
@@ -50,6 +51,7 @@ const srcs = [
   extractFunction(html, 'async function calcAlerts('),
 ].join('\n');
 
+const fmt = (v) => 'B/. ' + Number(v || 0).toFixed(2);
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 const BALS = [
@@ -58,21 +60,27 @@ const BALS = [
   { id: 'b3', company_id: 'c1', employee_id: 'e2', employee_name: 'Luis Gomez', year: 2026, earned_days: 15, used_days: 7, remaining_days: 8 },
 ];
 
-function makeEnv({ bals = BALS } = {}) {
+const OTS = [
+  { id: 'o1', company_id: 'c1', employee_id: 'e1', employee_name: 'Ana Diaz', date: '2026-09-02', hours: 2.1, amount: 21.5 },
+  { id: 'o2', company_id: 'c1', employee_id: 'e1', employee_name: 'Ana Diaz', date: '2026-09-20', hours: 5.2, amount: 52 },
+  { id: 'o3', company_id: 'c1', employee_id: 'e2', employee_name: 'Luis Gomez', date: '2026-10-01', hours: 3, amount: 30 },
+];
+
+function makeEnv({ bals = BALS, ots = OTS, type = 'vac' } = {}) {
   const charts = [];
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '', innerHTML: '', textContent: '' });
-  el('rpt-type').value = 'vac';
+  el('rpt-type').value = type;
   const sandbox = {
     A: { companyId: 'c1', demo: false },
     DS: { leave_balances: [], overtime_logs: [] },
-    escHtml,
+    escHtml, fmt,
     daysTo: () => null,
     renderRptChart: (labels, data, label) => charts.push({ labels, data, label }),
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
-      sel: async (tbl) => ({ employees: [], leave_requests: [], leave_balances: bals }[tbl] || []),
-      selAll: async (tbl) => ({ employees: [], leave_requests: [], leave_balances: bals }[tbl] || []),
+      sel: async (tbl) => ({ employees: [], leave_requests: [], leave_balances: bals, overtime_logs: ots }[tbl] || []),
+      selAll: async (tbl) => ({ employees: [], leave_requests: [], leave_balances: bals, overtime_logs: ots }[tbl] || []),
     },
     document: { getElementById: el },
   };
@@ -112,6 +120,24 @@ test('alerts stay quiet when nobody exceeds 20 unused days (unchanged)', async (
   const e = makeEnv({ bals: [BALS[2]] });
   const alerts = await e.run('calcAlerts()');
   assert.equal(alerts.filter((a) => a.cat === 'vacbal').length, 0);
+});
+
+test('Horas Extras report totals hours and amount per employee from the API', async () => {
+  const e = makeEnv({ type: 'ot_summary' });
+  await e.run('loadReport()');
+  const rows = e.el('rpt-tbody').innerHTML.split('</tr>').filter(Boolean);
+  assert.equal(rows.length, 2);
+  assert.match(rows[0], /<td>Ana Diaz<\/td><td>7\.3<\/td><td class="text-success">B\/\. 73\.50<\/td>/);
+  assert.match(rows[1], /<td>Luis Gomez<\/td><td>3<\/td><td class="text-success">B\/\. 30\.00<\/td>/);
+  assert.match(e.el('rpt-tfoot').innerHTML, /B\/\. 103\.50/);
+  assert.deepEqual(JSON.parse(JSON.stringify(e.charts.at(-1))), { labels: ['Ana Diaz', 'Luis Gomez'], data: [74, 30], label: 'HE B/.' });
+});
+
+test('Horas Extras report with no overtime shows an empty table and a zero total (unchanged)', async () => {
+  const e = makeEnv({ type: 'ot_summary', ots: [] });
+  await e.run('loadReport()');
+  assert.equal(e.el('rpt-tbody').innerHTML, '');
+  assert.match(e.el('rpt-tfoot').innerHTML, /B\/\. 0\.00/);
 });
 
 let failed = 0;

@@ -4191,12 +4191,15 @@ async function loadReport() {
     renderRptChart(bals.map(function(b){ return b.employee_name; }),bals.map(function(b){ return b.remaining_days; }),'Días Disponibles');
   } else if(type==='ot_summary'){
     if(rtitle) rtitle.textContent='Horas Extras';
-    var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; });
+    // From the API: DS is empty outside demo mode (Supa reads DS itself in demo)
+    var otRes=await Supa.selAll('overtime_logs'), logs=Array.isArray(otRes)?otRes:[];
     var byE={};
-    logs.forEach(function(l){ if(!byE[l.employee_name]) byE[l.employee_name]={hrs:0,total:0}; byE[l.employee_name].hrs+=l.hours||0; byE[l.employee_name].total+=l.amount||0; });
+    logs.forEach(function(l){ if(!byE[l.employee_name]) byE[l.employee_name]={hrs:0,total:0}; byE[l.employee_name].hrs+=Number(l.hours)||0; byE[l.employee_name].total+=Number(l.amount)||0; });
+    // hours are stored with one decimal; summing floats can print 7.300000000000001
+    Object.keys(byE).forEach(function(n){ byE[n].hrs=Math.round(byE[n].hrs*10)/10; });
     if(thead) thead.innerHTML='<th>Empleado</th><th>Horas</th><th>Total</th>';
     if(tbody) tbody.innerHTML=Object.keys(byE).map(function(n){ return '<tr><td>'+escHtml(n)+'</td><td>'+escHtml(byE[n].hrs)+'</td><td class="text-success">'+fmt(byE[n].total)+'</td></tr>'; }).join('');
-    var ttot=logs.reduce(function(s,l){ return s+(l.amount||0); },0);
+    var ttot=logs.reduce(function(s,l){ return s+(Number(l.amount)||0); },0);
     if(tfoot) tfoot.innerHTML='<th>Total</th><th></th><th class="text-success">'+fmt(ttot)+'</th>';
     renderRptChart(Object.keys(byE),Object.values(byE).map(function(v){ return Math.round(v.total); }),'HE B/.');
   }
