@@ -2362,8 +2362,22 @@ function startSession(res, email) {
   A.companyName=res.company_name||meta.company_name||'Mi Empresa';
   var uMeta={role:A.role,companyId:A.companyId,companyName:A.companyName,email:email,name:((meta.first_name||'')+' '+(meta.last_name||'')).trim()};
   try{localStorage.setItem('hr_sess',JSON.stringify(A.session)); localStorage.setItem('hr_meta',JSON.stringify(uMeta));}catch(e){}
-  loadUI(uMeta); showV('app'); go('dashboard');
-  loadRolePerms(); setTimeout(loadNotifications,1500);
+  loadUI(uMeta); showV('app'); enterApp();
+}
+
+// Opens the app after login/register/restore. Admin keeps the immediate flow;
+// any other role waits for its permissions (fail-closed) and lands on the first
+// page it may see instead of a denied dashboard.
+async function enterApp() {
+  if(A.role==='admin'){ go('dashboard'); loadRolePerms(); }
+  else{
+    await loadRolePerms();
+    if(!A.session) return; // logged out while the roles request was in flight
+    var first=Object.keys(PAGE_PERM_MAP).find(isPageAllowed);
+    if(first) go(first);
+    else toast('Tu rol no tiene módulos asignados. Contactá al administrador.','warning');
+  }
+  setTimeout(loadNotifications,1500);
 }
 
 // Shared by doLogout and the 401 hook: drops everything tied to the session.
@@ -2428,17 +2442,20 @@ var SIDEBAR_PERM_MAP=[
   ['m-announcements','documents',  null],
   ['m-settings',    'settings',    null]
 ];
+// Mirrors the server: admin is never restricted; every other role is
+// fail-closed (a missing key, roles row or failed fetch means denied).
+function permOk(pval,subKey){
+  if(pval===undefined||pval===null) return false;
+  if(subKey&&typeof pval==='object') return !!pval[subKey];
+  if(typeof pval==='object') return Object.keys(pval).some(function(k){return !!pval[k];});
+  return !!pval;
+}
 function applyPermissions(perms){
-  if(!perms) return;
+  perms=perms||{};
   document.querySelectorAll('.nav-sidebar .nav-item, .nav-sidebar .nav-header').forEach(function(el){ el.style.display=''; });
   SIDEBAR_PERM_MAP.forEach(function(entry){
     var menuId=entry[0], permKey=entry[1], subKey=entry[2];
-    var pval=perms[permKey];
-    var allowed;
-    if(pval===undefined||pval===null){ allowed=true; }
-    else if(subKey&&typeof pval==='object'){ allowed=!!pval[subKey]; }
-    else if(typeof pval==='object'){ allowed=Object.keys(pval).some(function(k){return !!pval[k];}); }
-    else{ allowed=!!pval; }
+    var allowed=A.role==='admin'||permOk(perms[permKey],subKey);
     var el=document.getElementById(menuId);
     if(el&&el.parentElement) el.parentElement.style.display=allowed?'':'none';
   });
@@ -2459,20 +2476,16 @@ var PAGE_PERM_MAP={
   'recruitment':'recruitment','settings':'settings'
 };
 function isPageAllowed(pg){
-  if(!A.perms) return true;
+  if(A.role==='admin') return true;
   var entry=PAGE_PERM_MAP[pg]; if(!entry) return true;
   var permKey=Array.isArray(entry)?entry[0]:entry;
   var subKey=Array.isArray(entry)?entry[1]:null;
-  var pval=A.perms[permKey];
-  if(pval===undefined||pval===null) return true;
-  if(subKey&&typeof pval==='object') return !!pval[subKey];
-  if(typeof pval==='object') return Object.keys(pval).some(function(k){return !!pval[k];});
-  return !!pval;
+  return permOk((A.perms||{})[permKey],subKey);
 }
 async function loadRolePerms(){
-  var roles=await Supa.sel('roles'); if(!Array.isArray(roles)) return;
-  var role=roles.find(function(r){ return r.name===A.role; });
-  if(role&&role.permissions){ A.perms=role.permissions; applyPermissions(role.permissions); }
+  var roles=await Supa.sel('roles'), role=Array.isArray(roles)&&roles.find(function(r){ return r.name===A.role; });
+  A.perms=role&&role.permissions&&typeof role.permissions==='object' ? role.permissions : {};
+  applyPermissions(A.perms);
 }
 
 // ════════════════ DASHBOARD ══════════════════════════════════
@@ -5188,7 +5201,7 @@ async function init(){
     if(!A.demo&&tokenExpired(sess.access_token)){ clearSession(); showV('login'); return; }
     try{
       A.session=sess; A.role=meta.role; A.companyId=meta.companyId; A.companyName=meta.companyName;
-      loadUI(meta); showV('app'); go('dashboard'); loadRolePerms(); setTimeout(loadNotifications,1500); return;
+      loadUI(meta); showV('app'); enterApp(); return;
     }catch(e){}
   }
   showV('login');
