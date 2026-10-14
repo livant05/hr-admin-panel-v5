@@ -57,5 +57,13 @@ Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked
 - RED (new tests against the unmodified page): FAIL "logout sends one POST /api/auth/logout ..." (0 !== 1), FAIL "logout still signs out locally ... unreachable" (0 !== 1), FAIL "logout answered 401 or 500 ..." (0 !== 1); 32/35 passed. Note: the page change was written before the first run and reverted with `git stash` to take this RED measurement.
 - GREEN: session 35/35, permissions 13/13, leave 7/7, zk-feed 13/13; `node --check` of the main script ok.
 
+### Orchestrator checks (2026-10-13)
+- Spot check: `go test ./internal/auth/ ./internal/handlers/ -count=1` ok.
+- Dev DB: migration 0013 applied with psql (before the new binary); backend rebuilt, nginx restarted.
+- Live (curl): same user on two devices -> payroll 200 on both; logout from D1 204 -> D1 and D2 401, admin 200; re-login 200; admin PATCH role -> old token 401, re-login evaluated with the new role (payroll 403, vacations 200, /me role updated); DELETE user -> token 401 and login 401; admin unaffected. Versions after: test user 3, admin 0.
+- Live (Chrome, cache-busted): "Cerrar sesión" sends `POST /api/auth/logout` 204, toast "Sesión cerrada", local session cleared, old token 401. An open tab whose token was revoked from another device shows a single "Sesión expirada" and returns to login. Test user and roles deleted.
+- RDD: assess base 3a57996 -> high (hot_path, process_boundary), review due. Consent relayed, user granted. 4-lens native review (lineage review-d2306357519c5a0a): approved, acknowledged (`gentle-ai.review-acknowledged/v1`). Reviewed boundary advances to a32cede.
+- Informational follow-ups from the review (not blocking): R4 session lookup failure returns 500 without logging the error (`internal/auth/auth.go:147-150`); R3 concurrent-demotion test depends on scheduling to reach the 409 guard (`users_test.go:848-850`), possible flakiness.
+
 ## Next step
-Orchestrator: apply migration 0013 to the dev DB, live verification, then delivery decision.
+Optional follow-ups R4/R3; delivery (PR chain) is the user's decision.
