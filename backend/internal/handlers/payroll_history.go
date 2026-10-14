@@ -313,7 +313,7 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 
 	// A month is paid as one mensual run or as quincenas, never both.
 	conflicts, err := q.CountConflictingPayrollPeriods(r.Context(), db.CountConflictingPayrollPeriodsParams{
-		CompanyID: companyID, Year: req.Year, Month: req.Month, Column4: req.Period,
+		CompanyID: companyID, Year: req.Year, Month: req.Month, Period: req.Period,
 	})
 	if err != nil {
 		a.writeDBErr(w, err, "create payroll run: check exclusivity")

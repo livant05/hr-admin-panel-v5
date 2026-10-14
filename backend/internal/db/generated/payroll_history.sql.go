@@ -30,7 +30,7 @@ type CountConflictingPayrollPeriodsParams struct {
 	CompanyID pgtype.UUID `json:"company_id"`
 	Year      int32       `json:"year"`
 	Month     int32       `json:"month"`
-	Column4   string      `json:"column_4"`
+	Period    string      `json:"period"`
 }
 
 // A month is paid either as ONE 'mensual' run or as quincenas, never both.
@@ -43,7 +43,7 @@ func (q *Queries) CountConflictingPayrollPeriods(ctx context.Context, arg CountC
 		arg.CompanyID,
 		arg.Year,
 		arg.Month,
-		arg.Column4,
+		arg.Period,
 	)
 	var conflicts int32
 	err := row.Scan(&conflicts)
