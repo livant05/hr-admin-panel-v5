@@ -237,6 +237,9 @@ func (a *API) SessionLookup(ctx context.Context, userID string) (auth.Session, e
 		return auth.Session{}, auth.ErrSessionNotFound
 	}
 	if err != nil {
+		// Runs on every authenticated request; the middleware answers 500
+		// without detail, so this is the only trace of the failure.
+		a.Log.Error("session lookup", "user_id", userID, "err", err)
 		return auth.Session{}, err
 	}
 	return auth.Session{
