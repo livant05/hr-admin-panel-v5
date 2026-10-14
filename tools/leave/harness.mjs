@@ -66,6 +66,8 @@ const srcs = [
   extractFunction(html, 'async function saveLeaveReq('),
   extractFunction(html, 'async function approveLeave('),
   extractMaybeAsync(html, 'function exportVacCSV('),
+  extractFunction(html, 'function csvCell('),
+  extractFunction(html, 'function csvText('),
 ].join('\n');
 
 const res = (status, body) => ({

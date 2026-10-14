@@ -55,6 +55,8 @@ const srcs = [
   extractFunction(html, 'function apiErrMsg('),
   extractMaybeAsync(html, 'function loadAttReport('),
   extractMaybeAsync(html, 'function exportAttReport('),
+  extractFunction(html, 'function csvCell('),
+  extractFunction(html, 'function csvText('),
   extractFunction(html, 'function hwCalc('),
   html.includes('async function attMonthLogs(') ? extractFunction(html, 'async function attMonthLogs(') : '',
 ].join('\n');

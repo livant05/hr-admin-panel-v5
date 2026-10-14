@@ -59,6 +59,8 @@ const srcs = [
   extractMaybeAsync(html, 'function exportOTCSV('),
   extractMaybeAsync(html, 'function exportAttCSV('),
   extractMaybeAsync(html, 'function exportAllCSV('),
+  optional('function csvCell('),
+  optional('function csvText('),
   extractFunction(html, 'function hwCalc('),
 ].join('\n');
 
@@ -227,6 +229,17 @@ test('exportAllCSV with no employees warns and downloads nothing', async () => {
   await e.run('exportAllCSV()');
   assert.equal(e.downloads.length, 0);
   assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+test('CSV exports neutralize text cells that a spreadsheet would run as a formula', async () => {
+  const e = makeEnv({ ots: [
+    { id: 'x1', company_id: 'c1', employee_name: '=HYPERLINK("http://evil","x")', date: '2026-10-02', hours: 1, type: 'regular', amount: 10, notes: '+cmd' },
+    { id: 'x2', company_id: 'c1', employee_name: '@SUM(A1)', date: '2026-10-03', hours: 2, type: 'regular', amount: -5, notes: '-nota' },
+  ] });
+  await e.run('exportOTCSV()');
+  const lines = e.downloads[0].csv.split('\n');
+  assert.equal(lines[1], '"\'=HYPERLINK(""http://evil"",""x"")","2026-10-02","1","regular","10","\'+cmd"');
+  assert.equal(lines[2], '"\'@SUM(A1)","2026-10-03","2","regular","-5","\'-nota"', 'a numeric -5 stays a number; text starting with - is neutralized');
 });
 
 let failed = 0;
