@@ -87,5 +87,15 @@ Forecast ~600-900 authored lines (mostly tests). Strategy: continue the Feature 
 - Checks: `go build`, `go vet` clean; full suite `go test ./... -count=1` with TEST_DB_URL all ok. Dev: 0014 re-applied with psql, idempotent (notices only), indexes `uq_epr_run_period_v2` + `uq_payroll_history_period`.
 - RDD assess base ae0e51b: medium, `review_due: false` (`under_budget`).
 
+## Delivery (2026-10-14, user: "dale, prepará el PR de planilla")
+Feature Branch Chain on tracker #33, after #67; one slice per task:
+| PR | Branch | Commits | Authored +/- |
+|---|---|---|---|
+| #68 | `auth-cutover/s10a-payroll-period-calc` | 092ca2d | +283/-27 |
+| #69 | `auth-cutover/s10b-payroll-period-ledger` | 60c7f40 | +443/-24 (`size:exception`) |
+| #70 | `auth-cutover/s10c-payroll-frontend` | 37acc09..ae0e51b | +336/-23 |
+| #71 | `auth-cutover/s10d-payroll-migration-order` | 8b5e89f..be9c13e + this record | +110/-9 |
+Nothing merged.
+
 ## Next step
-Push/PR in the chain after #67 (user decision). Open: R1/R3 production pre-check for `period='quincenal'`; payslip overtime with cached row (product decision).
+Human review and merge down the chain. Open: R1/R3 production pre-check for `period='quincenal'`; payslip overtime with cached row (product decision).
