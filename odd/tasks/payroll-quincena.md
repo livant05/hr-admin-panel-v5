@@ -66,5 +66,13 @@ Forecast ~600-900 authored lines (mostly tests). Strategy: continue the Feature 
 - Fixed in passing (same lines): payslip fallback subtracted the quota again from the server net. Latent, not changed: with a cached row `cachedRow.att.otAmount` is undefined, so payslip overtime total is always 0.
 - Commit: see git log (`fix(frontend): quincena payroll save guard and payslip ranges`).
 
+### Orchestrator checks (2026-10-13)
+- Spot check: `go test -race ./internal/payroll/ ./internal/handlers/ -run 'Payroll|Quincena|Bases|Liquidation'` ok; payroll harness 12/12.
+- Dev DB: 0014 applied with psql; backend rebuilt, nginx restarted.
+- Live (curl, Sept 2026 fixtures for Juan, salary 1000: present 5th, absent 8th, OT 10 on 5th and 30 on 20th, active quota 100): mensual b 1006.67 / quota 100; quincenal1 b 476.67 (absence only here), OT 10, quota 50; quincenal2 b 530.00, OT 30, quota 50 -> halves sum to the mensual base. Legacy `quincenal` -> 400 with the allowed values. Runs: q1 201, q2 201, re-run q1 201, parallel double q2 201+201 -> one history row per period; mensual same month -> 409. Ledger: 2 rows per employee labelled "Septiembre 2026 - 1ra/2da Quincena". Liquidation bases: months 1, sal30 1000 (halves summed).
+- Live (Chrome): both quincenas preview (no 400); double `savePayrollRun()` -> one POST; 0 JS errors. The 409 toast showed the English server text -> fixed in 94216fd (`apiErrMsg` conflict override, Spanish text; harness RED 11/12 -> GREEN 12/12; other harnesses green; `node --check` ok); re-verified live after an nginx restart (bind-mount keeps the old inode after an editor replaces the file).
+- Test fixtures, Sept runs and ledger rows deleted; dev DB back to its prior rows.
+- Follow-up, needs a product decision: payslip overtime total is 0 when a cached row exists (`cachedRow.att.otAmount` undefined); showing it must not double-count the server `b`.
+
 ## Next step
-Orchestrator: apply 0014 in dev, push/PR (chain after #67).
+RDD review (assess: high, process_boundary), then push/PR in the chain after #67.
