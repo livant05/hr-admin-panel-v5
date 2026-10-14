@@ -201,7 +201,7 @@ test('printPayslip net comes from the server row (quota already inside), not min
 
 // The server's b already includes ot_amt (b = base - absences + overtime) and
 // css/se/isr/net are computed on that b, so the payslip only itemizes it.
-const OT_ROW = { b: 1500, ot_amt: 30, css: 146.25, se: 18.75, isr: 0, ded: 165, ded_quota: 40, net: 1295 };
+const OT_ROW = { b: 1500, ot_amt: 30, css: 146.25, se: 18.75, isr: 0, ded: 165, ded_quota: 40, net: 1295, tot: 1900 };
 
 test('printPayslip HH.EE. (no cache): overtime itemized inside the server gross, never added twice', async () => {
   const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
@@ -259,14 +259,27 @@ test('printPayslip (cached row from Calcular) lists the installments too, not on
   assert.match(doc, /TOTAL DEDUCCIONES<\/td><td style="color:#dc3545">- 205\.00/);
 });
 
-test('printPayslip without HH.EE.: gross shown as one line, no overtime rows (unchanged)', async () => {
+test('printPayslip without HH.EE.: the gross (overtime included) is labelled Salario Bruto, no overtime rows', async () => {
   const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
   e.run('_prRows = []');
   await e.run("printPayslip('e1')");
   const doc = e.written.join('');
-  assert.match(doc, /<td>Salario Base<\/td><td>1500\.00</);
+  assert.match(doc, /<td>Salario Bruto<\/td><td>1500\.00</);
+  assert.match(doc, /<small>Salario Bruto<\/small><div class="val">1500\.00</);
+  assert.doesNotMatch(doc, /Salario Base/, 'the gross includes overtime, so it is not the base salary');
   assert.doesNotMatch(doc, /Horas Extras nocturno/);
   assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1295\.00</);
+});
+
+test('printPayslip with HH.EE. and Aportes Patronales: Costo Total Empresa is the server total, overtime not added twice', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  e.el('slip-show-pat').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /<small>Salario Base<\/small><div class="val">1470\.00</);
+  assert.match(doc, /Costo Total Empresa<\/td><td style="color:#e65100">1900\.00</);
 });
 
 test('savePayrollRun: a double click sends ONE request and the button is disabled meanwhile', async () => {
