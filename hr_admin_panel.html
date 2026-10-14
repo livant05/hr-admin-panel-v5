@@ -3588,18 +3588,25 @@ async function saveOT() {
   if(hrs>3){toast('⚠ Art. 36 num.4: máximo 3 horas extras por día','warning'); return;}
   var sal=parseFloat(sel?sel.getAttribute('data-sal'):0)||0, wh=parseFloat(sel?sel.getAttribute('data-wh'):48)||48;
   var hrRate=sal/(wh*(52/12)), type=gv('ot-type')||'regular', valor=hrRate*(OT_RATES[type]||1.25)*hrs;
-  await Supa.ins('overtime_logs',{employee_id:empId,employee_name:sel?sel.text:'—',date:gv('ot-date')||TS,hours:hrs,type:type,hourly_rate:hrRate,amount:valor,notes:gv('ot-notes')});
+  var r=await Supa.ins('overtime_logs',{employee_id:empId,employee_name:sel?sel.text:'—',date:gv('ot-date')||TS,hours:hrs,type:type,hourly_rate:hrRate,amount:valor,notes:gv('ot-notes')});
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudieron guardar las horas extras'),'danger'); return; }
   toast('✅ Horas extras guardadas'); renderOTTable();
 }
-function renderOTTable() {
-  var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; }).sort(function(a,b){ return b.date.localeCompare(a.date); });
+async function renderOTTable() {
+  // From the API: DS is empty outside demo mode (Supa reads DS itself in demo)
+  var res=await Supa.selAll('overtime_logs');
+  var logs=(Array.isArray(res)?res:[]).slice().sort(function(a,b){ return String(b.date||'').localeCompare(String(a.date||'')); });
   var tb=document.getElementById('ot-tbody'), tl={regular:'Diurna +25%',mixed:'Mixta +50%',night:'Nocturna +75%',sunday:'Descanso +50%',holiday:'Festivo +150%'};
   if(tb) tb.innerHTML=logs.length?logs.map(function(l){ return '<tr><td><strong>'+escHtml(l.employee_name)+'</strong></td><td>'+escHtml(l.date)+'</td><td><strong>'+escHtml(l.hours)+'</strong> hrs</td><td><span class="ot-type ot-'+escHtml(l.type)+'">'+(tl[l.type]||escHtml(l.type))+'</span></td><td class="text-success"><strong>'+fmt(l.amount)+'</strong></td><td><small>'+escHtml(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delOT(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin registros de horas extras.</td></tr>';
-  var tot=logs.reduce(function(s,l){ return s+(l.amount||0); },0);
+  var tot=logs.reduce(function(s,l){ return s+(Number(l.amount)||0); },0);
   var tf=document.getElementById('ot-tfoot');
   if(tf) tf.innerHTML=logs.length?'<td colspan="4" class="text-right pr-total-row"><strong>Total Horas Extras</strong></td><td class="text-success pr-total-row"><strong>'+fmt(tot)+'</strong></td><td colspan="2"></td>':'';
 }
-async function delOT(id) { await Supa.del('overtime_logs',id); toast('Eliminado','info'); renderOTTable(); }
+async function delOT(id) {
+  var r=await Supa.del('overtime_logs',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar el registro'),'danger'); return; }
+  toast('Eliminado','info'); renderOTTable();
+}
 async function exportOTCSV() {
   // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
   var logs=await Supa.selAll('overtime_logs');
