@@ -2893,16 +2893,20 @@ function initAttRepSelectors() {
   MONTHS.forEach(function(m,i){ var o=document.createElement('option'); o.value=i+1; o.textContent=m; if(i===TD.getMonth()) o.selected=true; ms.appendChild(o); });
   for(var y=TD.getFullYear();y>=TD.getFullYear()-2;y--){ var o=document.createElement('option'); o.value=y; if(y===TD.getFullYear()) o.selected=true; o.textContent=y; ys.appendChild(o); }
 }
-async function loadAttReport() {
-  var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
-  // Employees and logs come from the API (DS is empty outside demo mode). The
-  // month is matched on the "YYYY-MM" text: new Date('YYYY-MM-01') is UTC
-  // midnight, which getMonth() in Panama (UTC-5) puts in the previous month.
+// Attendance logs of one month, shared by the monthly report and its export.
+// They come from the API (DS is empty outside demo mode). The month is matched
+// on the "YYYY-MM" text: new Date('YYYY-MM-01') is UTC midnight, which
+// getMonth() in Panama (UTC-5) puts in the previous month.
+async function attMonthLogs(mo, yr) {
   var ym=yr+'-'+(mo<10?'0':'')+mo, last=new Date(yr,mo,0).getDate();
   // Demo-mode Supa matches every filter key against a row field, so the range only goes to the API
   var range=A.demo?{}:{date_from:ym+'-01',date_to:ym+'-'+last};
-  var logRes=await Supa.selAll('attendance_logs',range);
-  var logs=(Array.isArray(logRes)?logRes:[]).filter(function(l){ return String(l.date||'').slice(0,7)===ym; });
+  var res=await Supa.selAll('attendance_logs',range);
+  return (Array.isArray(res)?res:[]).filter(function(l){ return String(l.date||'').slice(0,7)===ym; });
+}
+async function loadAttReport() {
+  var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
+  var logs=await attMonthLogs(mo,yr);
   var empRes=await Supa.selAll('employees',{status:'active'});
   var byEmp={};
   (Array.isArray(empRes)?empRes:[]).filter(function(e){ return e.status==='active'; }).forEach(function(e){
@@ -2919,7 +2923,13 @@ async function exportAttCSV() {
   var csv=[['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+String(x!=null?x:'').split('"').join('""')+'"'; }).join(','); }).join('\n');
   downCSV(csv,'asistencia.csv'); toast('Exportado 📥');
 }
-function exportAttReport() { var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear(); var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; }); var csv=[['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥'); }
+async function exportAttReport() {
+  var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
+  var logs=await attMonthLogs(mo,yr);
+  if(!logs.length){ toast('Sin datos','warning'); return; }
+  var csv=[['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+String(x!=null?x:'').split('"').join('""')+'"'; }).join(','); }).join('\n');
+  downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥');
+}
 
 async function exportPayDayReloj() {
   var fromStr=document.getElementById('pd-from').value;
