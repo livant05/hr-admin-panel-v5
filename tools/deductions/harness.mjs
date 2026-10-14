@@ -84,6 +84,7 @@ function makeEnv({ deds = API_DEDS, bals = API_BALS, insResult = null, updResult
     calcLiq: () => {},
     TS: '2026-10-14',
     API_FIELD_ES: { quota: 'cuota' },
+    API_CONFLICT_ES: {},
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
       sel: async (tbl, flt) => { calls.push({ fn: 'sel', tbl, flt }); return pick({ employees: [EMP], deductions: deds, leave_balances: bals }[tbl] || [], flt); },

@@ -4712,18 +4712,30 @@ var API_FIELD_ES={email:'email',first_name:'nombre',last_name:'apellido',role:'r
   salary_min:'salario mínimo',salary_max:'salario máximo',full_name:'nombre',id_number:'cédula',phone:'teléfono',
   nationality:'nacionalidad',resume_notes:'notas del CV',job_posting_id:'vacante',candidate_id:'candidato',
   stage:'etapa',notes:'notas',applied_at:'fecha'};
+// The Go API's own conflict texts are English; recruitment conflicts arrive in
+// Spanish already and are shown as they come.
+var API_CONFLICT_ES={
+  'already exists':'Ya existe un registro con esos datos',
+  'leave request already decided':'La solicitud ya fue resuelta',
+  'referenced record missing':'Un registro relacionado ya no existe',
+  'company must keep at least one active admin':'La empresa debe conservar al menos un administrador activo'
+};
 function apiErrMsg(err,fallback,o){
   o=o||{};
   var code=err&&err.code, msg=(err&&err.message)||'';
   if(code==='forbidden') return o.forbidden||'No tienes permiso para esta acción';
-  if(code==='conflict') return o.conflict?o.conflict(msg):(msg||'La operación entra en conflicto con el estado actual');
+  if(code==='conflict') return o.conflict?o.conflict(msg):(API_CONFLICT_ES[msg]||msg||'La operación entra en conflicto con el estado actual');
   if(code==='not_found'&&o.notFound) return o.notFound;
   if(code==='validation_failed'){
     var f=Object.keys((err&&err.fields)||{}).map(function(k){ return API_FIELD_ES[k]||k; });
     return f.length?'Datos inválidos: revisa '+f.join(', '):'Datos inválidos';
   }
   if(code==='rate_limited') return 'Demasiadas solicitudes, intenta de nuevo en un momento';
-  // Unmapped codes (bad_request, internal, network errors) keep the reason; toast() escapes it.
+  // The server's texts for these codes are generic English ("not found",
+  // "invalid body", "internal error"), so the user gets a Spanish reason instead.
+  var reason={not_found:'el registro no existe',bad_request:'la solicitud no es válida',internal:'error interno del servidor',unauthorized:'la sesión expiró',network:'no se pudo conectar con el servidor'}[code];
+  if(reason) return fallback+': '+reason;
+  // Unknown codes keep the server reason; toast() escapes it.
   return msg?fallback+': '+msg:fallback;
 }
 // Users screen wording: the 409 code is shared, so the last-admin guard is told apart by its message.

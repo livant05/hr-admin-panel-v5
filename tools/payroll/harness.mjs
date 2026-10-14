@@ -93,6 +93,7 @@ function makeEnv({ period = 'quincenal1', previewRow = {} } = {}) {
     A: { companyId: 'c1', companyName: 'Acme', demo: false },
     DS: { overtime_logs: OT, deductions: DEDS },
     MONTHS, fmt, escHtml,
+    API_FIELD_ES: {}, API_CONFLICT_ES: {},
     TD: new Date('2025-06-20T12:00:00Z'),
     seniStr: () => '1 año',
     getWorkingDays: () => 22,

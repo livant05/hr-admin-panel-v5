@@ -76,6 +76,7 @@ function makeEnv({ ots = OTS, insResult = null, delResult = null } = {}) {
     TS: '2026-10-14',
     OT_RATES: { regular: 1.25, mixed: 1.5, night: 1.75, sunday: 1.5, holiday: 2.5 },
     API_FIELD_ES: {},
+    API_CONFLICT_ES: {},
     fmt, escHtml,
     gv: (id) => el(id).value,
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,

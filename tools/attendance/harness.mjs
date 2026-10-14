@@ -80,6 +80,7 @@ function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updRe
     TD: new Date('2026-10-14T12:00:00Z'),
     escHtml: (v) => String(v ?? ''),
     API_FIELD_ES: {},
+    API_CONFLICT_ES: {},
     gv: (id) => el(id).value,
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {

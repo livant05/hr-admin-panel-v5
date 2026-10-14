@@ -58,8 +58,9 @@ function extractMaybeAsync(src, header) {
 }
 const supaSrc = between('var Supa = {', '\n};\n') + '\n};\n';
 const fieldsSrc = between('var API_FIELD_ES=', '};') + '};';
+const conflictsSrc = between('var API_CONFLICT_ES=', '};') + '};';
 const srcs = [
-  supaSrc, fieldsSrc,
+  supaSrc, fieldsSrc, conflictsSrc,
   extractFunction(html, 'function gv('),
   extractFunction(html, 'function apiErrMsg('),
   extractFunction(html, 'async function saveLeaveReq('),
