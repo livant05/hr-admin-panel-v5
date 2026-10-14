@@ -70,6 +70,13 @@ Forecast ~550-700 authored lines (mostly tests). Strategy: `ask-on-risk` (defaul
 ### T2 hash: a279676. T3 (commit subject: `docs(api): document server-side module permissions`)
 - README: new "Module permissions (server-side)" section with the route map and employees redaction; recruitment sections no longer say "any authenticated role".
 - Verification: `go build ./... && go vet ./...` clean; `go test ./... -count=1` all packages ok (see final report).
+- T3 hash: 5a10511.
+
+### Orchestrator checks (2026-10-13)
+- Spot check: `go test ./internal/handlers/ -count=1` ok (37s).
+- RDD assess `--base-ref 429ed0f --committed-only`: risk `medium`, `review_due: false` (`under_budget`); no native review started. Writer self-verification + parent spot check (medium tier, non-small writer).
+- Delivery: running count ~1040 changed lines (mostly tests and route-table re-indent), above the ~400 budget; chain strategy pending user choice before any PR.
+- Not run: live E2E on the dev stack (needs backend image rebuild and a non-admin test user).
 
 ## Next step
 User review; push / PR is the user's decision.
