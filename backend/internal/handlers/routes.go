@@ -7,8 +7,9 @@ import (
 )
 
 // gateKind classifies how a protected route is authorized. Every route in
-// protectedRoutes MUST carry one: routes_test.go pins the full classification
-// table, so a route added without a deliberate decision fails the build.
+// protectedRoutes MUST carry one: TestRoutes_EveryProtectedRouteIsClassified
+// (routes_permissions_test.go) pins the full classification table, so a route
+// added without a deliberate decision fails that test.
 type gateKind int
 
 const (
@@ -160,8 +161,9 @@ func (a *API) protectedRoutes() []routeSpec {
 		{"DELETE /api/attendance_logs/{id}", need("attendance"), a.DeleteAttendanceLog}, // hard delete (Q3)
 
 		// leave_balances: no generic POST, no DELETE (design Q3) — rows are owned
-		// by the accrual scheduler. The one exception is the admin-gated manual
-		// accrual trigger below; Go 1.22 ServeMux ranks the literal
+		// by the accrual scheduler. The one exception is the manual accrual
+		// trigger below, gated like the rest of the module by `vacations` (the
+		// handler checks the same permission again); Go 1.22 ServeMux ranks the literal
 		// "/accrue" path above the "/{id}" pattern, so there is no registration
 		// conflict (design Q5c).
 		{"GET /api/leave_balances", need("vacations"), a.ListLeaveBalances},
