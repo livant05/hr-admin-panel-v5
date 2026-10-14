@@ -657,7 +657,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="col-md-2"><select id="pr-year" class="form-control form-control-sm" onchange="loadPayroll()"></select></div>
           <div class="col-md-6 text-right">
             <button class="btn btn-outline-secondary btn-sm mr-1" onclick="seedTestAttendance()" title="Insertar asistencia de prueba para el mes actual"><i class="fas fa-database mr-1"></i>Datos de prueba</button>
-            <button class="btn btn-info btn-sm mr-1" onclick="savePayrollRun()"><i class="fas fa-save mr-1"></i>Guardar historial</button>
+            <button id="pr-save-btn" class="btn btn-info btn-sm mr-1" onclick="savePayrollRun()"><i class="fas fa-save mr-1"></i>Guardar historial</button>
             <button class="btn btn-success btn-sm mr-1" onclick="exportPayrollCSV()"><i class="fas fa-file-csv mr-1"></i>CSV</button>
             <button class="btn btn-danger btn-sm" onclick="printPayroll()"><i class="fas fa-print mr-1"></i>Imprimir</button>
           </div>
@@ -3013,22 +3013,40 @@ function initPRSelectors() {
   for(var y=TD.getFullYear();y>=TD.getFullYear()-3;y--){ var o=document.createElement('option'); o.value=y; if(y===TD.getFullYear()) o.selected=true; o.textContent=y; ys.appendChild(o); }
 }
 var _prRows = [];
+// Period vocabulary shared with the Go API ('mensual' | 'quincenal1' | 'quincenal2').
+// A quincena pays HALF of the base salary and HALF of each deduction quota
+// (the server applies the same factor); date-based inputs (attendance,
+// overtime) only count inside the half: days 1-15 / day 16 to month end.
+var PR_PERIODS={mensual:{factor:1,label:'Mensual'},quincenal1:{factor:0.5,label:'1ra Quincena'},quincenal2:{factor:0.5,label:'2da Quincena'}};
+
+function prFactor(period){ return PR_PERIODS[period]?PR_PERIODS[period].factor:1; }
+function prPeriodLabel(period){ return PR_PERIODS[period]?PR_PERIODS[period].label:(period==='quincenal'?'Quincenal':String(period||'')); }
+function prQuota(quota,period){ return (quota||0)*prFactor(period); }
+// True when a 'YYYY-MM-DD' date falls inside the selected period of year/month.
+function prInPeriod(dateStr,period,year,month){
+  if(!dateStr) return false;
+  var pfx=year+'-'+(month<10?'0'+month:''+month);
+  if(String(dateStr).substring(0,7)!==pfx) return false;
+  var day=parseInt(String(dateStr).substring(8,10),10);
+  if(period==='quincenal1') return day<=15;
+  if(period==='quincenal2') return day>=16;
+  return true;
+}
 async function loadPayroll() {
   var emps=await Supa.sel('employees',{status:'active'});
   var actives=Array.isArray(emps)?emps:[];
   var period=document.getElementById('pr-period').value||'mensual';
   var month=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
   var year=parseInt(document.getElementById('pr-year').value)||TD.getFullYear();
-  var factor=period==='mensual'?1:0.5;
+  var factor=prFactor(period);
 
-  var mPfx=year+'-'+(month<10?'0'+month:''+month);
   var allAtt=await Supa.sel('attendance_logs');
   var allOT=await Supa.sel('overtime_logs');
-  var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return l.date&&l.date.startsWith(mPfx); }):[];
-  var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return o.date&&o.date.startsWith(mPfx); }):[];
+  var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return prInPeriod(l.date,period,year,month); }):[];
+  var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return prInPeriod(o.date,period,year,month); }):[];
   // Active medical records starting in the selected month (display-only badge)
   var allMed=await Supa.selAll('medical_records',{status:'activa'});
-  var mMed=Array.isArray(allMed)?allMed.filter(function(r){ return r.start_date&&r.start_date.substring(0,7)===mPfx; }):[];
+  var mMed=Array.isArray(allMed)?allMed.filter(function(r){ return prInPeriod(r.start_date,period,year,month); }):[];
   var wDays=getWorkingDays(year,month);
   var pDays=period==='mensual'?wDays:Math.floor(wDays/2);
 
@@ -3182,7 +3200,6 @@ async function printPayslip(empId) {
   var yr=document.getElementById('pr-year').value||TD.getFullYear();
   var period=document.getElementById('pr-period').value||'mensual';
   var perLbl={mensual:'Mensual',quincenal1:'1ra Quincena',quincenal2:'2da Quincena'};
-  var factor=period==='mensual'?1:0.5;
   // Use cached attendance data from loadPayroll if available
   var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
   var pr;
@@ -3202,13 +3219,13 @@ async function printPayslip(empId) {
     pr={b:row.b||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   }
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
-  // OT: filter to selected month only (was using full history before — bug fix)
+  // OT: only the selected period (month, or the 1st/2nd half for a quincena)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
-  var slipMPfx=yr+'-'+(slipMonth<10?'0'+slipMonth:''+slipMonth);
-  var otLogs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId&&l.employee_id===empId&&l.date&&l.date.startsWith(slipMPfx); });
+  var otLogs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId&&l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
   var otTotal=cachedRow?(cachedRow.att.otAmount||0):otLogs.reduce(function(s,l){ return s+(l.amount||0); },0);
-  // Deductions: use cached quotas if available (consistent with table)
-  var dedLogs=cachedRow?(cachedRow.dedData?cachedRow.dedData.quotas||[]:[]):DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
+  // Deductions: use cached quotas if available (consistent with table). The
+  // stored quota is the monthly installment; a quincena charges prQuota() of it.
+  var dedLogs=cachedRow?(cachedRow.dedData?cachedRow.dedData.quotas||[]:[]):DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; }).map(function(d){ return Object.assign({},d,{quota:prQuota(d.quota,period)}); });
   var dedTotal=cachedRow?(cachedRow.dedQuota||0):dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
   var showOT = document.getElementById('slip-show-ot') ? document.getElementById('slip-show-ot').checked : false;
   var showPat = document.getElementById('slip-show-pat') ? document.getElementById('slip-show-pat').checked : false;
@@ -3217,8 +3234,9 @@ async function printPayslip(empId) {
   var otIsrRate=otAnnual>0?otIsrAnual/otAnnual:0;
   var otCSS=otTotal*0.0975, otSE=otTotal*0.0125, otISR=otTotal*otIsrRate;
   var otLegal=otCSS+otSE+otISR;
-  // pr.net already includes dedQuota when cachedRow exists — do NOT subtract dedTotal again
-  var netFinal=pr.net+(showOT?otTotal-otLegal:0)-(cachedRow?0:dedTotal);
+  // pr.net comes from the server in both branches and already includes the
+  // (period-scaled) quota — never subtract dedTotal again
+  var netFinal=pr.net+(showOT?otTotal-otLegal:0);
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+escHtml(l.type)+' ('+escHtml(l.hours)+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+escHtml(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
@@ -3238,16 +3256,28 @@ async function printPayslip(empId) {
   w.document.close();
 }
 
+var _prSaving=false;
 async function savePayrollRun() {
+  if(_prSaving) return;
   var mo=parseInt(document.getElementById('pr-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('pr-year').value)||TD.getFullYear(), period=document.getElementById('pr-period').value||'mensual';
   if(!_prRows.length){ toast('Calculá primero la planilla','warning'); return; }
   var sums=_prRows.reduce(function(s,r){ return {b:s.b+r.b,isr:s.isr+r.isr,net:s.net+r.net,tot:s.tot+r.tot}; },{b:0,isr:0,net:0,tot:0});
-  // The server ignores every client-computed total and the per-employee
-  // ledger write (design R4e) -- it recomputes the same server-side Calculate
-  // and, in the same transaction, upserts one employee_pay_records row per
-  // active employee (origin='run').
-  await Supa.ins('payroll_history',{period:period,month:mo,year:yr,month_name:MONTHS[mo-1],employee_count:_prRows.length,total_bruto:sums.b,total_isr:sums.isr,total_neto:sums.net,total_empresa:sums.tot});
-  toast('Guardado en historial — también se registraron los períodos de cada empleado en el historial de planilla'); loadPayrollHistory();
+  // One save at a time: a double click must not send two runs. The server also
+  // serializes and replaces by period, this just avoids the second request.
+  _prSaving=true;
+  var btn=document.getElementById('pr-save-btn'); if(btn) btn.disabled=true;
+  try {
+    // The server ignores every client-computed total and the per-employee
+    // ledger write (design R4e) -- it recomputes the same server-side Calculate
+    // and, in the same transaction, upserts one employee_pay_records row per
+    // active employee (origin='run') for this period.
+    var r=await Supa.ins('payroll_history',{period:period,month:mo,year:yr,month_name:MONTHS[mo-1],employee_count:_prRows.length,total_bruto:sums.b,total_isr:sums.isr,total_neto:sums.net,total_empresa:sums.tot});
+    if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la planilla'),'danger'); return; }
+    toast('Guardado en historial — también se registraron los períodos de cada empleado en el historial de planilla'); loadPayrollHistory();
+  } finally {
+    _prSaving=false;
+    if(btn) btn.disabled=false;
+  }
 }
 async function loadPayrollHistory() {
   var hist=await Supa.sel('payroll_history');
@@ -3255,7 +3285,7 @@ async function loadPayrollHistory() {
   // The server now orders year DESC, month DESC (design R7) -- the
   // client-side .sort() this used to need is gone.
   var h=Array.isArray(hist)?hist:[];
-  tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+escHtml(r.period)+'</span></td><td><strong>'+escHtml(r.month_name)+' '+escHtml(r.year)+'</strong></td><td>'+escHtml(r.employee_count)+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+escHtml((r.created_at||'').split('T')[0])+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
+  tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+escHtml(prPeriodLabel(r.period))+'</span></td><td><strong>'+escHtml(r.month_name)+' '+escHtml(r.year)+'</strong></td><td>'+escHtml(r.employee_count)+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+escHtml((r.created_at||'').split('T')[0])+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
 }
 async function delPRRun(id) {
   // design R5: deleting the run row does NOT delete the per-employee

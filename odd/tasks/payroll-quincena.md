@@ -34,7 +34,7 @@ Backend handlers/queries/payroll calc, new migration 0014, frontend payroll scre
 ## Tasks
 - [x] T1 — calculation: period vocabulary (`mensual|quincenal1|quincenal2`), date-ranged inputs in `ListPayrollRunInputs` (or a period-aware variant), quota scaled by factor; tests for each period (overtime/absences split by range, quota halved, mensual unchanged, unknown/legacy `quincenal` -> 400). (route: delegated writer)
 - [x] T2 — persistence: migration 0014 (`employee_pay_records.period` + widened run unique index; `payroll_history` unique (company, year, month, period) + CHECK on period), per-period ledger upsert and `periodo` label, history replace-on-rerun, mensual/quincena exclusivity (409), advisory lock, `GetEmployeePayBases` monthly aggregation; tests: two quincenas -> two ledger rows, re-run replaces (1 history row), double concurrent submit -> 1 history row, mensual after quincena -> 409, bases sum quincenas into one month. (route: same writer)
-- [ ] T3 — frontend + docs: disable Save during the request, payslip lines per half range and halved quota, history/pay-records labels; node harness; README payroll section + runbook note for 0014. (route: same writer)
+- [x] T3 — frontend + docs: disable Save during the request, payslip lines per half range and halved quota, history/pay-records labels; node harness; README payroll section + runbook note for 0014. (route: same writer)
 
 ## Acceptance criteria
 - Previewing and saving 1ra and 2da quincena works from the UI.
@@ -57,6 +57,14 @@ Forecast ~600-900 authored lines (mostly tests). Strategy: continue the Feature 
 - RED: `go test ./internal/handlers -run 'TestPayrollRun_(TwoQ|RerunR|Conc|Mensual|Exclusivity)|TestPayrollHistory_Unique|TestPayBases_Aggregates'` -> all 7 FAIL: TwoQuincenasKeepTwoRows `expected 2 ledger rows ... got 1`; RerunReplacesHistory `got 1/2`; ConcurrentDoubleSubmit `expected exactly 1 history row, got 6`; MensualAndQuincenaAreExclusive `expected 409, got 201`; ExclusivityHoldsAfterHistoryDelete `got 201`; UniquePerPeriodBackstop `expected a unique violation`; PayBases_Aggregates `column "period" ... does not exist`.
 - GREEN: `go build ./... && go vet ./...` clean; `go test ./... -count=1` all ok; `go test -race ./internal/handlers ./internal/payroll` ok; concurrent test -count=5 ok.
 - Design: migration `0014_payroll_periods.sql` (period column + CHECKs, `uq_epr_run_period_v2`, `uq_payroll_history_period`); run tx = advisory lock -> exclusivity count (history + run ledger rows) -> history upsert -> ledger upserts; `GetEmployeePayBases` sums periods per month (run month uses run rows only) before ranking; `period` exposed on pay-record responses; runbook updated (0014 row, duplicate pre-check).
+- Commit: 60c7f40 fix(payroll): keep one ledger and history row per period
+
+### T3 (same writer)
+- RED: `node tools/payroll/harness.mjs` -> `AssertionError: var PR_PERIODS not found` (helpers and guard did not exist; harness could not load the real functions).
+- GREEN: `node tools/payroll/harness.mjs` 12/12; session 35/35, permissions 13/13, leave 7/7, zk-feed 13/13; `node --check` of the main script ok. Mutation: removing the `_prSaving` guard makes the double-click test fail (`2 !== 1`).
+- Changes: `prFactor/prInPeriod/prQuota/prPeriodLabel`; Calcular badges and payslip use the half range; payslip quota halved; Save button `pr-save-btn` disabled while saving and server errors (409) toasted instead of a fake success; history badge labels; README payroll section.
+- Fixed in passing (same lines): payslip fallback subtracted the quota again from the server net. Latent, not changed: with a cached row `cachedRow.att.otAmount` is undefined, so payslip overtime total is always 0.
+- Commit: see git log (`fix(frontend): quincena payroll save guard and payslip ranges`).
 
 ## Next step
-T3.
+Orchestrator: apply 0014 in dev, push/PR (chain after #67).
