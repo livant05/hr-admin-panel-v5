@@ -3204,7 +3204,7 @@ async function printPayslip(empId) {
   var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
   var pr;
   if(cachedRow){
-    pr={b:cachedRow.b,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
+    pr={b:cachedRow.b,ot:cachedRow.otAmt||0,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
   } else {
     // No cached row (payroll "Calcular" was never run for this period) --
     // prCalc's degraded no-attendance/no-dedQuota recompute is retired
@@ -3216,27 +3216,27 @@ async function printPayslip(empId) {
     var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
     var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
     if(!row){ toast(calc&&calc.error?calc.error.message:'No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
-    pr={b:row.b||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
+    pr={b:row.b||0,ot:row.ot_amt||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   }
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
   // OT: only the selected period (month, or the 1st/2nd half for a quincena)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
-  var otLogs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId&&l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
-  var otTotal=cachedRow?(cachedRow.att.otAmount||0):otLogs.reduce(function(s,l){ return s+(l.amount||0); },0);
+  // Same source as loadPayroll (the API); DS only holds demo data outside demo mode
+  var empOT=await Supa.sel('overtime_logs',{employee_id:empId});
+  var otLogs=(Array.isArray(empOT)?empOT:[]).filter(function(l){ return l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
+  // The server's b already includes the period's overtime (b = base - absences
+  // + ot_amt) and css/se/isr/net are computed on it: HH.EE. only itemizes it.
+  var otTotal=pr.ot;
   // Deductions: use cached quotas if available (consistent with table). The
   // stored quota is the monthly installment; a quincena charges prQuota() of it.
   var dedLogs=cachedRow?(cachedRow.dedData?cachedRow.dedData.quotas||[]:[]):DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; }).map(function(d){ return Object.assign({},d,{quota:prQuota(d.quota,period)}); });
   var dedTotal=cachedRow?(cachedRow.dedQuota||0):dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
   var showOT = document.getElementById('slip-show-ot') ? document.getElementById('slip-show-ot').checked : false;
   var showPat = document.getElementById('slip-show-pat') ? document.getElementById('slip-show-pat').checked : false;
-  var otAnnual=(e.salary||0)*13; // DGI: 12 meses + Décimo 3er Mes
-  var otIsrAnual=otAnnual<=11000?0:otAnnual<=50000?(otAnnual-11000)*0.15:5850+(otAnnual-50000)*0.25;
-  var otIsrRate=otAnnual>0?otIsrAnual/otAnnual:0;
-  var otCSS=otTotal*0.0975, otSE=otTotal*0.0125, otISR=otTotal*otIsrRate;
-  var otLegal=otCSS+otSE+otISR;
+  var itemOT=showOT&&otTotal>0, baseAmt=itemOT?pr.b-otTotal:pr.b;
   // pr.net comes from the server in both branches and already includes the
-  // (period-scaled) quota — never subtract dedTotal again
-  var netFinal=pr.net+(showOT?otTotal-otLegal:0);
+  // overtime and the (period-scaled) quota — never add or subtract them again
+  var netFinal=pr.net;
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+escHtml(l.type)+' ('+escHtml(l.hours)+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+escHtml(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
@@ -3245,10 +3245,10 @@ async function printPayslip(empId) {
     +'<div class="page"><div class="hdr"><div><h2>'+escHtml(A.companyName)+'</h2><p>COMPROBANTE DE PAGO DE SALARIO</p><p>Período: <strong>'+escHtml(perLbl[period]||period)+' · '+escHtml(mo)+' '+escHtml(yr)+'</strong></p></div><div class="hdr-r"><strong>N° '+Date.now().toString().slice(-8)+'</strong><br>'+new Date().toLocaleDateString('es-PA')+'</div></div>'
     +'<div class="bar"><div class="col"><small>Empleado</small><strong>'+escHtml(e.first_name+' '+e.last_name)+'</strong></div><div class="col"><small>Cédula</small><strong>'+escHtml(e.cedula||'—')+'</strong></div><div class="col"><small>N° SS</small><strong>'+escHtml(e.ss_number||'—')+'</strong></div><div class="col"><small>Cargo</small><strong>'+escHtml(e.position||'—')+'</strong></div><div class="col"><small>Ingreso</small><strong>'+escHtml(e.start_date||'—')+'</strong></div></div>'
     +'<div class="bar" style="background:#fff"><div class="col"><small>Antigüedad</small><strong>'+seniStr(e.start_date)+'</strong></div><div class="col"><small>Tipo Contrato</small><strong>'+escHtml(e.contract_type||'—')+'</strong></div><div class="col"><small>Hrs/Semana</small><strong>'+escHtml(e.weekly_hours||44)+'</strong></div><div class="col"><small>Salario/Hora</small><strong>B/. '+hrRate+'</strong></div><div class="col"><small>Departamento</small><strong>'+escHtml(e.department||'—')+'</strong></div></div>'
-    +'<div class="sec"><div class="sec-t">Devengos</div><table><tr><td>Salario Base</td><td>'+fmt(pr.b)+'</td></tr>'+(showOT&&otTotal>0?otRows+'<tr style="background:#e8f5e9;font-weight:700"><td>Total Horas Extras</td><td style="color:#28a745">'+fmt(otTotal)+'</td></tr>':'')+'<tr style="background:#e3f2fd;font-weight:700"><td>TOTAL DEVENGADO</td><td style="color:#007bff">'+fmt(pr.b+(showOT?otTotal:0))+'</td></tr></table></div>'
-    +'<div class="sec"><div class="sec-t">Deducciones Legales</div><table><tr><td>CSS empleado (9.75%)</td><td style="color:#dc3545">- '+fmt(pr.css+(showOT?otCSS:0))+'</td></tr><tr><td>SE (1.25%)</td><td style="color:#dc3545">- '+fmt(pr.se+(showOT?otSE:0))+'</td></tr><tr><td>ISR — Imp. Sobre la Renta</td><td style="color:#dc3545">- '+fmt(pr.isr+(showOT?otISR:0))+'</td></tr>'+dedRows+'<tr style="background:#fce4ec;font-weight:700"><td>TOTAL DEDUCCIONES</td><td style="color:#dc3545">- '+fmt(pr.ded+(showOT?otLegal:0)+dedTotal)+'</td></tr></table></div>'
+    +'<div class="sec"><div class="sec-t">Devengos</div><table><tr><td>Salario Base</td><td>'+fmt(baseAmt)+'</td></tr>'+(itemOT?otRows+'<tr style="background:#e8f5e9;font-weight:700"><td>Total Horas Extras</td><td style="color:#28a745">'+fmt(otTotal)+'</td></tr>':'')+'<tr style="background:#e3f2fd;font-weight:700"><td>TOTAL DEVENGADO</td><td style="color:#007bff">'+fmt(pr.b)+'</td></tr></table></div>'
+    +'<div class="sec"><div class="sec-t">Deducciones Legales</div><table><tr><td>CSS empleado (9.75%)</td><td style="color:#dc3545">- '+fmt(pr.css)+'</td></tr><tr><td>SE (1.25%)</td><td style="color:#dc3545">- '+fmt(pr.se)+'</td></tr><tr><td>ISR — Imp. Sobre la Renta</td><td style="color:#dc3545">- '+fmt(pr.isr)+'</td></tr>'+dedRows+'<tr style="background:#fce4ec;font-weight:700"><td>TOTAL DEDUCCIONES</td><td style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</td></tr></table></div>'
     +(showPat?'<div class="sec"><div class="sec-t">Aportes Patronales (referencial)</div><table><tr><td>CSS Patronal (12.25%)</td><td style="color:#fd7e14">'+fmt(pr.pcss)+'</td></tr><tr><td>SE Patronal (1.5%)</td><td style="color:#fd7e14">'+fmt(pr.pse)+'</td></tr><tr><td>Décimo 3er Mes — Provisión (8.33%)</td><td style="color:#fd7e14">'+fmt(pr.dec)+'</td></tr><tr><td>CSS Patronal sobre Décimo (7.25%)</td><td style="color:#fd7e14">'+fmt(pr.decCSSP)+'</td></tr><tr style="background:#fff3e0;font-weight:700"><td>Costo Total Empresa</td><td style="color:#e65100">'+fmt(pr.tot+(showOT?otTotal:0))+'</td></tr></table></div>':'')
-    +'<div class="tot-bar"><div class="tot-box"><small>Salario Bruto</small><div class="val">'+fmt(pr.b)+'</div></div>'+(showOT&&otTotal>0?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+(showOT?otLegal:0)+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(netFinal)+'</div></div></div>'
+    +'<div class="tot-bar"><div class="tot-box"><small>Salario Base</small><div class="val">'+fmt(baseAmt)+'</div></div>'+(itemOT?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(netFinal)+'</div></div></div>'
     +'<div class="sig"><div class="sig-box"><div class="sig-line">Firma del Empleado<br>'+escHtml(e.first_name+' '+e.last_name)+'<br>C.I. '+escHtml(e.cedula||'—')+'</div></div><div class="sig-box"><div class="sig-line">Firma Autorizada<br>'+escHtml(A.companyName)+'<br>Recursos Humanos</div></div><div class="sig-box"><div class="sig-line">Recibido Conforme<br>Fecha: ____/____/________</div></div></div>'
     +'<div class="footer">'+escHtml(A.companyName)+' · HR Admin Panel · '+new Date().toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'})+' · Cálculos según Código de Trabajo y Ley 51/2005 — República de Panamá</div>'
     +'</div><div style="text-align:center;margin:16px"><button onclick="window.print()" style="background:#007bff;color:#fff;border:none;padding:8px 24px;border-radius:6px;font-size:.9rem;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>'

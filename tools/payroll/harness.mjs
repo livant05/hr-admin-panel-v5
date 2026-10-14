@@ -178,7 +178,7 @@ test('loadPayroll mensual: whole month', async () => {
 });
 
 test('printPayslip quincenal2 (no cache): only 2nd-half overtime, halved quota, net not double-charged', async () => {
-  const e = makeEnv({ period: 'quincenal2' });
+  const e = makeEnv({ period: 'quincenal2', previewRow: { ot_amt: 30 } });
   e.run('_prRows = []');
   e.el('slip-show-ot').checked = true;
   await e.run("printPayslip('e1')");
@@ -195,6 +195,56 @@ test('printPayslip net comes from the server row (quota already inside), not min
   e.run('_prRows = []');
   await e.run("printPayslip('e1')");
   const doc = e.written.join('');
+  assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1295\.00</);
+});
+
+// The server's b already includes ot_amt (b = base - absences + overtime) and
+// css/se/isr/net are computed on that b, so the payslip only itemizes it.
+const OT_ROW = { b: 1500, ot_amt: 30, css: 146.25, se: 18.75, isr: 0, ded: 165, ded_quota: 40, net: 1295 };
+
+test('printPayslip HH.EE. (no cache): overtime itemized inside the server gross, never added twice', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /<td>Salario Base<\/td><td>1470\.00</);
+  assert.match(doc, /Total Horas Extras<\/td><td style="color:#28a745">30\.00</);
+  assert.match(doc, /TOTAL DEVENGADO<\/td><td style="color:#007bff">1500\.00</);
+  assert.match(doc, /CSS empleado \(9\.75%\)<\/td><td style="color:#dc3545">- 146\.25</);
+  assert.match(doc, /TOTAL DEDUCCIONES<\/td><td style="color:#dc3545">- 205\.00</);
+  assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1295\.00</);
+});
+
+test('printPayslip HH.EE. (cached row from Calcular): shows the server overtime total, not 0', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  await e.run('loadPayroll()');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Total Horas Extras<\/td><td style="color:#28a745">30\.00</);
+  assert.match(doc, /<td>Salario Base<\/td><td>1470\.00</);
+  assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1295\.00</);
+});
+
+test('printPayslip HH.EE. lists the overtime from the API, not the in-memory demo store', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  e.sandbox.DS.overtime_logs = [];
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Horas Extras nocturno \(3 hrs\)/);
+  assert.doesNotMatch(doc, /Horas Extras regular/);
+});
+
+test('printPayslip without HH.EE.: gross shown as one line, no overtime rows (unchanged)', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  e.run('_prRows = []');
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /<td>Salario Base<\/td><td>1500\.00</);
+  assert.doesNotMatch(doc, /Horas Extras nocturno/);
   assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1295\.00</);
 });
 
