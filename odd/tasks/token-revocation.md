@@ -65,5 +65,11 @@ Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked
 - RDD: assess base 3a57996 -> high (hot_path, process_boundary), review due. Consent relayed, user granted. 4-lens native review (lineage review-d2306357519c5a0a): approved, acknowledged (`gentle-ai.review-acknowledged/v1`). Reviewed boundary advances to a32cede.
 - Informational follow-ups from the review (not blocking): R4 session lookup failure returns 500 without logging the error (`internal/auth/auth.go:147-150`); R3 concurrent-demotion test depends on scheduling to reach the 409 guard (`users_test.go:848-850`), possible flakiness.
 
+### R4 follow-up (user-authorized, 2026-10-13) — commit adcd411 `fix(auth): log session lookup failures`
+- Route: direct inline (one mechanical line + one test). `API.SessionLookup` logs `session lookup` with `user_id` and `err` before returning a DB error (the middleware still answers a generic 500).
+- RED: `TestSessionCheck_LookupFailureIsLogged` (closed pool -> GET /api/me) got 500 but an empty log. GREEN after the change; `go build`, `go vet` clean; full suite ok.
+- RDD assess base a32cede: medium, 63 lines, `review_due: false` (`under_budget`). Dev backend rebuilt.
+- R3 (concurrent-demotion test timing) left open.
+
 ## Next step
-Optional follow-ups R4/R3; delivery (PR chain) is the user's decision.
+R3 optional; delivery (PR chain) is the user's decision.
