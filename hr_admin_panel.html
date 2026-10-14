@@ -3672,7 +3672,7 @@ async function saveDed() {
   var startD=new Date(sd), endD=ed?new Date(ed):null;
   var periodo=startD.getFullYear().toString();
   if(endD&&endD.getFullYear()!==startD.getFullYear()) periodo+='-'+endD.getFullYear();
-  await Supa.ins('deductions',{
+  var r=await Supa.ins('deductions',{
     employee_id:empId,
     employee_name:emp?emp.first_name+' '+emp.last_name:'—',
     cedula:gv('ded-cedula')||'',
@@ -3688,6 +3688,7 @@ async function saveDed() {
     periodo:periodo,
     status:'active'
   });
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la deducción'),'danger'); return; }
   toast('Deducción guardada'); renderDedTable();
 }
 async function renderDedTable() {
