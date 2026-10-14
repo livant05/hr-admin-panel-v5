@@ -2854,14 +2854,22 @@ async function saveAttendance() {
   var date=gv('att-date'); if(!date){toast('Selecciona fecha','warning');return;}
   var ae=document.getElementById('att-emp'), sel=ae&&ae.options[ae.selectedIndex];
   var name=sel?sel.getAttribute('data-name'):'—', dept=sel?sel.getAttribute('data-dept'):'—';
-  var existing=DS.attendance_logs.find(function(l){ return l.employee_id===empId&&l.date===date&&l.company_id===A.companyId; });
+  // Ask the API (DS is empty outside demo mode) whether this employee already
+  // has a log that day, so the save updates it and says so
+  var found=await Supa.sel('attendance_logs',{employee_id:empId,date:date});
+  var existing=(Array.isArray(found)?found:[]).find(function(l){ return l.employee_id===empId&&l.date===date; });
   var wt=parseInt(gv('att-wtype'))||null;
   var data={employee_id:empId,employee_name:name,department:dept,date:date,time_in:gv('att-in'),time_out:gv('att-out'),status:gv('att-st')||'present',work_type:wt,notes:gv('att-note')};
-  if(existing){ await Supa.upd('attendance_logs',existing.id,data); toast('✅ Registro actualizado'); }
-  else { await Supa.ins('attendance_logs',data); toast('✅ Asistencia registrada'); }
+  var r=existing?await Supa.upd('attendance_logs',existing.id,data):await Supa.ins('attendance_logs',data);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la asistencia'),'danger'); return; }
+  toast(existing?'✅ Registro actualizado':'✅ Asistencia registrada');
   loadAttendance();
 }
-async function delAtt(id) { await Supa.del('attendance_logs',id); toast('Eliminado','info'); loadAttendance(); }
+async function delAtt(id) {
+  var r=await Supa.del('attendance_logs',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar el registro'),'danger'); return; }
+  toast('Eliminado','info'); loadAttendance();
+}
 async function loadAttHistory() {
   var empId=document.getElementById('att-h-emp').value||'', from=gv('att-h-from'), to=gv('att-h-to');
   // Push the filters server-side (employee_id/date_from/date_to) instead of
