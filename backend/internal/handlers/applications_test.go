@@ -571,7 +571,8 @@ func TestApplications_ListGetFilters(t *testing.T) {
 		}
 	})
 
-	t.Run("any authenticated role may read and create", func(t *testing.T) {
+	t.Run("a role with the recruitment permission may read and create", func(t *testing.T) {
+		seedMedRole(t, pool, c, "empleado", `{"recruitment": true}`)
 		emp := c.TokenAs(t, signer, "empleado")
 		if rec := testutil.Do(t, h, http.MethodGet, applicationsPath, emp, nil); rec.Code != http.StatusOK {
 			t.Fatalf("empleado list: got %d", rec.Code)

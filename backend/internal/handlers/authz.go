@@ -39,6 +39,17 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 // Writes nothing and returns true without touching a.Queries when the JWT
 // role is "admin".
 func (a *API) requirePermission(w http.ResponseWriter, r *http.Request, companyID pgtype.UUID, key string) bool {
+	if a.permissionAllows(r, companyID, key) {
+		return true
+	}
+	writeErrCode(w, http.StatusForbidden, codeForbidden, "insufficient permissions")
+	return false
+}
+
+// permissionAllows is the decision behind requirePermission without the
+// response write, so callers can combine several keys (any-of) before
+// answering. Same semantics: admin bypass, fail-closed otherwise.
+func (a *API) permissionAllows(r *http.Request, companyID pgtype.UUID, key string) bool {
 	role := auth.RoleFromContext(r.Context())
 	if role == "admin" {
 		return true
@@ -48,11 +59,7 @@ func (a *API) requirePermission(w http.ResponseWriter, r *http.Request, companyI
 		CompanyID: companyID,
 		Name:      role,
 	})
-	if !permissionGranted(row, err, key) {
-		writeErrCode(w, http.StatusForbidden, codeForbidden, "insufficient permissions")
-		return false
-	}
-	return true
+	return permissionGranted(row, err, key)
 }
 
 // permissionGranted is the pure decision at the heart of requirePermission,
