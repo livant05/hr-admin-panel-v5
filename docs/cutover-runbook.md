@@ -284,6 +284,10 @@ SELECT company_id, year, month, period, count(*) FROM payroll_history
 GROUP BY 1,2,3,4 HAVING count(*) > 1;
 ```
 
+If `0014` stops on that index, nothing the running binary needs is gone yet: the old run index
+`uq_epr_run_period` is dropped only after both new indexes exist. Delete the duplicates and apply
+the file again.
+
 Apply it **before** starting the new binary (the run upsert writes the `period` column).
 
 **Verify** by comparing the catalog with `backend/migrations/`. Every row must be `true`. Note:

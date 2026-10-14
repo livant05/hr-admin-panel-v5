@@ -38,10 +38,15 @@ BEGIN
   END IF;
 END $$;
 
-DROP INDEX IF EXISTS uq_epr_run_period;
+-- Order matters: psql -f autocommits each statement, so every index that can
+-- fail is created BEFORE the old ledger index is dropped. If the history index
+-- fails on duplicates, uq_epr_run_period is still there for the previous
+-- binary's ON CONFLICT, and re-running the file after the cleanup finishes it.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_history_period
+  ON payroll_history (company_id, year, month, period);
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_epr_run_period_v2
   ON employee_pay_records (company_id, employee_id, period_year, period_month, period)
   WHERE origin = 'run';
 
-CREATE UNIQUE INDEX IF NOT EXISTS uq_payroll_history_period
-  ON payroll_history (company_id, year, month, period);
+DROP INDEX IF EXISTS uq_epr_run_period;
