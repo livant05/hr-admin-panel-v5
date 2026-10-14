@@ -2743,12 +2743,10 @@ async function showEmpProfile(id) {
   var emps=await Supa.sel('employees');
   var e=Array.isArray(emps)?emps.find(function(x){ return x.id===id; }):null;
   if(!e) return;
-  // Leave balances come from the API (DS is empty outside demo mode): one row
-  // per year with no carry-over, so the profile sums every year, as the
-  // liquidation does
+  // Leave balances come from the API (DS is empty outside demo mode), summed
+  // over every year like everywhere else (vacTotalsByEmployee)
   var balRes=await Supa.sel('leave_balances',{employee_id:id});
-  var bals=(Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===id; });
-  var bal=bals.length?bals.reduce(function(s,b){ return {remaining_days:s.remaining_days+(Number(b.remaining_days)||0),earned_days:s.earned_days+(Number(b.earned_days)||0)}; },{remaining_days:0,earned_days:0}):null;
+  var bal=vacTotalsByEmployee((Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===id; }))[0]||null;
   // Planilla tab estimate, via the server preview endpoint (design R4e) --
   // prCalc was deleted in slice 3h. The preview only covers ACTIVE
   // employees for the current month (ListPayrollRunInputs' WHERE clause),
@@ -3305,9 +3303,9 @@ async function printPayslip(empId) {
   // Itemized, the gross splits into base salary + overtime rows; otherwise it is
   // shown whole and labelled as the gross, since it includes the overtime
   var itemOT=showOT&&otTotal>0, baseAmt=itemOT?pr.b-otTotal:pr.b, baseLbl=itemOT?'Salario Base':'Salario Bruto';
-  // pr.net comes from the server in both branches and already includes the
-  // overtime and the (period-scaled) quota — never add or subtract them again
-  var netFinal=pr.net;
+  // The net shown is pr.net: it comes from the server in both branches and
+  // already includes the overtime and the (period-scaled) quota — never add
+  // or subtract them again
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+escHtml(l.type)+' ('+escHtml(l.hours)+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+escHtml(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
@@ -3319,7 +3317,7 @@ async function printPayslip(empId) {
     +'<div class="sec"><div class="sec-t">Devengos</div><table><tr><td>'+baseLbl+'</td><td>'+fmt(baseAmt)+'</td></tr>'+(itemOT?otRows+'<tr style="background:#e8f5e9;font-weight:700"><td>Total Horas Extras</td><td style="color:#28a745">'+fmt(otTotal)+'</td></tr>':'')+'<tr style="background:#e3f2fd;font-weight:700"><td>TOTAL DEVENGADO</td><td style="color:#007bff">'+fmt(pr.b)+'</td></tr></table></div>'
     +'<div class="sec"><div class="sec-t">Deducciones Legales</div><table><tr><td>CSS empleado (9.75%)</td><td style="color:#dc3545">- '+fmt(pr.css)+'</td></tr><tr><td>SE (1.25%)</td><td style="color:#dc3545">- '+fmt(pr.se)+'</td></tr><tr><td>ISR — Imp. Sobre la Renta</td><td style="color:#dc3545">- '+fmt(pr.isr)+'</td></tr>'+dedRows+'<tr style="background:#fce4ec;font-weight:700"><td>TOTAL DEDUCCIONES</td><td style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</td></tr></table></div>'
     +(showPat?'<div class="sec"><div class="sec-t">Aportes Patronales (referencial)</div><table><tr><td>CSS Patronal (12.25%)</td><td style="color:#fd7e14">'+fmt(pr.pcss)+'</td></tr><tr><td>SE Patronal (1.5%)</td><td style="color:#fd7e14">'+fmt(pr.pse)+'</td></tr><tr><td>Décimo 3er Mes — Provisión (8.33%)</td><td style="color:#fd7e14">'+fmt(pr.dec)+'</td></tr><tr><td>CSS Patronal sobre Décimo (7.25%)</td><td style="color:#fd7e14">'+fmt(pr.decCSSP)+'</td></tr><tr style="background:#fff3e0;font-weight:700"><td>Costo Total Empresa</td><td style="color:#e65100">'+fmt(pr.tot)+'</td></tr></table></div>':'')
-    +'<div class="tot-bar"><div class="tot-box"><small>'+baseLbl+'</small><div class="val">'+fmt(baseAmt)+'</div></div>'+(itemOT?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(netFinal)+'</div></div></div>'
+    +'<div class="tot-bar"><div class="tot-box"><small>'+baseLbl+'</small><div class="val">'+fmt(baseAmt)+'</div></div>'+(itemOT?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(pr.net)+'</div></div></div>'
     +'<div class="sig"><div class="sig-box"><div class="sig-line">Firma del Empleado<br>'+escHtml(e.first_name+' '+e.last_name)+'<br>C.I. '+escHtml(e.cedula||'—')+'</div></div><div class="sig-box"><div class="sig-line">Firma Autorizada<br>'+escHtml(A.companyName)+'<br>Recursos Humanos</div></div><div class="sig-box"><div class="sig-line">Recibido Conforme<br>Fecha: ____/____/________</div></div></div>'
     +'<div class="footer">'+escHtml(A.companyName)+' · HR Admin Panel · '+new Date().toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'})+' · Cálculos según Código de Trabajo y Ley 51/2005 — República de Panamá</div>'
     +'</div><div style="text-align:center;margin:16px"><button onclick="window.print()" style="background:#007bff;color:#fff;border:none;padding:8px 24px;border-radius:6px;font-size:.9rem;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>'
@@ -3855,9 +3853,9 @@ async function loadLiqEmp() {
   // per year with no carry-over, and every unused day is owed at termination,
   // so the proposal is the sum over all years (still editable)
   var balRes=await Supa.sel('leave_balances',{employee_id:empId});
-  var bals=(Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===empId; });
+  var tot=vacTotalsByEmployee((Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===empId; }))[0];
   var vacEl=document.getElementById('liq-vac');
-  if(vacEl&&bals.length) vacEl.value=bals.reduce(function(s,b){ return s+(Number(b.remaining_days)||0); },0);
+  if(vacEl&&tot) vacEl.value=tot.remaining_days;
   // Auto-fill sal30 from employee salary
   var sal30El=document.getElementById('liq-sal30'); if(sal30El&&e.salary) sal30El.value=(e.salary||0).toFixed(2);
   var dedRes=await Supa.sel('deductions',{employee_id:empId,status:'active'});

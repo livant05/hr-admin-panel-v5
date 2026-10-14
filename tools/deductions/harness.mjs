@@ -43,6 +43,7 @@ function extractFunction(src, header) {
 const srcs = [
   extractFunction(html, 'async function renderDedTable('),
   extractFunction(html, 'async function loadLiqEmp('),
+  extractFunction(html, 'function vacTotalsByEmployee('),
   extractFunction(html, 'async function saveDed('),
   extractFunction(html, 'async function saldaDed('),
   extractFunction(html, 'async function delDed('),

@@ -40,7 +40,7 @@ function extractFunction(src, header) {
   throw new Error(`unbalanced braces after ${header}`);
 }
 
-const src = extractFunction(html, 'async function showEmpProfile(');
+const src = [extractFunction(html, 'function vacTotalsByEmployee('), extractFunction(html, 'async function showEmpProfile(')].join('\n');
 
 const fmt = (v) => 'B/. ' + Number(v || 0).toFixed(2);
 const escHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
