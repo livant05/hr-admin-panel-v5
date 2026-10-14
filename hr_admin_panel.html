@@ -2514,7 +2514,10 @@ function isPageAllowed(pg){
   return permOk((A.perms||{})[permKey],subKey);
 }
 async function loadRolePerms(){
-  var roles=await Supa.sel('roles'), role=Array.isArray(roles)&&roles.find(function(r){ return r.name===A.role; });
+  // A rejected request (network down) is handled like an error answer: no
+  // permissions (fail-closed), so enterApp still ends in a page or a toast
+  var roles; try{ roles=await Supa.sel('roles'); }catch(e){ roles=null; }
+  var role=Array.isArray(roles)&&roles.find(function(r){ return r.name===A.role; });
   A.perms=role&&role.permissions&&typeof role.permissions==='object' ? role.permissions : {};
   applyPermissions(A.perms);
 }
