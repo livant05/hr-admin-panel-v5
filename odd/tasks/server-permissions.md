@@ -76,7 +76,8 @@ Forecast ~550-700 authored lines (mostly tests). Strategy: `ask-on-risk` (defaul
 - Spot check: `go test ./internal/handlers/ -count=1` ok (37s).
 - RDD assess `--base-ref 429ed0f --committed-only`: risk `medium`, `review_due: false` (`under_budget`); no native review started. Writer self-verification + parent spot check (medium tier, non-small writer).
 - Delivery: running count ~1040 changed lines (mostly tests and route-table re-indent), above the ~400 budget; chain strategy pending user choice before any PR.
-- Not run: live E2E on the dev stack (needs backend image rebuild and a non-admin test user).
+- Live E2E on the dev stack (2026-10-13, backend rebuilt from 66f2999, nginx restarted): temporary role `qa-perm-test` `{vacations:true}` + user. As that user: leave_requests/leave_balances/departments/employees 200; payroll_history (list, calculate, DELETE), liquidation_history (list, DELETE), employee_pay_records, deductions (GET, POST), overtime_logs, attendance_logs, POST employees, POST departments, evaluations, job_postings, document_templates, medical_records, users, POST roles all 403. Employees list: salary/cedula/ss_number/address/emergency_contact null, phone and birth_date present; admin sees all. Granting `payroll` via PATCH /api/roles took effect immediately (payroll 200, salaries visible, deductions still 403); revoking returned 403. UI as that user: 12 pages, 0 JS errors, 0 non-403 failures. Test user and role deleted afterwards (users: only the admin remains; roles back to 1).
+- Observed, out of scope: the frontend menu still shows nearly every module to that role (`hasPerm` is fail-open on undefined keys; audit finding #20). Denied screens render empty.
 
 ## Next step
 User review; push / PR is the user's decision.
