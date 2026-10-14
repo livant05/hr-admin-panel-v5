@@ -74,5 +74,11 @@ Forecast ~600-900 authored lines (mostly tests). Strategy: continue the Feature 
 - Test fixtures, Sept runs and ledger rows deleted; dev DB back to its prior rows.
 - Follow-up, needs a product decision: payslip overtime total is 0 when a cached row exists (`cachedRow.att.otAmount` undefined); showing it must not double-count the server `b`.
 
+- RDD: assess base 3e7f3d5 -> high (process_boundary), review due; consent relayed, user granted; 4-lens native review (lineage review-1ec8c4652f23e695) approved and acknowledged (`gentle-ai.review-acknowledged/v1`). Reviewed boundary advances to c69c63e.
+- Informational review findings (not blocking):
+  - R1/R3: ledger run rows written by a legacy `quincenal` run would be backfilled to `mensual` by 0014, so history (`quincenal`) and ledger (`mensual`) disagree for that month and the exclusivity check can 409 unexpectedly. Practically unreachable from the UI (it never sent `quincenal`; it got 400), only from direct API callers; check production for `payroll_history.period='quincenal'` before applying 0014.
+  - R2: `CountConflictingPayrollPeriods` uses positional `$4::text`, so sqlc names the field `Column4`; use `sqlc.arg('period')`.
+  - R4: 0014 drops `uq_epr_run_period` before creating `uq_payroll_history_period` without one transaction; if the history unique index fails on existing duplicates, the old ledger index is already gone while the previous binary still upserts on it. Wrap in a transaction or create the new indexes before dropping the old one.
+
 ## Next step
-RDD review (assess: high, process_boundary), then push/PR in the chain after #67.
+Optional follow-ups R4 (migration atomicity, matters for production) and R2; then push/PR in the chain after #67.
