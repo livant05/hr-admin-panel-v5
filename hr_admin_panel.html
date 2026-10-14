@@ -3204,7 +3204,7 @@ async function printPayslip(empId) {
   var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
   var pr;
   if(cachedRow){
-    pr={b:cachedRow.b,ot:cachedRow.otAmt||0,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
+    pr={b:cachedRow.b,ot:cachedRow.otAmt||0,dedQuota:cachedRow.dedQuota||0,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
   } else {
     // No cached row (payroll "Calcular" was never run for this period) --
     // prCalc's degraded no-attendance/no-dedQuota recompute is retired
@@ -3216,7 +3216,7 @@ async function printPayslip(empId) {
     var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
     var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
     if(!row){ toast(calc&&calc.error?calc.error.message:'No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
-    pr={b:row.b||0,ot:row.ot_amt||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
+    pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   }
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
   // OT: only the selected period (month, or the 1st/2nd half for a quincena)
@@ -3227,10 +3227,12 @@ async function printPayslip(empId) {
   // The server's b already includes the period's overtime (b = base - absences
   // + ot_amt) and css/se/isr/net are computed on it: HH.EE. only itemizes it.
   var otTotal=pr.ot;
-  // Deductions: use cached quotas if available (consistent with table). The
-  // stored quota is the monthly installment; a quincena charges prQuota() of it.
-  var dedLogs=cachedRow?(cachedRow.dedData?cachedRow.dedData.quotas||[]:[]):DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; }).map(function(d){ return Object.assign({},d,{quota:prQuota(d.quota,period)}); });
-  var dedTotal=cachedRow?(cachedRow.dedQuota||0):dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
+  // Deductions: rows from the API (DS only holds demo data outside demo mode).
+  // The stored quota is the monthly installment; a quincena charges prQuota()
+  // of it. The total is the server's ded_quota, the figure already inside net.
+  var empDed=await Supa.sel('deductions',{employee_id:empId,status:'active'});
+  var dedLogs=(Array.isArray(empDed)?empDed:[]).filter(function(d){ return d.employee_id===empId&&d.status==='active'; }).map(function(d){ return Object.assign({},d,{quota:prQuota(d.quota,period)}); });
+  var dedTotal=pr.dedQuota;
   var showOT = document.getElementById('slip-show-ot') ? document.getElementById('slip-show-ot').checked : false;
   var showPat = document.getElementById('slip-show-pat') ? document.getElementById('slip-show-pat').checked : false;
   var itemOT=showOT&&otTotal>0, baseAmt=itemOT?pr.b-otTotal:pr.b;

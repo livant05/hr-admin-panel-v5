@@ -99,7 +99,7 @@ function makeEnv({ period = 'quincenal1', previewRow = {} } = {}) {
     JSON, Object, Array, Number, String, Math, Promise, parseInt, Error, Date,
     Supa: {
       gq: (o) => '?' + Object.entries(o).map(([k, v]) => `${k}=${v}`).join('&'),
-      sel: async (tbl) => ({ employees: [EMP], attendance_logs: ATT, overtime_logs: OT }[tbl] || []),
+      sel: async (tbl) => ({ employees: [EMP], attendance_logs: ATT, overtime_logs: OT, deductions: DEDS }[tbl] || []),
       selAll: async () => [],
       goFetch: async () => [{ employee_id: 'e1', b: 1500, css: 146.25, se: 18.75, isr: 0, ded: 165, ded_quota: 40, net: 1295, pcss: 0, pse: 0, dec: 0, dec_cssp: 0, tot: 1500, ...previewRow }],
       ins: async (tbl, data) => { inserts.push({ tbl, data }); return ctl.insResult(); },
@@ -236,6 +236,26 @@ test('printPayslip HH.EE. lists the overtime from the API, not the in-memory dem
   const doc = e.written.join('');
   assert.match(doc, /Horas Extras nocturno \(3 hrs\)/);
   assert.doesNotMatch(doc, /Horas Extras regular/);
+});
+
+test('printPayslip (no cache) lists the installments from the API and totals the server quota', async () => {
+  const e = makeEnv({ period: 'quincenal1', previewRow: { ded: 165, ded_quota: 40, net: 1295 } });
+  e.sandbox.DS.deductions = [];
+  e.run('_prRows = []');
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Prestamo \(cuota\)<\/td><td class="text-right text-danger">- 40\.00/);
+  assert.match(doc, /TOTAL DEDUCCIONES<\/td><td style="color:#dc3545">- 205\.00/);
+});
+
+test('printPayslip (cached row from Calcular) lists the installments too, not only their total', async () => {
+  const e = makeEnv({ period: 'quincenal1', previewRow: { ded: 165, ded_quota: 40, net: 1295 } });
+  e.sandbox.DS.deductions = [];
+  await e.run('loadPayroll()');
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Prestamo \(cuota\)<\/td><td class="text-right text-danger">- 40\.00/);
+  assert.match(doc, /TOTAL DEDUCCIONES<\/td><td style="color:#dc3545">- 205\.00/);
 });
 
 test('printPayslip without HH.EE.: gross shown as one line, no overtime rows (unchanged)', async () => {
