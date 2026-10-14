@@ -41,7 +41,7 @@ Known consequence: cross-module widgets (dashboard "presentes hoy", "resumen pla
 
 ## Tasks
 - [x] T1 — route-level permission gate: wrapper usable in `routes.go` (`a.perm(key, h)` / any-of variant), apply the map above to every protected route except employees reads; a route-table test that fails if a protected route has no classification (gated / open-by-design / admin). Table-driven tests: non-admin without key -> 403, with key -> not 403, admin -> not 403, for each module. (route: delegated writer; trigger: 2+ non-trivial files + preparation reading)
-- [ ] T2 — employees read redaction for roles without `employees`/`payroll` (list and get), tests for redacted vs full vs admin. (route: delegated writer, same worker context)
+- [x] T2 — employees read redaction for roles without `employees`/`payroll` (list and get), tests for redacted vs full vs admin. (route: delegated writer, same worker context)
 - [ ] T3 — README authz section updated with the map; full suite + `go vet`. (route: inline with T2 writer)
 
 ## Acceptance criteria
@@ -54,12 +54,18 @@ Known consequence: cross-module widgets (dashboard "presentes hoy", "resumen pla
 Forecast ~550-700 authored lines (mostly tests). Strategy: `ask-on-risk` (default); chain strategy asked when the running count passes ~400.
 
 ## Progress / evidence
-### T1 (commit subject: `fix(api): enforce module permissions on protected routes`; hash recorded in the T2 entry)
+### T1 (commit subject: `fix(api): enforce module permissions on protected routes`; hash 0b8582c)
 - Authored lines: +573 / -179 (routes.go diff is inflated by the table re-indent; ~265 are tests).
 - Design: `protectedRoutes()` is the single registry of `routeSpec{pattern, gate, handler}`; `Routes` registers only that list and wraps `gatePermission` routes with `a.perm(keys, h)` (tenant, then any-of `permissionAllows`; admin bypass, fail-closed). `requirePermission` now delegates to `permissionAllows` (same semantics). Medical, users, roles writes and ZKTeco stay `viaHandler`; leave PATCH/accrue keep their in-handler check (same 403 envelope, so double gating is invisible).
 - RED (stubbed `ProtectedRouteGates` returning nil, original routes.go): `TestRoutes_EveryProtectedRouteIsClassified` failed with `map entry without a registered route: DELETE /api/applications/{id}` (and the rest); `TestRoutes_ModulePermissionGate` failed 83 subtests, e.g. `role without the key: expected 403, got 400` (POST /api/departments), `got 404` (GET /api/payroll_history/{id}).
 - GREEN: both new tests pass; `go build ./... && go vet ./...` clean; `go test ./... -count=1` all ok.
 - Existing tests changed (decision-driven): the three "any authenticated role may read" recruitment subtests (job_postings, candidates, applications) now seed an `empleado` role with `recruitment: true`.
 
+### T2 (commit subject: `fix(api): redact sensitive employee fields for roles without pay access`)
+- Authored lines: +166 / -0 (employees.go +43, employees_redaction_test.go +123).
+- Design: `canSeeEmployeePay` = `permissionAllows` for `employees` or `payroll` (admin bypass); otherwise list/get marshal the `db.Employee` row and null the 8 fields, keeping every key. Writes were already gated by `employees` in T1.
+- RED: `TestEmployees_ReadRedactsSensitiveFields/list_redacts...` and `/get_redacts...` failed, e.g. `list as nokey: salary = 1500.00, want null`, `cedula = "8-123-456", want null` (all 8 fields, roles nokey/empfalse/ghost); the "shows everything" subtests passed on the base as expected.
+- GREEN: all 4 subtests pass; full suite `go test ./... -count=1` ok, `go vet` clean.
+
 ## Next step
-T2.
+T3.

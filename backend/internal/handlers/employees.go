@@ -43,6 +43,14 @@ func (a *API) ListEmployees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !a.canSeeEmployeePay(r, companyID) {
+		out := make([]map[string]json.RawMessage, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, redactEmployee(row))
+		}
+		writeRows(w, http.StatusOK, out)
+		return
+	}
 	writeRows(w, http.StatusOK, rows)
 }
 
@@ -68,7 +76,42 @@ func (a *API) GetEmployee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !a.canSeeEmployeePay(r, companyID) {
+		writeJSON(w, http.StatusOK, redactEmployee(row))
+		return
+	}
 	writeJSON(w, http.StatusOK, row)
+}
+
+// redactedEmployeeFields are the pay and personal-identity columns hidden
+// from roles that hold neither `employees` nor `payroll`. The shared reads
+// stay open (directory, birthday calendar), so phone and birth_date remain.
+var redactedEmployeeFields = []string{
+	"salary", "hourly_rate", "cedula", "ss_number", "address",
+	"emergency_contact", "emergency_phone", "emergency_relation",
+}
+
+// canSeeEmployeePay reports whether the caller may read the full employee
+// record: admin, or a role holding `employees` or `payroll`.
+func (a *API) canSeeEmployeePay(r *http.Request, companyID pgtype.UUID) bool {
+	return a.permissionAllows(r, companyID, "employees") || a.permissionAllows(r, companyID, "payroll")
+}
+
+// redactEmployee marshals the row with its normal JSON shape and replaces
+// the sensitive fields with null, so the response keeps every key.
+func redactEmployee(row db.Employee) map[string]json.RawMessage {
+	raw, err := json.Marshal(row)
+	if err != nil {
+		return map[string]json.RawMessage{}
+	}
+	out := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]json.RawMessage{}
+	}
+	for _, f := range redactedEmployeeFields {
+		out[f] = json.RawMessage("null")
+	}
+	return out
 }
 
 // employeeRequest is the exact 33-field contract `saveEmp` sends
