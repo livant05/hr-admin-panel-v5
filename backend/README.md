@@ -144,14 +144,26 @@ is touched. Role reads stay open to every authenticated role.
   guard runs in one transaction that locks the company's active admins in id order, then the
   target row, so two admins demoting each other concurrently cannot both succeed.
 
-### Residual risk: sessions outlive deactivation (AUTH-10)
+### Sessions and revocation
 
-A user who is deactivated (`DELETE /api/users/{id}`, `status: inactive`) or demoted keeps a working
-JWT until it expires, up to 24 hours: the token carries `role` and `company_id` as signed claims
-and the middleware does not re-check the user's row on each request (design D17). Login does check
-`status`, so a deactivated user cannot obtain a new token. If an account is compromised, deactivation
-alone does not end the current session within the day. A cache-backed per-request status check in
-the auth middleware is the follow-up if this window becomes unacceptable.
+Every authenticated request is checked against the database, not only against the JWT signature.
+The auth middleware (`auth.Signer.Middleware`) takes a `SessionLookup` (wired in `Routes` to one
+primary-key query on `users`: status, role, company, `token_version`) and answers `401` unless the
+user exists, is `active` and the token's `tv` claim equals `users.token_version`. `role` and
+`company_id` in the request context come from that row, never from the token, so a demotion applies
+on the next request. A lookup failure is a `500` (fail closed). Tokens issued before migration
+`0013` have no `tv` claim and count as version 0; they stay valid until they expire or the user's
+version is first bumped.
+
+The version is bumped (every token of that user, on every device, stops working):
+
+- `POST /api/auth/logout` (authenticated, any role, `204`) bumps the caller's own version.
+- `PATCH /api/users/{id}` that actually changes `role` or `status`, and `DELETE /api/users/{id}`
+  that deactivates, bump the target's version in the same transaction. Renames and unchanged values
+  do not. The affected user must sign in again.
+
+Migration `0013_users_token_version.sql` must be applied **before** the new binary starts (the
+middleware reads the column on every request).
 
 ## Module permissions (server-side)
 
@@ -374,7 +386,9 @@ The login screen talks to this backend, so there is nothing to seed by hand.
 2. Open `http://localhost:8100` and log in normally. With the local dev seed that is
    `livan.05@hotmail.com` / `Admin123` (see "Seeded login"), or use "Registrar nueva empresa".
 3. The token lasts 24 hours; after that, or on any 401, the app returns to the login view. To leave
-   earlier use "Cerrar sesión", or clear `hr_sess` and `hr_meta` from `localStorage`.
+   earlier use "Cerrar sesión", which calls `POST /api/auth/logout` (best effort: the browser session
+   is cleared even if the call fails) and invalidates every token of that user, or clear `hr_sess`
+   and `hr_meta` from `localStorage`.
 4. After a `git checkout`, `git pull` or any change to `nginx/default.conf`, run
    `docker compose restart nginx`. The page and the nginx config are single-file bind mounts: git
    replaces the file with a new inode, the container keeps the old one and silently serves the

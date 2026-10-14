@@ -2082,9 +2082,17 @@ var Supa = {
       {company_name:meta.company_name, first_name:meta.first_name, last_name:meta.last_name, email:em, password:pw},
       'No se pudo crear la empresa');
   },
-  // Sessions are stateless JWTs with no revocation endpoint: signing out only
-  // discards the local session, so there is nothing to send.
-  signOut: async function() {},
+  // Best-effort server-side logout: the server bumps the user's token version,
+  // which invalidates every token of this user. It is NOT routed through gres
+  // (a 401 here must not start the "Sesión expirada" flow) and never throws or
+  // toasts: the caller clears the local session whatever happens. Demo mode
+  // and a missing session make no request.
+  signOut: async function() {
+    if (A.demo || !A.session) return;
+    try {
+      await fetch(this.goUrl + '/api/auth/logout', {method:'POST', headers:this.ghdr(), keepalive:true});
+    } catch (e) { /* offline or server down: the local sign-out still happens */ }
+  },
   sel: async function(tbl, flt) {
     flt = flt || {};
     if (A.demo) {
@@ -2331,7 +2339,9 @@ async function doReg() {
 }
 
 async function doLogout() {
-  await Supa.signOut();
+  // Fire and forget: the request (headers already built from the live token)
+  // must not delay or block the local sign-out.
+  Supa.signOut();
   clearSession();
   showV('login'); toast('Sesión cerrada','info');
 }

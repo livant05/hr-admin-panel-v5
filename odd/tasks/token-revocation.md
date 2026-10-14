@@ -25,7 +25,7 @@ Backend (`internal/auth`, `internal/handlers`, sqlc queries, new migration 0013)
 ## Tasks
 - [x] T1 — migration 0013 `users.token_version`; `tv` claim issued at login/register; middleware per-request check (exists, active, version match; role/company from DB); tests: deactivated user 401, demoted role applied on next request, version mismatch 401, missing `tv` treated as 0, unknown user 401. (route: delegated writer; trigger: 2+ non-trivial files)
 - [x] T2 — `POST /api/auth/logout` bumps version (204); bump on role/status change and user delete; route classification test updated; tests for each bump path and that other users' tokens are unaffected. (route: same delegated writer)
-- [ ] T3 — frontend `doLogout` calls `POST /api/auth/logout` best-effort (local clear always happens, no error toast if offline), harness test; README auth section. (route: same delegated writer)
+- [x] T3 — frontend `doLogout` calls `POST /api/auth/logout` best-effort (local clear always happens, no error toast if offline), harness test; README auth section. (route: same delegated writer)
 
 ## Acceptance criteria
 - Deactivating, re-roling or logging out a user invalidates that user's existing tokens on the next request; other users unaffected.
@@ -45,12 +45,17 @@ Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked
 - RED: `go test ./internal/auth ./internal/handlers` failed to compile: `undefined: auth.Session`, `undefined: auth.SessionLookup`, `undefined: auth.ErrSessionNotFound`, `too many arguments in call to signer.Sign`, `too many arguments in call to ...Middleware` (new tests: TestMiddleware_SessionChecks, TestSessionCheck_*).
 - GREEN: `go test ./... -count=1` all packages ok; `go vet ./...` clean.
 
-### T2 (commit hash recorded in the T3 entry)
+### T2 — commit b147637 `feat(auth): server-side logout and token invalidation on role/status change`
 - Route: same delegated writer. `POST /api/auth/logout` is a protected `open` route (behind the middleware; login/register stay public), 204. `changeUser` bumps `token_version` (sqlc `BumpUserTokenVersion`) in the same transaction when a PATCH actually changes role or status, and on a DELETE that deactivates; renames, unchanged values and repeat deletes do not bump.
 - Classification: `POST /api/auth/logout` added to `wantRouteClasses` as `open`.
 - Test adaptations: survivor token signed with its current version; the concurrent-demotion test resets `token_version` each round.
 - RED: `TestRoutes_EveryProtectedRouteIsClassified` (map entry without a registered route: POST /api/auth/logout); `TestLogout_InvalidatesEveryTokenOfTheCallerOnly` and `TestLogout_NonAdminRoleNeedsNoModulePermission` (got 404); `TestUserAdmin_BumpsTokenVersionOnRoleOrStatusChange` (role change: version = 0, want 1); `TestUserAdmin_DeleteBumpsTokenVersion` (delete: version = 0, want 1).
 - GREEN: `go test ./... -count=1` all ok; `go vet ./...` clean; concurrent-demotion test stable over -count=8.
 
+### T3 (commit hash: see `git log`; a commit cannot contain its own hash)
+- Route: same delegated writer. `Supa.signOut` now fires `POST /api/auth/logout` (bearer, keepalive) directly via `fetch`, not `gres`, so a 401 never starts the "Sesión expirada" flow; errors are swallowed, no toast. `doLogout` calls it fire-and-forget and always clears locally. Demo mode and no-session make no request. Harness: `tools/session/harness.mjs` logout tests replaced/extended (request shape, offline, 401/500, no session; demo test unchanged and passing). README: "Sessions and revocation" replaces the AUTH-10 residual-risk note.
+- RED (new tests against the unmodified page): FAIL "logout sends one POST /api/auth/logout ..." (0 !== 1), FAIL "logout still signs out locally ... unreachable" (0 !== 1), FAIL "logout answered 401 or 500 ..." (0 !== 1); 32/35 passed. Note: the page change was written before the first run and reverted with `git stash` to take this RED measurement.
+- GREEN: session 35/35, permissions 13/13, leave 7/7, zk-feed 13/13; `node --check` of the main script ok.
+
 ## Next step
-T3.
+Orchestrator: apply migration 0013 to the dev DB, live verification, then delivery decision.
