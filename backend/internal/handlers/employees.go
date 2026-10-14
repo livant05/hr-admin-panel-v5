@@ -1,13 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"math/big"
 	"net/http"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
@@ -110,18 +110,7 @@ var redactedEmployeeFields = []string{
 // permitted user saving a record whose salary/cedula came back null would
 // overwrite the real values).
 func (a *API) canSeeEmployeePay(r *http.Request, companyID pgtype.UUID) (bool, error) {
-	role := auth.RoleFromContext(r.Context())
-	if role == "admin" {
-		return true, nil
-	}
-	row, err := a.Queries.GetRoleByName(r.Context(), db.GetRoleByNameParams{CompanyID: companyID, Name: role})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return permissionGranted(row, nil, "employees") || permissionGranted(row, nil, "payroll"), nil
+	return a.permissionLookup(r, companyID, "employees", "payroll")
 }
 
 // employeePayAccess runs canSeeEmployeePay for a read handler. On a lookup
@@ -129,7 +118,14 @@ func (a *API) canSeeEmployeePay(r *http.Request, companyID pgtype.UUID) (bool, e
 func (a *API) employeePayAccess(w http.ResponseWriter, r *http.Request, companyID pgtype.UUID) (full, ok bool) {
 	full, err := a.canSeeEmployeePay(r, companyID)
 	if err != nil {
-		a.Log.Error("employee field permission lookup", "role", auth.RoleFromContext(r.Context()), "err", err)
+		role := auth.RoleFromContext(r.Context())
+		// A client that went away mid-request is not an outage: keep it out of
+		// the error level so real roles-lookup failures stay visible.
+		if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+			a.Log.Warn("employee field permission lookup", "role", role, "err", err)
+		} else {
+			a.Log.Error("employee field permission lookup", "role", role, "err", err)
+		}
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "could not check permissions")
 		return false, false
 	}
