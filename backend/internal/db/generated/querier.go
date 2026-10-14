@@ -51,6 +51,12 @@ type Querier interface {
 	// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
 	CountApplicationsForJobPosting(ctx context.Context, jobPostingID pgtype.UUID) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
+	// A month is paid either as ONE 'mensual' run or as quincenas, never both.
+	// Counts history rows AND run-origin ledger rows of the same month whose kind
+	// clashes with the requested period (history can be deleted while its ledger
+	// rows survive, settled decision #2, so both sources are checked). The legacy
+	// 'quincenal' history value counts as a quincena.
+	CountConflictingPayrollPeriods(ctx context.Context, arg CountConflictingPayrollPeriodsParams) (int32, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
 	CountDocumentTemplates(ctx context.Context, arg CountDocumentTemplatesParams) (int64, error)
 	CountEmployeePayRecords(ctx context.Context, arg CountEmployeePayRecordsParams) (int64, error)
@@ -195,11 +201,6 @@ type Querier interface {
 	// itself stays client-supplied in Phase 2 -- design Q6 explicitly defers
 	// deriving it server-side from salary/weekly_hours to Phase 3's prCalc port.
 	CreateOvertimeLog(ctx context.Context, arg CreateOvertimeLogParams) (OvertimeLog, error)
-	// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
-	// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
-	// (the P6.1 department-rename-propagation tx shape) -- a failure in any
-	// later upsert rolls this back too (TestPayrollRun_IsAtomic).
-	CreatePayrollHistory(ctx context.Context, arg CreatePayrollHistoryParams) (PayrollHistory, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
 	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
@@ -302,7 +303,9 @@ type Querier interface {
 	// design R9 / settled decision (obs #841): de-duplicated to ONE row per
 	// period, run-origin preferred, because the live run (slice 3f) makes two
 	// rows for one period a normal outcome and the JS "last N records" window
-	// would double-count them.
+	// would double-count them. Migration 0014 adds quincenal periods: the
+	// periods of one month are then SUMMED into a single month before ranking,
+	// so the 60/12/11/6-month windows, `months` and `sal30` keep meaning months.
 	// COALESCE per column: the JS sums with `||0`, and these columns are
 	// DEFAULT 0 but still nullable.
 	// acum_vac / acum_6m sum FIVE income columns and deliberately EXCLUDE
@@ -450,6 +453,11 @@ type Querier interface {
 	// posting (FOR UPDATE) waits and then counts the re-pointed application; a posting
 	// deleted first leaves no row here (404) instead of a 23503.
 	LockJobPostingForShare(ctx context.Context, arg LockJobPostingForShareParams) (LockJobPostingForShareRow, error)
+	// Serializes payroll runs for one (company, year, month): a transaction-scoped
+	// advisory lock taken first inside the run's transaction, so a double submit
+	// (or a mensual racing a quincena) waits for the other run to commit and then
+	// sees its rows. The unique indexes remain the backstop.
+	LockPayrollRun(ctx context.Context, dollar_1 string) error
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
@@ -537,6 +545,13 @@ type Querier interface {
 	// and refreshes a known one. company_id is NEVER part of the SET list, so a
 	// heartbeat can not change ownership.
 	UpsertDeviceHeartbeat(ctx context.Context, serialNumber string) (UpsertDeviceHeartbeatRow, error)
+	// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
+	// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
+	// (the P6.1 department-rename-propagation tx shape) -- a failure in any
+	// later upsert rolls this back too (TestPayrollRun_IsAtomic).
+	// Re-running a period REPLACES its row (unique key company, year, month,
+	// period), the same replace semantics the ledger upsert already has.
+	UpsertPayrollHistory(ctx context.Context, arg UpsertPayrollHistoryParams) (PayrollHistory, error)
 	// Settled decision #1 (design R4/R4a/R4c, task 6.2). The ONLY writer of
 	// origin='run'. A1 rule 6 shape is kept STRUCTURALLY even though the caller
 	// (CreatePayrollRun) enumerates the employees itself via
@@ -545,7 +560,8 @@ type Querier interface {
 	// Upsert, not append: re-running a period REPLACES that period's run row
 	// (ON CONFLICT ... WHERE origin='run' DO UPDATE), while every manual/CSV row
 	// for the same period is left untouched -- the partial index
-	// uq_epr_run_period (migration 0007) is what makes that true
+	// uq_epr_run_period_v2 (migration 0014; widened with `period` so the two
+	// quincenas of a month keep separate rows) is what makes that true
 	// (TestPayrollRun_RerunUpsertsNotDuplicates, TestPayrollRun_PreservesManualAndCSVRows).
 	// commissions/bonuses/vacations_paid/other_income are hard 0 -- Calculate
 	// has no corresponding input; only manual entry and CSV import populate

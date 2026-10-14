@@ -54,17 +54,53 @@ LEFT JOIN (
 WHERE e.company_id = $1 AND e.status = 'active'
 ORDER BY e.first_name, e.last_name;
 
--- name: CreatePayrollHistory :one
+-- name: LockPayrollRun :exec
+-- Serializes payroll runs for one (company, year, month): a transaction-scoped
+-- advisory lock taken first inside the run's transaction, so a double submit
+-- (or a mensual racing a quincena) waits for the other run to commit and then
+-- sees its rows. The unique indexes remain the backstop.
+SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));
+
+-- name: CountConflictingPayrollPeriods :one
+-- A month is paid either as ONE 'mensual' run or as quincenas, never both.
+-- Counts history rows AND run-origin ledger rows of the same month whose kind
+-- clashes with the requested period (history can be deleted while its ledger
+-- rows survive, settled decision #2, so both sources are checked). The legacy
+-- 'quincenal' history value counts as a quincena.
+SELECT (
+  SELECT count(*) FROM payroll_history ph
+  WHERE ph.company_id = $1 AND ph.year = $2 AND ph.month = $3
+    AND ph.period <> $4::text
+    AND ($4::text = 'mensual' OR ph.period = 'mensual')
+) + (
+  SELECT count(*) FROM employee_pay_records epr
+  WHERE epr.company_id = $1 AND epr.period_year = $2 AND epr.period_month = $3
+    AND epr.origin = 'run'
+    AND epr.period <> $4::text
+    AND ($4::text = 'mensual' OR epr.period = 'mensual')
+) AS conflicts;
+
+-- name: UpsertPayrollHistory :one
 -- The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
 -- FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
 -- (the P6.1 department-rename-propagation tx shape) -- a failure in any
 -- later upsert rolls this back too (TestPayrollRun_IsAtomic).
+-- Re-running a period REPLACES its row (unique key company, year, month,
+-- period), the same replace semantics the ledger upsert already has.
 INSERT INTO payroll_history (
   company_id, period, month, year, month_name, employee_count,
   total_bruto, total_isr, total_neto, total_empresa
 ) VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
 )
+ON CONFLICT (company_id, year, month, period) DO UPDATE SET
+  month_name     = EXCLUDED.month_name,
+  employee_count = EXCLUDED.employee_count,
+  total_bruto    = EXCLUDED.total_bruto,
+  total_isr      = EXCLUDED.total_isr,
+  total_neto     = EXCLUDED.total_neto,
+  total_empresa  = EXCLUDED.total_empresa,
+  created_at     = NOW()
 RETURNING id, company_id, period, month, year, month_name, employee_count,
   total_bruto, total_isr, total_neto, total_empresa, created_at;
 

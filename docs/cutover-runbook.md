@@ -247,14 +247,14 @@ source of truth, then re-export.
 
 Postgres runs `docker-entrypoint-initdb.d` **only on a fresh volume**. An existing volume keeps
 its old schema, and the dev volume was found missing `0005` to `0009`, so assume yours is too.
-Apply **every migration missing on the volume, in order**, not just `0010` to `0013`. Files
+Apply **every migration missing on the volume, in order**, not just `0010` to `0014`. Files
 `0005` and later are idempotent, so applying one that is already present is harmless.
 
 ```sh
 cd backend
 for f in 0005_lookup_unique 0006_phase2_columns 0007_phase3_payroll 0008_phase4_hr_records \
          0009_medical_permission 0010_users_email_lower_unique 0011_zkteco_ingestion \
-         0012_zkteco_tenant_scoping 0013_users_token_version; do
+         0012_zkteco_tenant_scoping 0013_users_token_version 0014_payroll_periods; do
   echo "applying $f"
   docker compose exec -T postgres \
     psql -U rrhh_go -d rrhh_go -v ON_ERROR_STOP=1 -f "/docker-entrypoint-initdb.d/$f.sql" \
@@ -274,6 +274,17 @@ check for this, so verify explicitly.
 `0013` adds `users.token_version`, which the API reads on **every authenticated request**
 (session check). Apply it **before** starting the new binary: without the column every
 protected route answers 500.
+
+`0014` adds `employee_pay_records.period` and the unique key
+`payroll_history (company_id, year, month, period)`. The unique index fails if the table already
+holds duplicate runs for one period. Check first and delete the older duplicates:
+
+```sql
+SELECT company_id, year, month, period, count(*) FROM payroll_history
+GROUP BY 1,2,3,4 HAVING count(*) > 1;
+```
+
+Apply it **before** starting the new binary (the run upsert writes the `period` column).
 
 **Verify** by comparing the catalog with `backend/migrations/`. Every row must be `true`. Note:
 `0009` reads `true` on an empty `roles` table whether or not it ran; that is harmless, since
@@ -301,7 +312,9 @@ SELECT m.file, m.applied FROM (VALUES
   ('0012_zkteco_tenant_scoping',
      to_regclass('uq_zkteco_unknown_pins_serial_pin') IS NOT NULL AND to_regclass('idx_emp_cedula') IS NOT NULL),
   ('0013_users_token_version',
-     EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'token_version'))
+     EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'token_version')),
+  ('0014_payroll_periods',
+     to_regclass('uq_payroll_history_period') IS NOT NULL AND to_regclass('uq_epr_run_period_v2') IS NOT NULL)
 ) AS m(file, applied)
 ORDER BY m.file;
 ```

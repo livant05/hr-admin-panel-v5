@@ -187,6 +187,7 @@ type EmployeePayRecord struct {
 	Notes           pgtype.Text        `json:"notes"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 }
 
 type Enrollment struct {

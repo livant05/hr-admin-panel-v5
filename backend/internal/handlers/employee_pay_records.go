@@ -156,6 +156,7 @@ type employeePayRecordResponse struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 

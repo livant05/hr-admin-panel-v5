@@ -56,7 +56,7 @@ WHERE e.id = $2 AND e.company_id = $1
 RETURNING id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
   period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
   other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
-  origin, created_at
+  origin, period, created_at
 `
 
 type CreateEmployeePayRecordWithEmployeeParams struct {
@@ -106,6 +106,7 @@ type CreateEmployeePayRecordWithEmployeeRow struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -175,6 +176,7 @@ func (q *Queries) CreateEmployeePayRecordWithEmployee(ctx context.Context, arg C
 		&i.NetSalary,
 		&i.Notes,
 		&i.Origin,
+		&i.Period,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -194,7 +196,7 @@ INSERT INTO employee_pay_records (
 RETURNING id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
   period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
   other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
-  origin, created_at
+  origin, period, created_at
 `
 
 type CreateEmployeePayRecordWithoutEmployeeParams struct {
@@ -245,6 +247,7 @@ type CreateEmployeePayRecordWithoutEmployeeRow struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -307,6 +310,7 @@ func (q *Queries) CreateEmployeePayRecordWithoutEmployee(ctx context.Context, ar
 		&i.NetSalary,
 		&i.Notes,
 		&i.Origin,
+		&i.Period,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -334,8 +338,9 @@ func (q *Queries) DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmploye
 
 const getEmployeePayBases = `-- name: GetEmployeePayBases :one
 WITH per_period AS (
-  SELECT DISTINCT ON (period_year, period_month)
-         period_year, period_month,
+  -- one row per (month, period): run beats manual, newest wins
+  SELECT DISTINCT ON (period_year, period_month, period)
+         period_year, period_month, origin,
          COALESCE(gross_salary, 0)    AS gross_salary,
          COALESCE(overtime_amount, 0) AS overtime_amount,
          COALESCE(commissions, 0)     AS commissions,
@@ -344,12 +349,28 @@ WITH per_period AS (
          COALESCE(total_earned, 0)    AS total_earned
   FROM employee_pay_records
   WHERE company_id = $1 AND employee_id = $2
-  ORDER BY period_year DESC, period_month DESC,
+  ORDER BY period_year, period_month, period,
            (origin = 'run') DESC,     -- a run row wins a same-period tie
            created_at DESC
+), flagged AS (
+  SELECT period_year, period_month, origin, gross_salary, overtime_amount, commissions, bonuses, other_income, total_earned, bool_or(origin = 'run') OVER (PARTITION BY period_year, period_month) AS month_has_run
+  FROM per_period
+), per_month AS (
+  -- a month paid in quincenas is ONE month: sum its periods. A month with a
+  -- run uses only run rows (a manual row for it is the same payroll).
+  SELECT period_year, period_month,
+         SUM(gross_salary)    AS gross_salary,
+         SUM(overtime_amount) AS overtime_amount,
+         SUM(commissions)     AS commissions,
+         SUM(bonuses)         AS bonuses,
+         SUM(other_income)    AS other_income,
+         SUM(total_earned)    AS total_earned
+  FROM flagged
+  WHERE origin = 'run' OR NOT month_has_run
+  GROUP BY period_year, period_month
 ), ranked AS (
   SELECT row_number() OVER (ORDER BY period_year DESC, period_month DESC) AS rn, period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, other_income, total_earned
-  FROM per_period
+  FROM per_month
 )
 SELECT
   COALESCE(SUM(total_earned) FILTER (WHERE rn <= 60), 0)::numeric AS acum_prima,
@@ -383,7 +404,9 @@ type GetEmployeePayBasesRow struct {
 // design R9 / settled decision (obs #841): de-duplicated to ONE row per
 // period, run-origin preferred, because the live run (slice 3f) makes two
 // rows for one period a normal outcome and the JS "last N records" window
-// would double-count them.
+// would double-count them. Migration 0014 adds quincenal periods: the
+// periods of one month are then SUMMED into a single month before ranking,
+// so the 60/12/11/6-month windows, `months` and `sal30` keep meaning months.
 // COALESCE per column: the JS sums with `||0`, and these columns are
 // DEFAULT 0 but still nullable.
 // acum_vac / acum_6m sum FIVE income columns and deliberately EXCLUDE
@@ -410,7 +433,7 @@ const getEmployeePayRecord = `-- name: GetEmployeePayRecord :one
 SELECT id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
   period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
   other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
-  origin, created_at
+  origin, period, created_at
 FROM employee_pay_records
 WHERE id = $2 AND company_id = $1
 `
@@ -445,6 +468,7 @@ type GetEmployeePayRecordRow struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -476,6 +500,7 @@ func (q *Queries) GetEmployeePayRecord(ctx context.Context, arg GetEmployeePayRe
 		&i.NetSalary,
 		&i.Notes,
 		&i.Origin,
+		&i.Period,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -485,7 +510,7 @@ const listEmployeePayRecords = `-- name: ListEmployeePayRecords :many
 SELECT id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
   period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
   other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
-  origin, created_at
+  origin, period, created_at
 FROM employee_pay_records
 WHERE company_id = $1
   AND ($2::uuid IS NULL OR id = $2)
@@ -531,6 +556,7 @@ type ListEmployeePayRecordsRow struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -578,6 +604,7 @@ func (q *Queries) ListEmployeePayRecords(ctx context.Context, arg ListEmployeePa
 			&i.NetSalary,
 			&i.Notes,
 			&i.Origin,
+			&i.Period,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -601,7 +628,7 @@ WHERE id = $2 AND company_id = $1
 RETURNING id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
   period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
   other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
-  origin, created_at
+  origin, period, created_at
 `
 
 type UpdateEmployeePayRecordParams struct {
@@ -653,6 +680,7 @@ type UpdateEmployeePayRecordRow struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -715,6 +743,7 @@ func (q *Queries) UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmploye
 		&i.NetSalary,
 		&i.Notes,
 		&i.Origin,
+		&i.Period,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -723,21 +752,21 @@ func (q *Queries) UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmploye
 const upsertPayrollRunPayRecord = `-- name: UpsertPayrollRunPayRecord :one
 INSERT INTO employee_pay_records (
   company_id, employee_id, employee_name, cedula, periodo,
-  period_year, period_month,
+  period_year, period_month, period,
   gross_salary, overtime_amount,
   commissions, bonuses, vacations_paid, other_income,
   total_earned, css_employee, se_employee, isr, other_deductions, net_salary,
   numero_planilla, centro_costo, notes, origin
 )
 SELECT $1, e.id, e.first_name || ' ' || e.last_name, e.cedula, $3,
-  $4, $5,
+  $4, $5, $14,
   $6, $7,
   0, 0, 0, 0,
   $8, $9, $10, $11, $12, $13,
   NULL, NULL, NULL, 'run'
 FROM employees e
 WHERE e.id = $2 AND e.company_id = $1
-ON CONFLICT (company_id, employee_id, period_year, period_month)
+ON CONFLICT (company_id, employee_id, period_year, period_month, period)
   WHERE origin = 'run'
 DO UPDATE SET
   employee_name    = EXCLUDED.employee_name,
@@ -754,7 +783,7 @@ DO UPDATE SET
 RETURNING id, company_id, employee_id, employee_name, cedula, numero_planilla, centro_costo, periodo,
   period_year, period_month, gross_salary, overtime_amount, commissions, bonuses, vacations_paid,
   other_income, total_earned, css_employee, se_employee, isr, other_deductions, net_salary, notes,
-  origin, created_at
+  origin, period, created_at
 `
 
 type UpsertPayrollRunPayRecordParams struct {
@@ -771,6 +800,7 @@ type UpsertPayrollRunPayRecordParams struct {
 	Isr             pgtype.Numeric `json:"isr"`
 	OtherDeductions pgtype.Numeric `json:"other_deductions"`
 	NetSalary       pgtype.Numeric `json:"net_salary"`
+	Period          string         `json:"period"`
 }
 
 type UpsertPayrollRunPayRecordRow struct {
@@ -798,6 +828,7 @@ type UpsertPayrollRunPayRecordRow struct {
 	NetSalary       pgtype.Numeric     `json:"net_salary"`
 	Notes           pgtype.Text        `json:"notes"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 }
 
@@ -809,7 +840,8 @@ type UpsertPayrollRunPayRecordRow struct {
 // Upsert, not append: re-running a period REPLACES that period's run row
 // (ON CONFLICT ... WHERE origin='run' DO UPDATE), while every manual/CSV row
 // for the same period is left untouched -- the partial index
-// uq_epr_run_period (migration 0007) is what makes that true
+// uq_epr_run_period_v2 (migration 0014; widened with `period` so the two
+// quincenas of a month keep separate rows) is what makes that true
 // (TestPayrollRun_RerunUpsertsNotDuplicates, TestPayrollRun_PreservesManualAndCSVRows).
 // commissions/bonuses/vacations_paid/other_income are hard 0 -- Calculate
 // has no corresponding input; only manual entry and CSV import populate
@@ -831,6 +863,7 @@ func (q *Queries) UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayro
 		arg.Isr,
 		arg.OtherDeductions,
 		arg.NetSalary,
+		arg.Period,
 	)
 	var i UpsertPayrollRunPayRecordRow
 	err := row.Scan(
@@ -858,6 +891,7 @@ func (q *Queries) UpsertPayrollRunPayRecord(ctx context.Context, arg UpsertPayro
 		&i.NetSalary,
 		&i.Notes,
 		&i.Origin,
+		&i.Period,
 		&i.CreatedAt,
 	)
 	return i, err

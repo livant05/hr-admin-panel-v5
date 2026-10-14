@@ -33,7 +33,7 @@ Backend handlers/queries/payroll calc, new migration 0014, frontend payroll scre
 
 ## Tasks
 - [x] T1 — calculation: period vocabulary (`mensual|quincenal1|quincenal2`), date-ranged inputs in `ListPayrollRunInputs` (or a period-aware variant), quota scaled by factor; tests for each period (overtime/absences split by range, quota halved, mensual unchanged, unknown/legacy `quincenal` -> 400). (route: delegated writer)
-- [ ] T2 — persistence: migration 0014 (`employee_pay_records.period` + widened run unique index; `payroll_history` unique (company, year, month, period) + CHECK on period), per-period ledger upsert and `periodo` label, history replace-on-rerun, mensual/quincena exclusivity (409), advisory lock, `GetEmployeePayBases` monthly aggregation; tests: two quincenas -> two ledger rows, re-run replaces (1 history row), double concurrent submit -> 1 history row, mensual after quincena -> 409, bases sum quincenas into one month. (route: same writer)
+- [x] T2 — persistence: migration 0014 (`employee_pay_records.period` + widened run unique index; `payroll_history` unique (company, year, month, period) + CHECK on period), per-period ledger upsert and `periodo` label, history replace-on-rerun, mensual/quincena exclusivity (409), advisory lock, `GetEmployeePayBases` monthly aggregation; tests: two quincenas -> two ledger rows, re-run replaces (1 history row), double concurrent submit -> 1 history row, mensual after quincena -> 409, bases sum quincenas into one month. (route: same writer)
 - [ ] T3 — frontend + docs: disable Save during the request, payslip lines per half range and halved quota, history/pay-records labels; node harness; README payroll section + runbook note for 0014. (route: same writer)
 
 ## Acceptance criteria
@@ -51,7 +51,12 @@ Forecast ~600-900 authored lines (mostly tests). Strategy: continue the Feature 
 - RED: `go test ./internal/handlers -run TestCalculatePayroll` -> FAIL TestCalculatePayroll_PeriodVocabulary, _QuincenaSplitsAbsencesByRange, _QuincenaSplitsOvertimeByRange, _QuotaScaledByFactor; key line: `period quincenal1: expected 200, got 400 ... "must be 'mensual' or 'quincenal'"`.
 - GREEN: `go test ./internal/handlers ./internal/payroll -count=1` ok (goldens untouched).
 - Design: `payrollPeriodSpec` (factor + day range) replaces `payrollFactor`; `ListPayrollRunInputs` takes `start_date`/`end_date` (half-open) for attendance and overtime; quota scaled by factor in `calculatePayrollRun` (caller), `payroll.Calculate` untouched so legacy-parity goldens pass unchanged. Overtime still requires attendance data in the same range (legacy `hasData` semantics, now per range).
-- Commit: T1_HASH
+- Commit: 092ca2d
+
+### T2 (same writer)
+- RED: `go test ./internal/handlers -run 'TestPayrollRun_(TwoQ|RerunR|Conc|Mensual|Exclusivity)|TestPayrollHistory_Unique|TestPayBases_Aggregates'` -> all 7 FAIL: TwoQuincenasKeepTwoRows `expected 2 ledger rows ... got 1`; RerunReplacesHistory `got 1/2`; ConcurrentDoubleSubmit `expected exactly 1 history row, got 6`; MensualAndQuincenaAreExclusive `expected 409, got 201`; ExclusivityHoldsAfterHistoryDelete `got 201`; UniquePerPeriodBackstop `expected a unique violation`; PayBases_Aggregates `column "period" ... does not exist`.
+- GREEN: `go build ./... && go vet ./...` clean; `go test ./... -count=1` all ok; `go test -race ./internal/handlers ./internal/payroll` ok; concurrent test -count=5 ok.
+- Design: migration `0014_payroll_periods.sql` (period column + CHECKs, `uq_epr_run_period_v2`, `uq_payroll_history_period`); run tx = advisory lock -> exclusivity count (history + run ledger rows) -> history upsert -> ledger upserts; `GetEmployeePayBases` sums periods per month (run month uses run rows only) before ranking; `period` exposed on pay-record responses; runbook updated (0014 row, duplicate pre-check).
 
 ## Next step
-T2.
+T3.
