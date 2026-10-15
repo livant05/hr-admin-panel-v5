@@ -4640,10 +4640,19 @@ var PERM_MODULES=[
   {key:'settings',label:'Configuración',icon:'fa-cogs',color:'text-secondary'}
 ];
 async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el||!Array.isArray(roles)) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+escHtml(r.name)+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
-async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
-async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
+// "admin" is the built-in role every permission check bypasses on; the server
+// refuses it too (a roles row with that name would make its users admins).
+function reservedRoleName(n){ return String(n||'').trim().toLowerCase()==='admin'; }
+function roleErrMsg(err,fallback){
+  if(err&&err.code==='validation_failed'&&err.fields&&err.fields.name==='reserved name') return 'El nombre "admin" está reservado para el administrador';
+  if(err&&err.code==='conflict'&&err.message==='already exists') return 'Ya existe un rol con ese nombre';
+  if(err&&err.code==='conflict') return fallback+': '+err.message; // "N usuario(s) tienen este rol"
+  return apiErrMsg(err,fallback);
+}
+async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} if(reservedRoleName(n)){ toast('El nombre "admin" está reservado para el administrador','warning'); return; } var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo agregar'),'danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
+async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo eliminar'),'danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
 function editRole(id){ editEntity('role',id,'updateRole','loadRoleMgmt'); }
-async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
+async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(reservedRoleName(inp.value)){ toast('El nombre "admin" está reservado para el administrador','warning'); return; } if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo actualizar'),'danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
 async function openRolePermsModal(id){
   var rows=await Supa.sel('roles',{id:id}); var role=Array.isArray(rows)&&rows[0]; if(!role) return;
   document.getElementById('rpm-role-id').value=id;

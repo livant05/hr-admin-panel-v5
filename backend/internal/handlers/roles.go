@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strings"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
 )
@@ -97,7 +99,7 @@ func (a *API) CreateRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	name, ok := validateLookupName(w, req.Name)
-	if !ok {
+	if !ok || !allowedRoleName(w, name) {
 		return
 	}
 
@@ -132,9 +134,9 @@ type updateRoleRequest struct {
 }
 
 // PATCH /api/roles/{id} — admin only (UM-5); updates `name` and/or `permissions` independently.
-// Unlike departments/positions/branches, roles has no TEXT-match
-// relationship to employees (per spec), so no rename-propagation or
-// RESTRICT-on-delete logic applies here.
+// users.role holds the role NAME and permissions are looked up by it, so a
+// rename also renames the company's users holding the old name, in the same
+// transaction: without it they would silently lose every module.
 func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
@@ -158,10 +160,24 @@ func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	current, err := a.Queries.GetRole(r.Context(), db.GetRoleParams{
-		CompanyID: companyID,
-		ID:        id,
-	})
+	var newName string
+	if req.Name != nil {
+		trimmed, ok := validateLookupName(w, *req.Name)
+		if !ok || !allowedRoleName(w, trimmed) {
+			return
+		}
+		newName = trimmed
+	}
+
+	tx, err := a.Pool.Begin(r.Context())
+	if err != nil {
+		a.writeDBErr(w, err, "update role")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	q := a.Queries.WithTx(tx)
+
+	current, err := q.GetRoleForUpdate(r.Context(), db.GetRoleForUpdateParams{CompanyID: companyID, ID: id})
 	if err != nil {
 		a.writeDBErr(w, err, "update role")
 		return
@@ -169,19 +185,14 @@ func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 
 	name := current.Name
 	if req.Name != nil {
-		trimmed, ok := validateLookupName(w, *req.Name)
-		if !ok {
-			return
-		}
-		name = trimmed
+		name = newName
 	}
-
 	permissions := current.Permissions
 	if req.Permissions != nil {
 		permissions = *req.Permissions
 	}
 
-	row, err := a.Queries.UpdateRole(r.Context(), db.UpdateRoleParams{
+	row, err := q.UpdateRole(r.Context(), db.UpdateRoleParams{
 		CompanyID:   companyID,
 		ID:          id,
 		Name:        name,
@@ -191,13 +202,22 @@ func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update role")
 		return
 	}
+	if name != current.Name {
+		if _, err := q.RenameUsersRole(r.Context(), db.RenameUsersRoleParams{CompanyID: companyID, OldName: current.Name, NewName: name}); err != nil {
+			a.writeDBErr(w, err, "update role: rename users")
+			return
+		}
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		a.writeDBErr(w, err, "update role")
+		return
+	}
 
 	writeRows(w, http.StatusOK, []db.Role{row})
 }
 
-// DELETE /api/roles/{id} — admin only (UM-5); plain delete, no RESTRICT: roles has no
-// TEXT-match relationship to employees (only users.role, a separate
-// existing capability out of scope for this phase per spec).
+// DELETE /api/roles/{id} — admin only (UM-5). A role some user still holds is
+// a 409 with the count: deleting it would leave those users with no module.
 func (a *API) DeleteRole(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
@@ -213,18 +233,47 @@ func (a *API) DeleteRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	affected, err := a.Queries.DeleteRole(r.Context(), db.DeleteRoleParams{
-		CompanyID: companyID,
-		ID:        id,
-	})
+	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
 		a.writeDBErr(w, err, "delete role")
 		return
 	}
-	if affected == 0 {
-		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
+	defer tx.Rollback(r.Context())
+	q := a.Queries.WithTx(tx)
+
+	role, err := q.GetRoleForUpdate(r.Context(), db.GetRoleForUpdateParams{CompanyID: companyID, ID: id})
+	if err != nil {
+		a.writeDBErr(w, err, "delete role")
+		return
+	}
+	n, err := q.CountUsersWithRole(r.Context(), db.CountUsersWithRoleParams{CompanyID: companyID, Name: role.Name})
+	if err != nil {
+		a.writeDBErr(w, err, "delete role")
+		return
+	}
+	if n > 0 {
+		writeErrCode(w, http.StatusConflict, codeConflict, fmt.Sprintf("%d usuario(s) tienen este rol", n))
+		return
+	}
+	if _, err := q.DeleteRole(r.Context(), db.DeleteRoleParams{CompanyID: companyID, ID: id}); err != nil {
+		a.writeDBErr(w, err, "delete role")
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		a.writeDBErr(w, err, "delete role")
 		return
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// allowedRoleName rejects "admin" in any case: it is the built-in role every
+// permission check bypasses on, so a roles row with that name would turn its
+// users into administrators. Writes the 400 and returns false.
+func allowedRoleName(w http.ResponseWriter, name string) bool {
+	if strings.EqualFold(name, "admin") {
+		writeFieldErr(w, map[string]string{"name": "reserved name"})
+		return false
+	}
+	return true
 }

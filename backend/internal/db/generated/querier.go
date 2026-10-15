@@ -72,6 +72,7 @@ type Querier interface {
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
+	CountUsersWithRole(ctx context.Context, arg CountUsersWithRoleParams) (int64, error)
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
 	// The tenant check of both foreign keys IS the insert: the row is built from the
 	// posting and the candidate of the caller's company, so another company's id (or
@@ -348,6 +349,9 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
+	// Locks the role row for a rename or delete, so the users it is checked or
+	// renamed against cannot change roles in between through this path.
+	GetRoleForUpdate(ctx context.Context, arg GetRoleForUpdateParams) (Role, error)
 	// Per-request session check (auth middleware): primary-key lookup of only the
 	// columns that decide whether a token is still honoured.
 	GetSessionUser(ctx context.Context, id pgtype.UUID) (GetSessionUserRow, error)
@@ -461,6 +465,9 @@ type Querier interface {
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
+	// users.role holds the role NAME (permissions are looked up by it), so a
+	// role rename carries the company's users along in the same transaction.
+	RenameUsersRole(ctx context.Context, arg RenameUsersRoleParams) (int64, error)
 	// Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
 	// "ambiguous" without scanning every duplicate.
 	ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmployeesByCedulaParams) ([]pgtype.UUID, error)

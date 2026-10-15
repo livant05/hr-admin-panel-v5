@@ -36,3 +36,20 @@ WHERE id = $2 AND company_id = $1;
 SELECT id, company_id, name, permissions, created_at
 FROM roles
 WHERE company_id = $1 AND name = $2;
+
+-- name: GetRoleForUpdate :one
+-- Locks the role row for a rename or delete, so the users it is checked or
+-- renamed against cannot change roles in between through this path.
+SELECT id, company_id, name, permissions, created_at
+FROM roles
+WHERE id = $2 AND company_id = $1
+FOR UPDATE;
+
+-- name: RenameUsersRole :execrows
+-- users.role holds the role NAME (permissions are looked up by it), so a
+-- role rename carries the company's users along in the same transaction.
+UPDATE users SET role = sqlc.arg('new_name')
+WHERE company_id = $1 AND role = sqlc.arg('old_name');
+
+-- name: CountUsersWithRole :one
+SELECT count(*) FROM users WHERE company_id = $1 AND role = sqlc.arg('name');

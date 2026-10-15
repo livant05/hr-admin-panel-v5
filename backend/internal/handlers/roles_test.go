@@ -1,9 +1,12 @@
 package handlers_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
@@ -135,27 +138,110 @@ func TestRoles_CrossTenantLeak(t *testing.T) {
 	})
 }
 
-// TestRoles_DeleteSucceedsEvenWhileNameMatchesUserRole proves roles carries
-// no RESTRICT: per spec, only users.role (a separate, out-of-scope table)
-// references a role's name, and the spec explicitly excludes it from this
-// phase's guard. Deleting a role whose name also appears on a user's `role`
-// column must still succeed — unlike departments/positions/branches.
-func TestRoles_DeleteSucceedsEvenWhileNameMatchesUserRole(t *testing.T) {
+// users.role holds the role NAME and permissions are looked up by it, so a
+// rename must carry the company's users along: otherwise they silently lose
+// every module (the lookup fails closed). Other companies are untouched.
+func TestRoles_RenameCarriesTheUsersAlong(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
-
-	c := testutil.Company(t, pool, "RoleNoRestrictCo")
+	c := testutil.Company(t, pool, "RoleRenameCo")
+	other := testutil.Company(t, pool, "RoleRenameOtherCo")
 	tok := c.Token(t, signer)
 
-	// The tenant's own admin user (created by testutil.Company) already has
-	// role='admin'. Create a role literally named "admin" to match it.
-	createRec := testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": "admin", "permissions": map[string]any{}})
+	createRec := testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": "Supervisor", "permissions": map[string]any{"payroll": true}})
 	role := testutil.DecodeRows[roleRow](t, createRec)[0]
-
-	rec := testutil.Do(t, h, http.MethodDelete, "/api/roles/"+role.ID, tok, nil)
-	if rec.Code != http.StatusNoContent {
-		t.Fatalf("expected 204 — roles has no RESTRICT relationship to employees/users, got %d (body=%s)", rec.Code, rec.Body.String())
+	staff := c.TokenAs(t, pool, signer, "Supervisor")
+	other.TokenAs(t, pool, signer, "Supervisor")
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/payroll_history", staff, nil); rec.Code != http.StatusOK {
+		t.Fatalf("before rename: payroll got %d, want 200", rec.Code)
 	}
+
+	rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+role.ID, tok, map[string]any{"name": "Jefe de Planilla"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("rename: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/payroll_history", staff, nil); rec.Code != http.StatusOK {
+		t.Fatalf("after rename: payroll got %d, want 200 (the user must keep the role's permissions)", rec.Code)
+	}
+	if n := countUsersWithRole(t, pool, c.CompanyID, "Jefe de Planilla"); n != 1 {
+		t.Fatalf("users renamed in the company = %d, want 1", n)
+	}
+	if n := countUsersWithRole(t, pool, c.CompanyID, "Supervisor"); n != 0 {
+		t.Fatalf("users left on the old name = %d, want 0", n)
+	}
+	if n := countUsersWithRole(t, pool, other.CompanyID, "Supervisor"); n != 1 {
+		t.Fatalf("other company's Supervisor users = %d, want 1 (untouched)", n)
+	}
+
+	t.Run("a permissions-only PATCH leaves the users alone (unchanged)", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+role.ID, tok, map[string]any{"permissions": map[string]any{"payroll": true, "vacations": true}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s)", rec.Code, rec.Body.String())
+		}
+		if n := countUsersWithRole(t, pool, c.CompanyID, "Jefe de Planilla"); n != 1 {
+			t.Fatalf("users on the role = %d, want 1", n)
+		}
+	})
+}
+
+// A role some user still holds cannot be deleted: those users would lose every
+// module without notice. 409 with the count, like a posting with applications.
+func TestRoles_DeleteOfARoleInUseIs409(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "RoleDeleteInUseCo")
+	tok := c.Token(t, signer)
+
+	used := testutil.DecodeRows[roleRow](t, testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": "Cajero", "permissions": map[string]any{}}))[0]
+	c.TokenAs(t, pool, signer, "Cajero")
+	c.TokenAs(t, pool, signer, "Cajero")
+
+	rec := testutil.Do(t, h, http.MethodDelete, "/api/roles/"+used.ID, tok, nil)
+	if rec.Code != http.StatusConflict || testutil.ErrCode(t, rec) != "conflict" {
+		t.Fatalf("got %d (%s), want 409 conflict", rec.Code, rec.Body.String())
+	}
+	if msg := errMessage(t, rec); msg != "2 usuario(s) tienen este rol" {
+		t.Fatalf("message = %q", msg)
+	}
+	if get := testutil.Do(t, h, http.MethodGet, "/api/roles/"+used.ID, tok, nil); get.Code != http.StatusOK {
+		t.Fatalf("role after a refused delete: GET got %d, want 200", get.Code)
+	}
+
+	unused := testutil.DecodeRows[roleRow](t, testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": "Libre", "permissions": map[string]any{}}))[0]
+	if rec := testutil.Do(t, h, http.MethodDelete, "/api/roles/"+unused.ID, tok, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete of an unused role: got %d (%s), want 204", rec.Code, rec.Body.String())
+	}
+}
+
+// "admin" is the built-in role every check bypasses on: a roles row with that
+// name (in any case) would make its users administrators, so it is reserved.
+func TestRoles_AdminNameIsReserved(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "RoleReservedCo")
+	tok := c.Token(t, signer)
+
+	for _, name := range []string{"admin", "Admin", " ADMIN "} {
+		rec := testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": name, "permissions": map[string]any{}})
+		if rec.Code != http.StatusBadRequest || testutil.ErrCode(t, rec) != "validation_failed" || errField(t, rec, "name") == "" {
+			t.Fatalf("create %q: got %d (%s), want 400 validation_failed with fields.name", name, rec.Code, rec.Body.String())
+		}
+	}
+	role := testutil.DecodeRows[roleRow](t, testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": "Ventas", "permissions": map[string]any{}}))[0]
+	rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+role.ID, tok, map[string]any{"name": "Admin"})
+	if rec.Code != http.StatusBadRequest || errField(t, rec, "name") == "" {
+		t.Fatalf("rename to Admin: got %d (%s), want 400 with fields.name", rec.Code, rec.Body.String())
+	}
+}
+
+func countUsersWithRole(t *testing.T, pool *pgxpool.Pool, companyID, role string) int {
+	t.Helper()
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM users WHERE company_id = $1 AND role = $2`, companyID, role).Scan(&n); err != nil {
+		t.Fatalf("count users with role: %v", err)
+	}
+	return n
 }
 
 // TestRoles_PermissionsRoundTripAsJSONObject pins design P2.4: roles

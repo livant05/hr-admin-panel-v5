@@ -135,6 +135,16 @@ which the API does not have.
 require the JWT role `admin`; any other role gets `403 forbidden` before the body or the database
 is touched. Role reads stay open to every authenticated role.
 
+`users.role` holds the role **name**, and permissions are looked up by it. So:
+- `PATCH /api/roles/{id}` that changes `name` renames, in the same transaction, every user of the
+  company that held the old name; they keep the role's permissions. A permissions-only PATCH
+  touches no user.
+- `DELETE /api/roles/{id}` of a role some user still holds is `409 conflict` with the message
+  "N usuario(s) tienen este rol", and nothing is deleted. Reassign those users first.
+- `admin` (any case, trimmed) is reserved: creating or renaming a role to it is `400
+  validation_failed` with `fields.name` = `reserved name`, because every permission check bypasses
+  on that name.
+
 - `POST /api/users` takes `{email, first_name, last_name, role, status?}` and nothing else (a
   `password`, `password_hash`, `company_id` or `id` key is a 400). The email is trimmed and
   lowercased; a duplicate in any case or company is a 409. `role` is `admin`, `empleado` (the
