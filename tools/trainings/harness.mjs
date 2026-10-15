@@ -208,6 +208,14 @@ test('demo mode keeps its original output: 0 hours, raw status badges, "Imprimir
   e.run('loadTraining()');
   await new Promise((r) => setTimeout(r, 0));
   assert.match(e.el('certificate-cards').innerHTML, /Imprimir Cert\.<\/button>/);
+  // Declining every confirm still ends with the original toast; the delete confirm keeps its text
+  const asked = [];
+  e.sandbox.confirm = (m) => { asked.push(m); return false; };
+  e.sandbox.DS.employees = [{ id: 'p9', company_id: 'c1', first_name: 'Ana', last_name: 'Diaz', status: 'active' }];
+  await e.run(`openEnrollModal('${saved.id}')`);
+  assert.equal(e.toasts.at(-1).msg, '✅ Inscripciones actualizadas');
+  await e.run(`delTraining('${saved.id}')`);
+  assert.equal(asked.at(-1), '¿Eliminar capacitación?');
 });
 
 let pass = 0;
