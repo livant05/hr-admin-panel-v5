@@ -249,6 +249,7 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, fields := validateTraining(mergeTraining(cur, req, sent))
+	onlySentFieldErrors(fields, sent, map[string][]string{"end_date": {"start_date", "end_date"}})
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
@@ -297,4 +298,27 @@ func (a *API) DeleteTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// onlySentFieldErrors drops the errors of fields the client did not send: a
+// PATCH re-validates the merged record, and an imported row may already break
+// today's rules in a field nobody is editing. Those stored values are kept as
+// they are. linked names the sent keys that make a cross-field error count
+// (an end_date before start_date matters when either date is sent).
+func onlySentFieldErrors(fields map[string]string, sent map[string]json.RawMessage, linked map[string][]string) {
+	for name := range fields {
+		keys := linked[name]
+		if keys == nil {
+			keys = []string{name}
+		}
+		keep := false
+		for _, k := range keys {
+			if _, ok := sent[k]; ok {
+				keep = true
+			}
+		}
+		if !keep {
+			delete(fields, name)
+		}
+	}
 }

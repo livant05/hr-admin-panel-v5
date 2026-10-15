@@ -223,6 +223,10 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 	}
 	fields := map[string]string{}
 	st, score := validateGrade(fields, status, scoreRaw, trainingStatusScheduled)
+	onlySentFieldErrors(fields, sent, nil)
+	if !has("score") {
+		score = cur.Score // an imported score outside 0-100 is kept, not re-parsed
+	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
