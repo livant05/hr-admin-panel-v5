@@ -24,15 +24,20 @@ API health: http://localhost:8100/api/health
 
 ## Seeded login
 
-The existing real Ventatec company/user were seeded in `migrations/0003_seed.sql`:
+`migrations/0003_seed.sql` seeds the existing company and its admin user. The
+email and the password hash are in that file; the password is a public
+development default, so treat this login as local-only:
 
-- email: `livan.05@hotmail.com`
-- password: `Admin123`
+- change it right after the first login on any database that is not a
+  throwaway local copy;
+- with `APP_ENV=production` the API refuses to start while any user still has
+  the seed password (`cmd/api/seed_guard.go`, see `docs/cutover-runbook.md`).
 
 ```sh
+# SEED_EMAIL / SEED_PASSWORD: the seeded admin from migrations/0003_seed.sql
 curl -X POST http://localhost:8100/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"livan.05@hotmail.com","password":"Admin123"}'
+  -d "{\"email\":\"$SEED_EMAIL\",\"password\":\"$SEED_PASSWORD\"}"
 ```
 
 ## Current scope — auth skeleton only
@@ -384,7 +389,7 @@ The login screen talks to this backend, so there is nothing to seed by hand.
 
 1. Start the stack: `docker compose up -d --build`.
 2. Open `http://localhost:8100` and log in normally. With the local dev seed that is
-   `livan.05@hotmail.com` / `Admin123` (see "Seeded login"), or use "Registrar nueva empresa".
+   the seeded admin (see "Seeded login"), or use "Registrar nueva empresa".
 3. The token lasts 24 hours; after that, or on any 401, the app returns to the login view. To leave
    earlier use "Cerrar sesión", which calls `POST /api/auth/logout` (best effort: the browser session
    is cleared even if the call fails) and invalidates every token of that user, or clear `hr_sess`
@@ -520,7 +525,7 @@ The step-by-step Supabase cutover, rollback and end-to-end checklist live in
 `[USER-OPS]`: it is yours to run, not the build's.
 
 **Startup seed guard.** With `APP_ENV=production` the API checks, before serving, whether any
-user row, active or inactive, still has the committed seed password hash (`Admin123`, from `migrations/0003_seed.sql`).
+user row, active or inactive, still has the committed seed password hash (from `migrations/0003_seed.sql`).
 If so it logs `seed credential present` and exits 1; a failed check also exits 1. Any other `APP_ENV`
 is not checked and logs one `seed guard skipped` line naming the value. Delete the seed admin first (runbook step 6).
 
