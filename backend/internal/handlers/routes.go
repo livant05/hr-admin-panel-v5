@@ -109,6 +109,13 @@ func (a *API) protectedRoutes() []routeSpec {
 		{"PATCH /api/users/{id}", viaHandler, a.UpdateUser},  // last-active-admin guard (409)
 		{"DELETE /api/users/{id}", viaHandler, a.DeleteUser}, // soft delete, idempotent 204
 
+		// trainings: the panel's Capacitaciones page is gated by employees.
+		{"GET /api/trainings", need("employees"), a.ListTrainings},
+		{"POST /api/trainings", need("employees"), a.CreateTraining},
+		{"GET /api/trainings/{id}", need("employees"), a.GetTraining},
+		{"PATCH /api/trainings/{id}", need("employees"), a.UpdateTraining},
+		{"DELETE /api/trainings/{id}", need("employees"), a.DeleteTraining}, // cascades its enrollments
+
 		// job_postings: recruitment.
 		{"GET /api/job_postings", need("recruitment"), a.ListJobPostings},
 		{"POST /api/job_postings", need("recruitment"), a.CreateJobPosting},

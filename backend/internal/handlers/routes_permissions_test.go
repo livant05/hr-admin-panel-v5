@@ -140,6 +140,11 @@ var wantRouteClasses = map[string]string{
 	"POST /api/generated_documents":       "perm:documents",
 	"GET /api/generated_documents/{id}":   "perm:documents",
 
+	"GET /api/trainings":            "perm:employees",
+	"POST /api/trainings":           "perm:employees",
+	"GET /api/trainings/{id}":       "perm:employees",
+	"PATCH /api/trainings/{id}":     "perm:employees",
+	"DELETE /api/trainings/{id}":    "perm:employees",
 	"GET /api/job_postings":         "perm:recruitment",
 	"POST /api/job_postings":        "perm:recruitment",
 	"GET /api/job_postings/{id}":    "perm:recruitment",

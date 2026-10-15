@@ -204,6 +204,7 @@ type Querier interface {
 	CreateOvertimeLog(ctx context.Context, arg CreateOvertimeLogParams) (OvertimeLog, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
+	CreateTraining(ctx context.Context, arg CreateTrainingParams) (Training, error)
 	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
 	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
 	// employee_name is DERIVED from the employees row. date defaults to the
@@ -264,6 +265,9 @@ type Querier interface {
 	DeletePayrollHistory(ctx context.Context, arg DeletePayrollHistoryParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
+	// The course's enrollments go with it (ON DELETE CASCADE): the panel removes
+	// them together, and an enrollment means nothing without its course.
+	DeleteTraining(ctx context.Context, arg DeleteTrainingParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
 	// Run in the claim transaction: PINs that were rejected on this serial before
@@ -355,6 +359,11 @@ type Querier interface {
 	// Per-request session check (auth middleware): primary-key lookup of only the
 	// columns that decide whether a token is still honoured.
 	GetSessionUser(ctx context.Context, id pgtype.UUID) (GetSessionUserRow, error)
+	GetTraining(ctx context.Context, arg GetTrainingParams) (Training, error)
+	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes (and a
+	// PATCH against DELETE) without blocking an enrollment insert, which only takes
+	// FOR KEY SHARE on the course.
+	GetTrainingForMerge(ctx context.Context, arg GetTrainingForMergeParams) (Training, error)
 	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
 	GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
@@ -426,6 +435,7 @@ type Querier interface {
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
+	ListTrainings(ctx context.Context, arg ListTrainingsParams) ([]Training, error)
 	// The unclaimed pool: devices that heartbeated but belong to no company. The
 	// caller must be gated by requireAdmin; the rows carry the serial number an
 	// admin needs to recognize the physical device before claiming it.
@@ -525,6 +535,7 @@ type Querier interface {
 	UpdateOvertimeLog(ctx context.Context, arg UpdateOvertimeLogParams) (OvertimeLog, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
+	UpdateTraining(ctx context.Context, arg UpdateTrainingParams) (Training, error)
 	// Partial PATCH (design H1): absent/null keeps the stored value, so
 	// returnUniform's {status:'devuelto'} touches only status. Every parameter
 	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
