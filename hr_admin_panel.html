@@ -3091,14 +3091,16 @@ function prFactor(period){ return PR_PERIODS[period]?PR_PERIODS[period].factor:1
 function prPeriodLabel(period){ return PR_PERIODS[period]?PR_PERIODS[period].label:(period==='quincenal'?'Quincenal':String(period||'')); }
 function prQuota(quota,period){ return (quota||0)*prFactor(period); }
 // True when a 'YYYY-MM-DD' date falls inside the selected period of year/month.
+// The inclusive date range of a payroll period: the month, or days 1-15 /
+// 16-month end for a quincena. The one place that rule lives.
+function prPeriodRange(period,year,month){
+  var mm=(month<10?'0':'')+month, last=new Date(Date.UTC(year,month,0)).getUTCDate();
+  return {from:year+'-'+mm+'-'+(period==='quincenal2'?'16':'01'), to:year+'-'+mm+'-'+(period==='quincenal1'?'15':String(last))};
+}
 function prInPeriod(dateStr,period,year,month){
   if(!dateStr) return false;
-  var pfx=year+'-'+(month<10?'0'+month:''+month);
-  if(String(dateStr).substring(0,7)!==pfx) return false;
-  var day=parseInt(String(dateStr).substring(8,10),10);
-  if(period==='quincenal1') return day<=15;
-  if(period==='quincenal2') return day>=16;
-  return true;
+  var d=String(dateStr).substring(0,10), r=prPeriodRange(period,year,month);
+  return d>=r.from&&d<=r.to;
 }
 async function loadPayroll() {
   var emps=await Supa.sel('employees',{status:'active'});
@@ -3283,11 +3285,8 @@ async function printPayslip(empId) {
   // Same source as loadPayroll (the API); DS only holds demo data outside demo mode
   // Only the period's dates (the server bounds them, inclusive); selAll so a busy
   // period is never cut off by the 200-row default page
-  var slipYear=parseInt(yr), mm=(slipMonth<10?'0':'')+slipMonth;
-  var lastDay=new Date(Date.UTC(slipYear,slipMonth,0)).getUTCDate();
-  var empOT=await Supa.selAll('overtime_logs',{employee_id:empId,
-    date_from:slipYear+'-'+mm+'-'+(period==='quincenal2'?'16':'01'),
-    date_to:slipYear+'-'+mm+'-'+(period==='quincenal1'?'15':String(lastDay))});
+  var range=prPeriodRange(period,parseInt(yr),slipMonth);
+  var empOT=await Supa.selAll('overtime_logs',{employee_id:empId,date_from:range.from,date_to:range.to});
   var otLogs=(Array.isArray(empOT)?empOT:[]).filter(function(l){ return l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
   // The server's b already includes the period's overtime (b = base - absences
   // + ot_amt) and css/se/isr/net are computed on it: HH.EE. only itemizes it.

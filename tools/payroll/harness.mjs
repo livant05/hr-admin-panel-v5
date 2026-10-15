@@ -36,6 +36,7 @@ const srcs = [
   between('var PR_PERIODS', '\n\n'),
   extractFunction(html, 'function prFactor('),
   extractFunction(html, 'function prPeriodLabel('),
+  extractFunction(html, 'function prPeriodRange('),
   extractFunction(html, 'function prInPeriod('),
   extractFunction(html, 'function prQuota('),
   extractFunction(html, 'async function loadPayroll('),
@@ -123,6 +124,15 @@ test('prInPeriod: day 15 closes the 1st half, day 16 opens the 2nd, mensual take
   assert.equal(f('2025-07-01', 'mensual'), false);
   assert.equal(f('2025-07-01', 'quincenal2'), false);
   assert.equal(e.run("prInPeriod(null,'mensual',2025,6)"), false);
+});
+
+test('prPeriodRange: inclusive bounds, month end follows the calendar (leap February)', () => {
+  const e = makeEnv();
+  const r = (p, y, m) => ({ ...e.run(`prPeriodRange('${p}',${y},${m})`) });
+  assert.deepEqual(r('quincenal1', 2025, 6), { from: '2025-06-01', to: '2025-06-15' });
+  assert.deepEqual(r('quincenal2', 2025, 6), { from: '2025-06-16', to: '2025-06-30' });
+  assert.deepEqual(r('mensual', 2024, 2), { from: '2024-02-01', to: '2024-02-29' });
+  assert.deepEqual(r('quincenal2', 2025, 12), { from: '2025-12-16', to: '2025-12-31' });
 });
 
 test('prPeriodLabel: readable labels for the history badge', () => {
