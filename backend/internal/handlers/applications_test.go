@@ -921,15 +921,16 @@ func TestApplications_PatchValidation(t *testing.T) {
 
 	t.Run("malformed bodies, unknown fields and oversize bodies are 400 bad_request", func(t *testing.T) {
 		for name, body := range map[string]string{
-			"not json":      `nope`,
-			"array":         `[]`,
-			"null":          `null`,
-			"unknown field": `{"salary":1}`,
-			"company_id":    `{"company_id":"` + uuid.NewString() + `"}`,
-			"id":            `{"id":"` + uuid.NewString() + `"}`,
-			"created_at":    `{"created_at":"2020-01-01T00:00:00Z"}`,
-			"notes number":  `{"notes":5}`,
-			"over 1 MiB":    `{"notes":"` + strings.Repeat("a", 1<<20) + `"}`,
+			"not json":              `nope`,
+			"array":                 `[]`,
+			"null":                  `null`,
+			"unknown field":         `{"salary":1}`,
+			"stage in another case": `{"Stage":"hired"}`,
+			"company_id":            `{"company_id":"` + uuid.NewString() + `"}`,
+			"id":                    `{"id":"` + uuid.NewString() + `"}`,
+			"created_at":            `{"created_at":"2020-01-01T00:00:00Z"}`,
+			"notes number":          `{"notes":5}`,
+			"over 1 MiB":            `{"notes":"` + strings.Repeat("a", 1<<20) + `"}`,
 		} {
 			rec := doRawBody(t, h, http.MethodPatch, path, tok, body)
 			if rec.Code != http.StatusBadRequest {

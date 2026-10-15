@@ -239,7 +239,9 @@ func decodeRecruitmentPatch(w http.ResponseWriter, r *http.Request, dst any) (ma
 }
 
 // jsonFieldNames returns the exact JSON key of every field of the struct dst
-// points to.
+// points to. It reads top-level fields only: every patch DTO passed to
+// decodeRecruitmentPatch is a flat struct with an explicit lowercase json tag
+// on each field; an embedded struct would need its promoted fields added here.
 func jsonFieldNames(dst any) map[string]bool {
 	t := reflect.TypeOf(dst).Elem()
 	names := make(map[string]bool, t.NumField())
