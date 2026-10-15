@@ -58,5 +58,5 @@ var tables = []tableSpec{
 	{Name: "uniforms"},
 	{Name: "enrollments"},
 	{Name: "survey_responses"},
-	{Name: "applications"},
+	{Name: "applications", Unique: [][]string{{"job_posting_id", "candidate_id"}}},
 }

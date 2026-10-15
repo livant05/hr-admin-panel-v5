@@ -280,6 +280,11 @@ The posting and the candidate must belong to the caller's company. The check is 
 guarded delete of either (`FOR UPDATE`) waits for it and then answers `409`, and an insert that loses to
 a delete answers `404` instead of a foreign key error.
 
+A candidate has at most one application per posting (unique index from migration `0015`): a second
+`POST` for the same pair, such as a retry after a timeout, or a `PATCH` that re-points onto an existing
+pair is `409 conflict` with the message "El candidato ya tiene una postulación para esta vacante", and
+nothing is written. Imported rows whose posting or candidate is gone (`NULL`) never collide.
+
 `PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, `notes` may be
 `null` to clear it, and `job_posting_id`, `candidate_id`, `stage` and `applied_at` cannot be null
 (`400 validation_failed`). A stage change is only a stage change: moving an application to `hired` creates
