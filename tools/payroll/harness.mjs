@@ -82,7 +82,7 @@ function makeEnv({ period = 'quincenal1', previewRow = {} } = {}) {
     Supa: {
       gq: (o) => '?' + Object.entries(o).map(([k, v]) => `${k}=${v}`).join('&'),
       sel: async (tbl) => ({ employees: [EMP], attendance_logs: ATT, overtime_logs: OT, deductions: DEDS }[tbl] || []),
-      selAll: async () => [],
+      selAll: async (tbl) => (tbl === 'overtime_logs' ? OT : []),
       goFetch: async () => [{ employee_id: 'e1', b: 1500, css: 146.25, se: 18.75, isr: 0, ded: 165, ded_quota: 40, net: 1295, pcss: 0, pse: 0, dec: 0, dec_cssp: 0, tot: 1500, ...previewRow }],
       ins: async (tbl, data) => { inserts.push({ tbl, data }); return ctl.insResult(); },
       del: async () => [],
@@ -218,6 +218,21 @@ test('printPayslip HH.EE. lists the overtime from the API, not the in-memory dem
   const doc = e.written.join('');
   assert.match(doc, /Horas Extras nocturno \(3 hrs\)/);
   assert.doesNotMatch(doc, /Horas Extras regular/);
+});
+
+test('printPayslip HH.EE. reads every overtime page, so an older period is not cut off by the 200-row default page', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  // The default page (newest first) no longer reaches June 2025; only the whole list does
+  const sel = e.sandbox.Supa.sel;
+  e.sandbox.Supa.sel = async (tbl, flt) => (tbl === 'overtime_logs' ? [] : sel(tbl, flt));
+  e.sandbox.Supa.selAll = async (tbl) => (tbl === 'overtime_logs' ? OT : []);
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Horas Extras nocturno \(3 hrs\)<\/td><td class="text-right text-success">30\.00</);
+  assert.doesNotMatch(doc, /Horas Extras regular/);
+  assert.match(doc, /Total Horas Extras<\/td><td style="color:#28a745">30\.00</);
 });
 
 test('printPayslip (no cache) lists the installments from the API and totals the server quota', async () => {
