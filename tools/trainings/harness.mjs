@@ -188,6 +188,28 @@ test('delTraining / delEnrollment (real) call the API and report a failure', asy
   assert.deepEqual(e.toasts.at(-1), { msg: 'No se pudo eliminar la inscripción: el registro no existe', type: 'danger' });
 });
 
+test('demo mode keeps its original output: 0 hours, raw status badges, "Imprimir Cert.", empty-state text', async () => {
+  const e = makeEnv({ demo: true });
+  Object.assign(e.el('tr-name'), { value: 'Excel' });
+  await e.run('saveTraining()');
+  const saved = e.sandbox.DS.trainings[0];
+  assert.equal(saved.hours, 0);
+  assert.equal(saved.start_date, '');
+  assert.equal(saved.mode, 'presencial');
+  assert.match(e.el('training-cards').innerHTML, /<span class="badge badge-info">programado<\/span>/);
+  assert.match(e.el('training-cards').innerHTML, /0 horas · presencial/);
+  assert.match(e.el('certificate-cards').innerHTML, /Sin certificados aún/);
+  e.sandbox.DS.enrollments = [{ ...EN, training_id: saved.id, status: 'en_progreso', score: null }];
+  e.run('loadTraining()');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(e.el('enrollment-tbody').innerHTML, />en progreso<\/span>/);
+  e.sandbox.DS.enrollments[0].status = 'completado';
+  e.sandbox.DS.enrollments[0].score = 95;
+  e.run('loadTraining()');
+  await new Promise((r) => setTimeout(r, 0));
+  assert.match(e.el('certificate-cards').innerHTML, /Imprimir Cert\.<\/button>/);
+});
+
 let pass = 0;
 for (const [name, fn] of tests) {
   try { await fn(); pass++; console.log('ok  ', name); }
