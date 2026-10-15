@@ -3290,8 +3290,13 @@ async function printPayslip(empId) {
   // OT: only the selected period (month, or the 1st/2nd half for a quincena)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
   // Same source as loadPayroll (the API); DS only holds demo data outside demo mode
-  // Whole list: the default page (200 rows, newest first) would cut off an older period
-  var empOT=await Supa.selAll('overtime_logs',{employee_id:empId});
+  // Only the period's dates (the server bounds them, inclusive); selAll so a busy
+  // period is never cut off by the 200-row default page
+  var slipYear=parseInt(yr), mm=(slipMonth<10?'0':'')+slipMonth;
+  var lastDay=new Date(Date.UTC(slipYear,slipMonth,0)).getUTCDate();
+  var empOT=await Supa.selAll('overtime_logs',{employee_id:empId,
+    date_from:slipYear+'-'+mm+'-'+(period==='quincenal2'?'16':'01'),
+    date_to:slipYear+'-'+mm+'-'+(period==='quincenal1'?'15':String(lastDay))});
   var otLogs=(Array.isArray(empOT)?empOT:[]).filter(function(l){ return l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
   // The server's b already includes the period's overtime (b = base - absences
   // + ot_amt) and css/se/isr/net are computed on it: HH.EE. only itemizes it.

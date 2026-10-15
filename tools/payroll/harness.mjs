@@ -278,6 +278,19 @@ test('printPayslip with HH.EE. and Aportes Patronales: Costo Total Empresa is th
   assert.match(doc, /Costo Total Empresa<\/td><td style="color:#e65100">1900\.00</);
 });
 
+test('printPayslip asks the server only for the period\'s overtime (employee and date range)', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  const calls = [];
+  e.sandbox.Supa.selAll = async (tbl, flt) => { calls.push({ tbl, flt }); return tbl === 'overtime_logs' ? OT : []; };
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const ot = calls.filter((c) => c.tbl === 'overtime_logs');
+  assert.equal(ot.length, 1);
+  assert.deepEqual({ ...ot[0].flt }, { employee_id: 'e1', date_from: '2025-06-16', date_to: '2025-06-30' });
+  assert.match(e.written.join(''), /Horas Extras nocturno \(3 hrs\)/);
+});
+
 test('savePayrollRun: a double click sends ONE request and the button is disabled meanwhile', async () => {
   const e = makeEnv();
   e.run("_prRows = [{b:100,isr:1,net:90,tot:110}]");
