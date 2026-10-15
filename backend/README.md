@@ -112,7 +112,8 @@ lines are how an operator sees it happen.
 Public (no token), behind the shared `AuthLimiter` described above. Body `{company_name, first_name,
 last_name?, email, password}`; unknown keys (`role`, `status`, `company_id`, ...) and bodies over
 4 KiB are a `400 bad_request`. Validation failures are `400 validation_failed` with `fields`:
-`company_name` 1-200 characters (trimmed), `first_name` 1-100, `last_name` at most 100, `email` a
+`company_name` 1-200 characters (trimmed), `first_name` 1-100, `last_name` at most 100 (none of the
+three may contain control characters such as NUL or a newline), `email` a
 plausible address of at most 254 characters, `password` 8-72 **bytes** (`auth.ValidatePassword`; a
 37-character string of 2-byte runes is too long).
 
