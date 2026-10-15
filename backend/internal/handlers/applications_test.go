@@ -292,8 +292,8 @@ func TestApplications_OnePerCandidateAndPosting(t *testing.T) {
 
 	t.Run("re-pointing onto an existing pair is 409 and leaves the row unchanged", func(t *testing.T) {
 		rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+second.ID, tok, map[string]any{"candidate_id": ana.ID})
-		if rec.Code != http.StatusConflict || errMessage(t, rec) != dupMsg {
-			t.Fatalf("got %d %s, want 409 %q", rec.Code, rec.Body.String(), dupMsg)
+		if rec.Code != http.StatusConflict || testutil.ErrCode(t, rec) != "conflict" || errMessage(t, rec) != dupMsg {
+			t.Fatalf("got %d %s, want 409 conflict %q", rec.Code, rec.Body.String(), dupMsg)
 		}
 		if got, _ := getApplication(t, h, tok, second.ID); textOrNull(got.CandidateID) != luis.ID {
 			t.Fatalf("candidate_id = %s, want it unchanged (%s)", textOrNull(got.CandidateID), luis.ID)
@@ -304,6 +304,9 @@ func TestApplications_OnePerCandidateAndPosting(t *testing.T) {
 		rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+first.ID, tok, appBody(job.ID, ana.ID, map[string]any{"stage": "interview"}))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("got %d %s, want 200", rec.Code, rec.Body.String())
+		}
+		if got, _ := getApplication(t, h, tok, first.ID); textOrNull(got.Stage) != "interview" {
+			t.Fatalf("stage = %q, want interview", textOrNull(got.Stage))
 		}
 	})
 }
