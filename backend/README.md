@@ -124,6 +124,11 @@ remains) and answers `409 conflict`. On success the answer is `201` with exactly
 (`access_token`, `token_type`, `expires_in`, `company_name`, `user` with `user_metadata`), so the
 caller is logged in; it never contains `password_hash`. The login view's "Registrar nueva empresa" form calls it and logs the new admin in.
 
+Known limitation (accepted 2026-10-14): `409` vs `201` tells an unauthenticated caller whether an email
+already belongs to a user in any company. The shared `AuthLimiter` bounds how fast that can be probed;
+hiding it would need email verification (same answer either way, confirmation mail, no auto-login),
+which the API does not have.
+
 ## Users and roles (admin only)
 
 `/api/users` (list, get by id, create, patch, delete) and the write routes of `/api/roles` (create, update, delete)
