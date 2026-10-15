@@ -5428,10 +5428,12 @@ async function loadRecruitment() {
     var res;
     try { res = await Promise.all([Supa.selAll('job_postings'), Supa.selAll('candidates'), Supa.selAll('applications')]); }
     catch (e) { res = [{error:{code:'network', message:String(e&&e.message||e)}}]; }
-    var bad = res.find(function(x){ return !Array.isArray(x); });
-    if (bad) {
+    // findIndex, not find: a null result is itself falsy and would slip through
+    var badAt = res.findIndex(function(x){ return !Array.isArray(x); });
+    if (badAt >= 0) {
+      var bad = res[badAt];
       ['rec-jobs-tbody','rec-candidates-tbody','rec-pipeline-tbody'].forEach(function(id){ var e=document.getElementById(id); if(e) e.innerHTML=''; });
-      toast(recErrMsg(bad.error, 'No se pudo cargar reclutamiento'), 'danger'); return;
+      toast(recErrMsg(bad&&bad.error, 'No se pudo cargar reclutamiento'), 'danger'); return;
     }
     DS.job_postings = jobs = res[0]; DS.candidates = cands = res[1]; DS.applications = apps = res[2];
   }
