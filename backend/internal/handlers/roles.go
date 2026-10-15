@@ -187,6 +187,13 @@ func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		name = newName
 	}
+	// A legacy roles row named "admin" (imported data predates the reserved
+	// name) keeps its name: renaming it would carry every administrator along
+	// and leave the company with none, past the last-admin guard.
+	if name != current.Name && strings.EqualFold(current.Name, "admin") {
+		writeFieldErr(w, map[string]string{"name": "reserved name"})
+		return
+	}
 	permissions := current.Permissions
 	if req.Permissions != nil {
 		permissions = *req.Permissions

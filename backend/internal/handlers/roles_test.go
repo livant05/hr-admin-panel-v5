@@ -234,6 +234,39 @@ func TestRoles_AdminNameIsReserved(t *testing.T) {
 	}
 }
 
+// A legacy roles row named "admin" (imported data predates the reserved name)
+// must not be renamed: the rename would carry every administrator along and
+// leave the company with none, past the last-admin guard.
+func TestRoles_LegacyAdminRowCannotBeRenamed(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "RoleLegacyAdminCo")
+	tok := c.Token(t, signer)
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO roles (company_id, name, permissions) VALUES ($1, 'admin', '{}') RETURNING id`, c.CompanyID).Scan(&id); err != nil {
+		t.Fatalf("seed legacy admin row: %v", err)
+	}
+	admins := countUsersWithRole(t, pool, c.CompanyID, "admin")
+
+	rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+id, tok, map[string]any{"name": "Gerente"})
+	if rec.Code != http.StatusBadRequest || testutil.ErrCode(t, rec) != "validation_failed" || errField(t, rec, "name") == "" {
+		t.Fatalf("got %d (%s), want 400 validation_failed with fields.name", rec.Code, rec.Body.String())
+	}
+	if n := countUsersWithRole(t, pool, c.CompanyID, "admin"); n != admins || n == 0 {
+		t.Fatalf("admins after the refused rename = %d, want %d", n, admins)
+	}
+	if n := countUsersWithRole(t, pool, c.CompanyID, "Gerente"); n != 0 {
+		t.Fatalf("users moved to Gerente = %d, want 0", n)
+	}
+	t.Run("its permissions can still be edited (no name sent)", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+id, tok, map[string]any{"permissions": map[string]any{"dashboard": true}})
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d (%s), want 200", rec.Code, rec.Body.String())
+		}
+	})
+}
+
 func countUsersWithRole(t *testing.T, pool *pgxpool.Pool, companyID, role string) int {
 	t.Helper()
 	var n int

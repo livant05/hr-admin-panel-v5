@@ -143,7 +143,8 @@ is touched. Role reads stay open to every authenticated role.
   "N usuario(s) tienen este rol", and nothing is deleted. Reassign those users first.
 - `admin` (any case, trimmed) is reserved: creating or renaming a role to it is `400
   validation_failed` with `fields.name` = `reserved name`, because every permission check bypasses
-  on that name.
+  on that name. A legacy row already named `admin` (imported data) cannot be renamed either: the
+  rename would carry every administrator along. Its permissions stay editable.
 
 - `POST /api/users` takes `{email, first_name, last_name, role, status?}` and nothing else (a
   `password`, `password_hash`, `company_id` or `id` key is a 400). The email is trimmed and
