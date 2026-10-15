@@ -203,7 +203,7 @@ from validation errors. Every protected route carries a classification and
 | `users`, `zkteco_devices` claim/unclaimed, `zkteco_unknown_pins` | admin (in handler) | admin (in handler) |
 | `zkteco_devices` list / rename | any authenticated | any authenticated |
 | `employees` | any authenticated, sensitive fields redacted (below) | `employees` |
-| `evaluations`, `uniforms`, `trainings` | `employees` | `employees` |
+| `evaluations`, `uniforms`, `trainings`, `enrollments` | `employees` | `employees` |
 | `attendance_logs` | `attendance` | `attendance` |
 | `leave_balances`, `leave_requests` | `vacations` | `vacations` |
 | `medical_records` | `medical` (in handler) | `medical` (in handler) |
@@ -323,6 +323,27 @@ clears an optional field (`name` and `status` cannot be null), keys are exact, a
 validated as the whole course (an `end_date` before the stored `start_date` is rejected). The panel
 changes a course's status through it. `DELETE /{id}` returns `204` and removes the course's
 enrollments with it (`ON DELETE CASCADE`).
+
+## Trainings: enrollments
+
+`/api/enrollments` is tenant-scoped and requires the `employees` permission. `GET` lists (filters `id`,
+`training_id`, `employee_id`; `_limit`/`_offset`; a malformed uuid or any other parameter is
+`400 validation_failed`), `GET /{id}` returns one enrollment (another company's id is `404`), `POST`
+enrolls an employee and returns a one-element array. Body fields: `training_id` and `employee_id`
+(required uuids), `status` (`programado` default, `en_progreso`, `completado`), `score` (number 0-100,
+stored with two decimals, `null` for none) and `notes`. `training_name` and `employee_name` are
+accepted but ignored: the server copies them from the course and the employee. The course and the
+employee must belong to the caller's company; the check is the insert itself, so a foreign or
+missing id is `404` and nothing is written.
+
+An employee is enrolled at most once per course (unique index from migration `0016`): a second
+enrollment is `409 conflict` with "El empleado ya está inscrito en esta capacitación".
+
+`PATCH /{id}` grades an enrollment (the panel's "Calificar"): only `status`, `score` and `notes`; an
+absent field is kept, `null` clears `score` or `notes`, `status` cannot be null. The course and the
+employee are fixed at creation, so a body carrying `training_id` or `employee_id` is `400 bad_request`
+(delete and enroll again instead). `DELETE /{id}` returns `204`. The panel's certificates are the
+completed enrollments that have a score.
 
 ## ZKTeco devices and unknown PINs
 
