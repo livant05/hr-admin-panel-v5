@@ -144,7 +144,14 @@ is touched. Role reads stay open to every authenticated role.
 - `admin` (any case, trimmed) is reserved: creating or renaming a role to it is `400
   validation_failed` with `fields.name` = `reserved name`, because every permission check bypasses
   on that name. A legacy row already named `admin` (imported data) cannot be renamed either: the
-  rename would carry every administrator along. Its permissions stay editable.
+  rename would carry every administrator along. It can be deleted (it backs nobody: admins bypass
+  every check) and its permissions stay editable.
+- A row named `empleado` (the built-in default role of new users) can be created, edited and
+  deleted under the rules above, but not renamed: new users would keep `empleado` while the
+  existing ones moved away.
+- `POST /api/users` and `PATCH /api/users/{id}` that assign a custom role take a shared lock on that
+  role row first, so they wait for a rename or delete in flight; a role gone meanwhile is `400
+  validation_failed` with `fields.role`.
 
 - `POST /api/users` takes `{email, first_name, last_name, role, status?}` and nothing else (a
   `password`, `password_hash`, `company_id` or `id` key is a 400). The email is trimmed and

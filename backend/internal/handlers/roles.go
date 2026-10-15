@@ -187,10 +187,12 @@ func (a *API) UpdateRole(w http.ResponseWriter, r *http.Request) {
 	if req.Name != nil {
 		name = newName
 	}
-	// A legacy roles row named "admin" (imported data predates the reserved
-	// name) keeps its name: renaming it would carry every administrator along
-	// and leave the company with none, past the last-admin guard.
-	if name != current.Name && strings.EqualFold(current.Name, "admin") {
+	// A row named after a built-in role keeps its name. A legacy "admin" row
+	// (imported data predates the reserved name): renaming it would carry every
+	// administrator along, past the last-admin guard. An "empleado" row backs
+	// the default role new users get: renaming it would split them from the
+	// existing ones.
+	if name != current.Name && (strings.EqualFold(current.Name, "admin") || current.Name == roleEmpleado) {
 		writeFieldErr(w, map[string]string{"name": "reserved name"})
 		return
 	}
@@ -253,10 +255,15 @@ func (a *API) DeleteRole(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "delete role")
 		return
 	}
-	n, err := q.CountUsersWithRole(r.Context(), db.CountUsersWithRoleParams{CompanyID: companyID, Name: role.Name})
-	if err != nil {
-		a.writeDBErr(w, err, "delete role")
-		return
+	// A legacy "admin" row backs nobody: admins bypass every permission check,
+	// so deleting it never strips a module; skip the in-use count.
+	var n int64
+	if !strings.EqualFold(role.Name, "admin") {
+		n, err = q.CountUsersWithRole(r.Context(), db.CountUsersWithRoleParams{CompanyID: companyID, Name: role.Name})
+		if err != nil {
+			a.writeDBErr(w, err, "delete role")
+			return
+		}
 	}
 	if n > 0 {
 		writeErrCode(w, http.StatusConflict, codeConflict, fmt.Sprintf("%d usuario(s) tienen este rol", n))
