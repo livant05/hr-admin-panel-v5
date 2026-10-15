@@ -5608,6 +5608,10 @@ async function saveApplication(){
   if(!cid||!jid){ toast('Selecciona candidato y vacante','warning'); return; }
   var id=gv('ra-id');
   if(A.demo){
+    // Same rule as the server (one application per candidate and posting)
+    if(DS.applications.some(function(x){ return x.id!==id&&x.company_id===A.companyId&&x.candidate_id===cid&&x.job_posting_id===jid; })){
+      toast('El candidato ya tiene una postulación para esta vacante','danger'); return;
+    }
     var cand=DS.candidates.find(function(x){ return x.id===cid; });
     var job=DS.job_postings.find(function(x){ return x.id===jid; });
     var dd={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
