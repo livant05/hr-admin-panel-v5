@@ -291,6 +291,30 @@ test('printPayslip asks the server only for the period\'s overtime (employee and
   assert.match(e.written.join(''), /Horas Extras nocturno \(3 hrs\)/);
 });
 
+test('printPayslip after overtime was logged past "Calcular": the totals are recomputed, not the stale table row', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  await e.run('loadPayroll()'); // table computed with 30.00 of overtime
+  // A new 20.00 overtime log arrives; the server now computes 50.00
+  e.sandbox.Supa.goFetch = async () => [{ employee_id: 'e1', b: 1520, ot_amt: 50, css: 148.2, se: 19, isr: 0, ded: 167.2, ded_quota: 40, net: 1312.8, pcss: 0, pse: 0, dec: 0, dec_cssp: 0, tot: 1520 }];
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Total Horas Extras<\/td><td style="color:#28a745">50\.00</);
+  assert.match(doc, /TOTAL DEVENGADO<\/td><td style="color:#007bff">1520\.00</);
+  assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1312\.80</);
+});
+
+test('printPayslip when the preview fails: Spanish danger toast, no slip window', async () => {
+  const e = makeEnv({ period: 'quincenal2' });
+  e.sandbox.Supa.goFetch = async () => ({ error: { code: 'internal', message: 'internal error' } });
+  await e.run("printPayslip('e1')");
+  assert.equal(e.written.length, 0);
+  assert.equal(e.toasts.length, 1);
+  assert.equal(e.toasts[0].type, 'danger');
+  assert.match(e.toasts[0].msg, /^No se pudo calcular el recibo/);
+  assert.doesNotMatch(e.toasts[0].msg, /internal error/);
+});
+
 test('savePayrollRun: a double click sends ONE request and the button is disabled meanwhile', async () => {
   const e = makeEnv();
   e.run("_prRows = [{b:100,isr:1,net:90,tot:110}]");

@@ -3268,24 +3268,15 @@ async function printPayslip(empId) {
   var yr=document.getElementById('pr-year').value||TD.getFullYear();
   var period=document.getElementById('pr-period').value||'mensual';
   var perLbl={mensual:'Mensual',quincenal1:'1ra Quincena',quincenal2:'2da Quincena'};
-  // Use cached attendance data from loadPayroll if available
-  var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
-  var pr;
-  if(cachedRow){
-    pr={b:cachedRow.b,ot:cachedRow.otAmt||0,dedQuota:cachedRow.dedQuota||0,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
-  } else {
-    // No cached row (payroll "Calcular" was never run for this period) --
-    // prCalc's degraded no-attendance/no-dedQuota recompute is retired
-    // (design R8's "no payslip endpoint" note): the payslip now always
-    // calls the same authoritative server preview the main table uses,
-    // never a locally-approximated figure.
-    var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
-    var slipYr=parseInt(yr)||TD.getFullYear();
-    var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
-    var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
-    if(!row){ toast(calc&&calc.error?calc.error.message:'No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
-    pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
-  }
+  // Always the server preview, never the row cached by "Calcular": overtime or
+  // absences logged since then would leave the totals stale next to the fresh
+  // overtime rows listed below. Same authoritative endpoint as the table.
+  var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
+  var slipYr=parseInt(yr)||TD.getFullYear();
+  var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
+  var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
+  if(!row){ toast(calc&&calc.error?apiErrMsg(calc.error,'No se pudo calcular el recibo'):'No se pudo calcular el recibo','danger'); return; }
+  var pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
   // OT: only the selected period (month, or the 1st/2nd half for a quincena)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
