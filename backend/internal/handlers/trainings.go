@@ -202,7 +202,7 @@ func (a *API) CreateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req trainingFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	params, fields := validateTraining(req)
@@ -232,12 +232,12 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req trainingFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update training")
+	tx, q, ok := a.beginWriteTx(w, r, "update training")
 	if !ok {
 		return
 	}
@@ -271,7 +271,7 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update training")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update training") {
+	if !a.commitWriteTx(w, r, tx, "update training") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Training{row})

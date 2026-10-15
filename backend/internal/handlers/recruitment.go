@@ -10,12 +10,13 @@ import (
 	db "github.com/livant05/rrhh-go/internal/db/generated"
 )
 
-// Shared plumbing of the recruitment resources. The body decoders
-// (decodeRecruitmentBody, decodeRecruitmentPatch) live in job_postings.go.
+// Shared write plumbing, born with the recruitment resources and now also used
+// by trainings, enrollments and ZKTeco devices. The body decoders
+// (decodeStrictBody, decodeStrictPatch) live in job_postings.go.
 
-// beginRecruitmentTx opens the transaction of a recruitment write and writes
+// beginWriteTx opens the transaction of a recruitment write and writes
 // the 500 itself when it cannot. The caller defers the returned rollback.
-func (a *API) beginRecruitmentTx(w http.ResponseWriter, r *http.Request, op string) (pgx.Tx, *db.Queries, bool) {
+func (a *API) beginWriteTx(w http.ResponseWriter, r *http.Request, op string) (pgx.Tx, *db.Queries, bool) {
 	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
 		a.Log.Error(op+" begin tx", "err", err)
@@ -25,8 +26,8 @@ func (a *API) beginRecruitmentTx(w http.ResponseWriter, r *http.Request, op stri
 	return tx, a.Queries.WithTx(tx), true
 }
 
-// commitRecruitmentTx commits and writes the 500 itself when it cannot.
-func (a *API) commitRecruitmentTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, op string) bool {
+// commitWriteTx commits and writes the 500 itself when it cannot.
+func (a *API) commitWriteTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, op string) bool {
 	if err := tx.Commit(r.Context()); err != nil {
 		a.Log.Error(op+" commit tx", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -67,7 +68,7 @@ func (a *API) deleteGuarded(w http.ResponseWriter, r *http.Request, g guardedDel
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, g.op)
+	tx, q, ok := a.beginWriteTx(w, r, g.op)
 	if !ok {
 		return
 	}
@@ -96,7 +97,7 @@ func (a *API) deleteGuarded(w http.ResponseWriter, r *http.Request, g guardedDel
 		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, g.op) {
+	if !a.commitWriteTx(w, r, tx, g.op) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

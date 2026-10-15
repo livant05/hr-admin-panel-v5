@@ -142,7 +142,7 @@ func (a *API) CreateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req enrollmentCreate
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	fields := map[string]string{}
@@ -188,12 +188,12 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req enrollmentGrade
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update enrollment")
+	tx, q, ok := a.beginWriteTx(w, r, "update enrollment")
 	if !ok {
 		return
 	}
@@ -243,7 +243,7 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update enrollment")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update enrollment") {
+	if !a.commitWriteTx(w, r, tx, "update enrollment") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Enrollment{row})
