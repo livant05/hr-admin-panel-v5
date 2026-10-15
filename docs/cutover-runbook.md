@@ -401,6 +401,12 @@ go run ./cmd/import --dir ../export --db-url "$DB_URL" --passwords-out ../import
 ls -l ../import-passwords.csv        # expect -rw------- (0600)
 ```
 
+If the dry run reports `applications` rows as `duplicate (job_posting_id, candidate_id) in export:
+same as row <id>`, the same candidate applied twice to one posting (one application per pair since
+`0015`). The importer keeps the first row in file order, which is not necessarily the right one:
+compare both ids in the export, delete the one you do not want from the export, and run the dry run
+again before the real run. Do not reach for `--skip-invalid` to get past it.
+
 The importer is insert-only and safe to re-run on the same export (SR-4): it creates no
 duplicates, never rewrites the password of an existing user and does not write a second
 passwords file. It refuses to overwrite an existing `--passwords-out` file, so use a new name on
