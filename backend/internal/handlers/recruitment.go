@@ -14,7 +14,7 @@ import (
 // by trainings, enrollments and ZKTeco devices. The body decoders
 // (decodeStrictBody, decodeStrictPatch) live in job_postings.go.
 
-// beginWriteTx opens the transaction of a recruitment write and writes
+// beginWriteTx opens the transaction of a write and writes
 // the 500 itself when it cannot. The caller defers the returned rollback.
 func (a *API) beginWriteTx(w http.ResponseWriter, r *http.Request, op string) (pgx.Tx, *db.Queries, bool) {
 	tx, err := a.Pool.Begin(r.Context())

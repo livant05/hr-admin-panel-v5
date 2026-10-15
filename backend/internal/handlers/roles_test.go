@@ -574,6 +574,18 @@ func TestRoles_BuiltInNameRows(t *testing.T) {
 		t.Fatal("deleting the row must not touch the admins")
 	}
 
+	// "Admin" (another case) is NOT the built-in role: the bypass compares the
+	// exact name, so its users get their modules from this row like any custom
+	// role, and the usual in-use rule applies.
+	var capAdmin string
+	if err := pool.QueryRow(ctx, `INSERT INTO roles (company_id, name, permissions) VALUES ($1, 'Admin', '{"payroll": true}') RETURNING id`, c.CompanyID).Scan(&capAdmin); err != nil {
+		t.Fatalf("seed Admin row: %v", err)
+	}
+	c.TokenAs(t, pool, signer, "Admin")
+	if rec := testutil.Do(t, h, http.MethodDelete, "/api/roles/"+capAdmin, tok, nil); rec.Code != http.StatusConflict {
+		t.Fatalf("delete of a case-variant Admin row in use: got %d %s, want 409", rec.Code, rec.Body.String())
+	}
+
 	emp := testutil.DecodeRows[roleRow](t, testutil.Do(t, h, http.MethodPost, "/api/roles", tok, map[string]any{"name": "empleado", "permissions": map[string]any{"vacations": true}}))[0]
 	c.TokenAs(t, pool, signer, "empleado")
 	rec := testutil.Do(t, h, http.MethodPatch, "/api/roles/"+emp.ID, tok, map[string]any{"name": "Operario"})
