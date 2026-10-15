@@ -654,6 +654,7 @@ func TestJobPostings_PatchValidation(t *testing.T) {
 		{"null status", `{"status":null}`, "validation_failed", "status"},
 		{"empty status", `{"status":""}`, "validation_failed", "status"},
 		{"unknown field", `{"bogus":1}`, "bad_request", ""},
+		{"known key in another case", `{"Title":"Renamed"}`, "bad_request", ""},
 		{"company_id in body", `{"company_id":"` + uuid.NewString() + `"}`, "bad_request", ""},
 		{"id in body", `{"id":"` + uuid.NewString() + `"}`, "bad_request", ""},
 		{"created_at in body", `{"created_at":"2020-01-01T00:00:00Z"}`, "bad_request", ""},

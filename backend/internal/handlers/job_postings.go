@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -225,7 +226,35 @@ func decodeRecruitmentPatch(w http.ResponseWriter, r *http.Request, dst any) (ma
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
 		return nil, false
 	}
+	// The decoder matches keys case-insensitively, but the merge looks keys up
+	// exactly: "Title" would pass decoding and then be silently ignored.
+	known := jsonFieldNames(dst)
+	for k := range sent {
+		if !known[k] {
+			writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+			return nil, false
+		}
+	}
 	return sent, true
+}
+
+// jsonFieldNames returns the exact JSON key of every field of the struct dst
+// points to.
+func jsonFieldNames(dst any) map[string]bool {
+	t := reflect.TypeOf(dst).Elem()
+	names := make(map[string]bool, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		names[name] = true
+	}
+	return names
 }
 
 // mergeJobPosting overlays the sent fields on the stored row, so a PATCH is

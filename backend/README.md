@@ -230,6 +230,8 @@ request body over 1 MiB is `400 bad_request`.
 `PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, an explicit
 `null` clears an optional field (`title` and `status` cannot be null), and the result is validated as the
 whole posting, so the salary ordering also holds against a stored salary the body did not repeat.
+PATCH keys are exact (here and on candidates, applications and `zkteco_devices`): `"Title"` is a
+`400 bad_request`, never accepted and silently ignored.
 `DELETE /{id}` returns `204`, or `409 conflict` (message carries the count) while any application still
 references the posting: the schema's `ON DELETE CASCADE` never fires through the API. The posting row is
 locked (`FOR UPDATE`) during the check, so an application being created concurrently is waited for
