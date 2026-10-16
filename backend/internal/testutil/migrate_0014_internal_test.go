@@ -2,10 +2,13 @@ package testutil
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // splitSQLStatements splits a migration file the way psql -f runs it: one
@@ -31,11 +34,13 @@ func splitSQLStatements(sql string) []string {
 	return stmts
 }
 
-// TestMigration0014_FailureKeepsTheOldLedgerIndex pins R4: the runbook applies
-// 0014 with psql -f, one autocommitted statement at a time. When the
-// payroll_history unique index fails on pre-existing duplicate runs, the old
-// run-ledger index must still exist, because the previous binary keeps
-// upserting with ON CONFLICT on it until the operator fixes the data.
+// TestMigration0014_FailureKeepsTheOldLedgerIndex pins the index order of
+// 0014: the runbook applies it with psql -f, one autocommitted statement at a
+// time. When the payroll_history unique index fails on pre-existing duplicate
+// runs, the old run-ledger index must still exist, because the previous binary
+// keeps upserting with ON CONFLICT on it until the operator fixes the data.
+// After the operator deletes the duplicate, applying the file again (the
+// runbook's recovery) must finish the migration.
 func TestMigration0014_FailureKeepsTheOldLedgerIndex(t *testing.T) {
 	pool, _ := IsolatedSchema(t)
 	ctx := context.Background()
@@ -73,6 +78,12 @@ func TestMigration0014_FailureKeepsTheOldLedgerIndex(t *testing.T) {
 	if applyErr == nil {
 		t.Fatal("0014 must fail on duplicate payroll_history runs")
 	}
+	// The failure must be the history unique index itself, not some earlier
+	// statement failing for an unrelated reason.
+	var pgErr *pgconn.PgError
+	if !errors.As(applyErr, &pgErr) || pgErr.Code != "23505" || !strings.Contains(pgErr.Message, "uq_payroll_history_period") {
+		t.Fatalf("expected a unique violation creating uq_payroll_history_period, got: %v", applyErr)
+	}
 
 	var exists bool
 	if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes
@@ -81,5 +92,30 @@ func TestMigration0014_FailureKeepsTheOldLedgerIndex(t *testing.T) {
 	}
 	if !exists {
 		t.Fatalf("uq_epr_run_period was dropped before the failing statement (%v); the previous binary's run upsert would break", applyErr)
+	}
+
+	// Recovery: keep the newest duplicate, apply the whole file again.
+	if _, err := pool.Exec(ctx, `DELETE FROM payroll_history WHERE id = (
+		SELECT id FROM payroll_history WHERE company_id = $1 ORDER BY created_at, id LIMIT 1)`, companyID); err != nil {
+		t.Fatalf("delete the older duplicate: %v", err)
+	}
+	for _, stmt := range splitSQLStatements(string(b)) {
+		if _, err := pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("re-applying 0014 after the cleanup failed: %v\n%s", err, stmt)
+		}
+	}
+	for index, want := range map[string]bool{
+		"uq_payroll_history_period": true,
+		"uq_epr_run_period_v2":      true,
+		"uq_epr_run_period":         false,
+	} {
+		var got bool
+		if err := pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM pg_indexes
+			WHERE schemaname = current_schema() AND indexname = $1)`, index).Scan(&got); err != nil {
+			t.Fatalf("check %s: %v", index, err)
+		}
+		if got != want {
+			t.Fatalf("after re-applying 0014, index %s exists=%v, want %v", index, got, want)
+		}
 	}
 }

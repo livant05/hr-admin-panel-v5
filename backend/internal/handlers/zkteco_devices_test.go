@@ -297,7 +297,7 @@ func TestZktecoDevices_PatchUpdatesOnlyNameAndLocation(t *testing.T) {
 
 	t.Run("forbidden fields are rejected with 400 bad_request and nothing changes", func(t *testing.T) {
 		before := readZkDevice(t, pool, dev.ID)
-		for _, field := range []string{"serial_number", "company_id", "status", "id", "last_seen", "firmware_version", "created_at"} {
+		for _, field := range []string{"serial_number", "company_id", "status", "id", "last_seen", "firmware_version", "created_at", "Location"} {
 			rec := testutil.Do(t, h, http.MethodPatch, path, ta, map[string]any{"name": "sneaky", field: "x"})
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("%s: got %d (%s), want 400", field, rec.Code, rec.Body.String())
