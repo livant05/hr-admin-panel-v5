@@ -772,7 +772,9 @@ func TestUsers_PatchRefusesToRemoveTheLastActiveAdmin(t *testing.T) {
 // both requests pass the (lock-free) session check and park on
 // LockActiveAdmins, and only then is the lock released. The first request
 // demotes its target; the second re-reads the committed rows and must get the
-// last-admin 409. Both guard paths (role and status) are exercised.
+// last-admin 409. The two bodies (role demotion, deactivation) swap admins
+// between the iterations; which parked request wins the lock is up to the
+// scheduler, and either way exactly one 200 and one 409 must come back.
 func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
@@ -853,7 +855,8 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 }
 
 // waitUntilParkedOnAdminLock waits until n backends wait for a row lock inside
-// LockActiveAdmins. The first waits on the holder; the next queue behind it
+// LockActiveAdmins (sqlc sends the query with its "-- name:" comment, which is
+// what the match keys on; only this test database is counted). The first waits on the holder; the next queue behind it
 // (pg_blocking_pids names the first waiter, not the holder), so the count goes
 // by query instead of by blocker.
 func waitUntilParkedOnAdminLock(t *testing.T, pool *pgxpool.Pool, n int) {
@@ -863,7 +866,8 @@ func waitUntilParkedOnAdminLock(t *testing.T, pool *pgxpool.Pool, n int) {
 		var parked int
 		if err := pool.QueryRow(context.Background(),
 			`SELECT count(*) FROM pg_stat_activity
-			 WHERE wait_event_type = 'Lock' AND query LIKE '%LockActiveAdmins%' AND cardinality(pg_blocking_pids(pid)) > 0`).Scan(&parked); err != nil {
+			 WHERE datname = current_database() AND wait_event_type = 'Lock'
+			   AND query LIKE '%name: LockActiveAdmins%' AND cardinality(pg_blocking_pids(pid)) > 0`).Scan(&parked); err != nil {
 			t.Fatalf("count parked requests: %v", err)
 		}
 		if parked >= n {

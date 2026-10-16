@@ -241,3 +241,38 @@ func TestEnrollments_PatchOfALegacyRowValidatesOnlyTheSentFields(t *testing.T) {
 		t.Fatalf("a sent score over 100 is still rejected: got %d", rec.Code)
 	}
 }
+
+// An imported enrollment may have no status. A PATCH that does not send
+// status keeps it NULL instead of writing the create default (programado).
+func TestEnrollments_PatchKeepsANullStatusWhenStatusIsNotSent(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "EnrollNullStatusCo")
+	tok := c.Token(t, signer)
+	tr := createTraining(t, h, tok, map[string]any{"name": "Excel"})
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeName("Ana", "Diaz"))
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO enrollments (company_id, training_id, employee_id, status) VALUES ($1, $2, $3, NULL) RETURNING id`,
+		c.CompanyID, tr.ID, emp.ID).Scan(&id); err != nil {
+		t.Fatalf("seed enrollment without status: %v", err)
+	}
+	rec := testutil.Do(t, h, http.MethodPatch, enrollmentsPath+"/"+id, tok, map[string]any{"notes": "revisado"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("notes-only patch: got %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := testutil.DecodeRows[enrollmentRow](t, rec)[0]; got.Status != nil || textOrNull(got.Notes) != "revisado" {
+		t.Fatalf("status must stay null and notes change: %+v", got)
+	}
+	var stored *string
+	if err := pool.QueryRow(context.Background(), `SELECT status FROM enrollments WHERE id = $1`, id).Scan(&stored); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("stored status = %q, want NULL", *stored)
+	}
+	rec = testutil.Do(t, h, http.MethodPatch, enrollmentsPath+"/"+id, tok, map[string]any{"status": "completado"})
+	if rec.Code != http.StatusOK || textOrNull(testutil.DecodeRows[enrollmentRow](t, rec)[0].Status) != "completado" {
+		t.Fatalf("sent status: got %d %s, want 200 completado", rec.Code, rec.Body.String())
+	}
+}

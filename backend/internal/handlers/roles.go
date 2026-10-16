@@ -255,10 +255,12 @@ func (a *API) DeleteRole(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "delete role")
 		return
 	}
-	// A legacy "admin" row backs nobody: admins bypass every permission check,
-	// so deleting it never strips a module; skip the in-use count.
+	// A legacy row named exactly "admin" backs nobody: admins bypass every
+	// permission check (an exact match on the name), so deleting it never strips
+	// a module; skip the in-use count. A case variant such as "Admin" is an
+	// ordinary custom role whose users depend on the row.
 	var n int64
-	if !strings.EqualFold(role.Name, "admin") {
+	if role.Name != roleAdmin {
 		n, err = q.CountUsersWithRole(r.Context(), db.CountUsersWithRoleParams{CompanyID: companyID, Name: role.Name})
 		if err != nil {
 			a.writeDBErr(w, err, "delete role")

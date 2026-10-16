@@ -142,7 +142,7 @@ func (a *API) CreateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req enrollmentCreate
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	fields := map[string]string{}
@@ -188,12 +188,12 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req enrollmentGrade
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update enrollment")
+	tx, q, ok := a.beginWriteTx(w, r, "update enrollment")
 	if !ok {
 		return
 	}
@@ -227,6 +227,10 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 	if !has("score") {
 		score = cur.Score // an imported score outside 0-100 is kept, not re-parsed
 	}
+	status = pgtype.Text{String: st, Valid: true}
+	if !has("status") {
+		status = cur.Status // an imported NULL stays NULL, not the create default
+	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
@@ -235,7 +239,7 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 	row, err := q.UpdateEnrollment(r.Context(), db.UpdateEnrollmentParams{
 		CompanyID: companyID,
 		ID:        id,
-		Status:    pgtype.Text{String: st, Valid: true},
+		Status:    status,
 		Score:     score,
 		Notes:     notes,
 	})
@@ -243,7 +247,7 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update enrollment")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update enrollment") {
+	if !a.commitWriteTx(w, r, tx, "update enrollment") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Enrollment{row})

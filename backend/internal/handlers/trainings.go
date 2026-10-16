@@ -202,7 +202,7 @@ func (a *API) CreateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req trainingFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	params, fields := validateTraining(req)
@@ -232,12 +232,12 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req trainingFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update training")
+	tx, q, ok := a.beginWriteTx(w, r, "update training")
 	if !ok {
 		return
 	}
@@ -253,6 +253,9 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
+	}
+	if _, has := sent["status"]; !has {
+		v.Status = cur.Status // an imported NULL stays NULL, not the create default
 	}
 	row, err := q.UpdateTraining(r.Context(), db.UpdateTrainingParams{
 		CompanyID:   companyID,
@@ -271,7 +274,7 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update training")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update training") {
+	if !a.commitWriteTx(w, r, tx, "update training") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Training{row})
@@ -298,27 +301,4 @@ func (a *API) DeleteTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// onlySentFieldErrors drops the errors of fields the client did not send: a
-// PATCH re-validates the merged record, and an imported row may already break
-// today's rules in a field nobody is editing. Those stored values are kept as
-// they are. linked names the sent keys that make a cross-field error count
-// (an end_date before start_date matters when either date is sent).
-func onlySentFieldErrors(fields map[string]string, sent map[string]json.RawMessage, linked map[string][]string) {
-	for name := range fields {
-		keys := linked[name]
-		if keys == nil {
-			keys = []string{name}
-		}
-		keep := false
-		for _, k := range keys {
-			if _, ok := sent[k]; ok {
-				keep = true
-			}
-		}
-		if !keep {
-			delete(fields, name)
-		}
-	}
 }
