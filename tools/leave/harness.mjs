@@ -7,8 +7,9 @@
 //
 // Regression guard for the silent data loss where saveLeaveReq sent
 // `status:'pending'` (rejected by the Go handler's DisallowUnknownFields with a
-// 400) and still toasted success. Also covers approveLeave's error handling and
-// demo mode (local only, zero network calls).
+// 400) and still toasted success. Also covers approveLeave's error handling,
+// demo mode (local only, zero network calls), and the demo-mode Supa.sel
+// date_from/date_to range that the attendance history filter relies on.
 //
 // Run: node tools/leave/harness.mjs   (exit code 1 on any failed assertion)
 // Mutation runs point LEAVE_HTML at a modified copy of the page.
@@ -18,29 +19,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction, extractMaybeAsync } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.LEAVE_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 function between(startMarker, endMarker) {
   const s = html.indexOf(startMarker);
   assert.ok(s >= 0, `${startMarker} not found`);
@@ -49,21 +32,18 @@ function between(startMarker, endMarker) {
   return html.slice(s, e);
 }
 
-// exportVacCSV may or may not be declared async; keep the keyword if present.
-function extractMaybeAsync(src, header) {
-  const fn = extractFunction(src, header);
-  const at = src.indexOf(header);
-  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
-}
 const supaSrc = between('var Supa = {', '\n};\n') + '\n};\n';
 const fieldsSrc = between('var API_FIELD_ES=', '};') + '};';
+const conflictsSrc = between('var API_CONFLICT_ES=', '};') + '};';
 const srcs = [
-  supaSrc, fieldsSrc,
+  supaSrc, fieldsSrc, conflictsSrc,
   extractFunction(html, 'function gv('),
   extractFunction(html, 'function apiErrMsg('),
   extractFunction(html, 'async function saveLeaveReq('),
   extractFunction(html, 'async function approveLeave('),
   extractMaybeAsync(html, 'function exportVacCSV('),
+  extractFunction(html, 'function csvCell('),
+  extractFunction(html, 'function csvText('),
 ].join('\n');
 
 const res = (status, body) => ({
@@ -225,6 +205,49 @@ test('exportVacCSV in demo mode exports the local store (no network)', async () 
   await e.run('exportVacCSV()');
   assert.equal(e.calls.length, 0);
   assert.equal(e.downloads[0].csv.split('\n')[1], '"Ana Pérez","2025","30","25","5"');
+});
+
+const DEMO_LOGS = [
+  { id: 'l1', company_id: 'c1', employee_id: 'e1', date: '2026-09-30' },
+  { id: 'l2', company_id: 'c1', employee_id: 'e1', date: '2026-10-01' },
+  { id: 'l3', company_id: 'c1', employee_id: 'e2', date: '2026-10-15' },
+  { id: 'l4', company_id: 'c1', employee_id: 'e1', date: '2026-10-31' },
+  { id: 'l5', company_id: 'c1', employee_id: 'e1', date: '2026-11-01' },
+  { id: 'l6', company_id: 'c2', employee_id: 'e1', date: '2026-10-10' },
+];
+const ids = (rows) => rows.map((r) => r.id).sort();
+
+test('demo mode: Supa.sel treats date_from/date_to as an inclusive date range, like the API', async () => {
+  const e = makeEnv({ demo: true });
+  e.sandbox.DS.attendance_logs = DEMO_LOGS;
+  e.respondWith(() => { throw new Error('demo must not fetch'); });
+  e.sandbox.__r = await e.run("Supa.sel('attendance_logs',{date_from:'2026-10-01',date_to:'2026-10-31'})");
+  assert.deepEqual(ids(e.sandbox.__r), ['l2', 'l3', 'l4']);
+  e.sandbox.__r = await e.run("Supa.sel('attendance_logs',{employee_id:'e1',date_from:'2026-10-01'})");
+  assert.deepEqual(ids(e.sandbox.__r), ['l2', 'l4', 'l5']);
+  e.sandbox.__r = await e.run("Supa.sel('attendance_logs',{date_to:'2026-09-30'})");
+  assert.deepEqual(ids(e.sandbox.__r), ['l1']);
+  assert.equal(e.calls.length, 0);
+});
+
+test('demo mode: Supa.sel exact-match filters and company scoping are unchanged', async () => {
+  const e = makeEnv({ demo: true });
+  e.sandbox.DS.attendance_logs = DEMO_LOGS;
+  e.respondWith(() => { throw new Error('demo must not fetch'); });
+  e.sandbox.__r = await e.run("Supa.sel('attendance_logs',{employee_id:'e2'})");
+  assert.deepEqual(ids(e.sandbox.__r), ['l3']);
+  e.sandbox.__r = await e.run("Supa.sel('attendance_logs',{date:'2026-10-10'})");
+  assert.deepEqual(ids(e.sandbox.__r), [], 'other companies stay out');
+});
+
+test('exportVacCSV (real mode) reports a failed read as an error, never as "Sin datos"', async () => {
+  const e = makeEnv();
+  e.respondWith(async () => res(500, { error: { code: 'internal', message: 'internal error' } }));
+  await e.run('exportVacCSV()');
+  assert.equal(e.downloads.length, 0);
+  assert.equal(e.toasts.length, 1);
+  assert.equal(e.toasts[0].type, 'danger');
+  assert.match(e.toasts[0].msg, /error interno del servidor/);
 });
 
 let failed = 0;

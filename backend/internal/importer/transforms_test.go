@@ -279,6 +279,63 @@ func TestUniqueKeyDuplicatesInExportAreInvalid(t *testing.T) {
 	}
 }
 
+// One application per candidate and posting (migration 0015): a repeated pair
+// in the export is rejected with a reason, while rows whose candidate is gone
+// (NULL) never collide.
+func TestApplications_DuplicatePairInExportIsInvalid(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	const (
+		job  = "66666666-6666-4666-8666-666666666661"
+		cand = "77777777-7777-4777-8777-777777777771"
+	)
+	exp := baseExport()
+	exp["job_postings"] = rows{{"id": job, "company_id": coID, "title": "Cajero"}}
+	exp["candidates"] = rows{{"id": cand, "company_id": coID, "full_name": "Ana Torres"}}
+	exp["applications"] = rows{
+		{"id": "88888888-8888-4888-8888-888888888881", "company_id": coID, "job_posting_id": job, "candidate_id": cand},
+		{"id": "88888888-8888-4888-8888-888888888882", "company_id": coID, "job_posting_id": job, "candidate_id": cand},
+		{"id": "88888888-8888-4888-8888-888888888883", "company_id": coID, "job_posting_id": job, "candidate_id": nil},
+		{"id": "88888888-8888-4888-8888-888888888884", "company_id": coID, "job_posting_id": job, "candidate_id": nil},
+	}
+	rep, err := run(t, pool, importer.Options{Dir: writeExport(t, exp), SkipInvalid: true})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	tr := rep.Table("applications")
+	if tr.Inserted != 3 || tr.Invalid != 1 {
+		t.Fatalf("applications = %+v, want 3 inserted and 1 invalid", tr)
+	}
+	iv := invalidByReason(rep, "applications")[0]
+	if iv.ID != "88888888-8888-4888-8888-888888888882" || !strings.Contains(iv.Reason, "duplicate (job_posting_id, candidate_id) in export") {
+		t.Errorf("invalid = %+v, want the second pair rejected as a duplicate in export", iv)
+	}
+}
+
+// One enrollment per employee and course (migration 0016): a repeated pair in
+// the export is rejected with a reason.
+func TestEnrollments_DuplicatePairInExportIsInvalid(t *testing.T) {
+	pool, _ := testutil.IsolatedSchema(t)
+	const tr = "99999999-9999-4999-8999-999999999991"
+	exp := withEmployees(map[string]rows{
+		"trainings": {{"id": tr, "company_id": coID, "name": "Excel"}},
+		"enrollments": {
+			{"id": "aaaaaaaa-0000-4000-8000-000000000001", "company_id": coID, "training_id": tr, "employee_id": emp1},
+			{"id": "aaaaaaaa-0000-4000-8000-000000000002", "company_id": coID, "training_id": tr, "employee_id": emp1, "score": 90},
+		},
+	})
+	rep, err := run(t, pool, importer.Options{Dir: writeExport(t, exp), SkipInvalid: true})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if tr := rep.Table("enrollments"); tr.Inserted != 1 || tr.Invalid != 1 {
+		t.Fatalf("enrollments = %+v, want 1 inserted and 1 invalid", tr)
+	}
+	iv := invalidByReason(rep, "enrollments")[0]
+	if iv.ID != "aaaaaaaa-0000-4000-8000-000000000002" || !strings.Contains(iv.Reason, "duplicate (training_id, employee_id) in export") {
+		t.Errorf("invalid = %+v, want the second pair rejected as a duplicate in export", iv)
+	}
+}
+
 // TestParityWithAPI proves the import computes what POST /api/... would for
 // the same inputs: same rates, same incapacity formula, same rounding.
 func TestParityWithAPI(t *testing.T) {
