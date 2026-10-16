@@ -3,9 +3,11 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
@@ -175,7 +177,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req applicationFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	params, fields := validateApplication(req)
@@ -187,7 +189,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request) {
 
 	row, err := a.Queries.CreateApplication(r.Context(), params)
 	if err != nil {
-		a.writeDBErr(w, err, "create application")
+		a.writeApplicationErr(w, err, "create application")
 		return
 	}
 	writeRows(w, http.StatusCreated, []db.Application{row})
@@ -242,12 +244,12 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req applicationFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update application")
+	tx, q, ok := a.beginWriteTx(w, r, "update application")
 	if !ok {
 		return
 	}
@@ -308,10 +310,10 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 
 	row, err := q.UpdateApplication(r.Context(), params)
 	if err != nil {
-		a.writeDBErr(w, err, "update application")
+		a.writeApplicationErr(w, err, "update application")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update application") {
+	if !a.commitWriteTx(w, r, tx, "update application") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Application{row})
@@ -341,4 +343,16 @@ func (a *API) DeleteApplication(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeApplicationErr is writeDBErr plus the one-application-per-pair rule
+// (migration 0015): that unique violation gets a Spanish message the panel
+// shows as-is, like the other recruitment conflicts.
+func (a *API) writeApplicationErr(w http.ResponseWriter, err error, op string) {
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) && pg.Code == "23505" && pg.ConstraintName == "uq_applications_posting_candidate" {
+		writeErrCode(w, http.StatusConflict, codeConflict, "El candidato ya tiene una postulación para esta vacante")
+		return
+	}
+	a.writeDBErr(w, err, op)
 }
