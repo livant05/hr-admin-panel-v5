@@ -342,6 +342,44 @@ func TestOvertimeLogs_FilterByIDReturnsSingleElementArray(t *testing.T) {
 	}
 }
 
+// The payslip reads one period's overtime: date_from/date_to bound the list
+// (inclusive, like attendance_logs), so it never pages the whole history.
+func TestOvertimeLogs_FilterByDateRange(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+
+	c := testutil.Company(t, pool, "OTDateRange")
+	tok := c.Token(t, signer)
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeName("Ana", "Diaz"))
+	for _, d := range []string{"2026-05-31", "2026-06-16", "2026-06-30", "2026-07-01"} {
+		rec := testutil.Do(t, h, http.MethodPost, "/api/overtime_logs", tok, map[string]any{
+			"employee_id": emp.ID, "date": d, "hours": 1, "type": "regular", "hourly_rate": 2.50,
+		})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("seed %s: got %d %s", d, rec.Code, rec.Body.String())
+		}
+	}
+
+	rec := testutil.Do(t, h, http.MethodGet, "/api/overtime_logs?employee_id="+emp.ID+"&date_from=2026-06-16&date_to=2026-06-30", tok, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d %s", rec.Code, rec.Body.String())
+	}
+	var got []string
+	for _, r := range testutil.DecodeRows[overtimeLogRow](t, rec) {
+		got = append(got, r.Date[:10])
+	}
+	if len(got) != 2 || got[0] != "2026-06-30" || got[1] != "2026-06-16" {
+		t.Fatalf("dates = %v, want [2026-06-30 2026-06-16] (both bounds inclusive)", got)
+	}
+
+	for _, q := range []string{"date_from=2026-13-01", "date_to=junio"} {
+		bad := testutil.Do(t, h, http.MethodGet, "/api/overtime_logs?"+q, tok, nil)
+		if bad.Code != http.StatusBadRequest || testutil.ErrCode(t, bad) != "validation_failed" {
+			t.Fatalf("%s: got %d %s, want 400 validation_failed", q, bad.Code, bad.Body.String())
+		}
+	}
+}
+
 // assertOvertimeValidationFailed asserts the shared shape of a rejected
 // required-field/validation request: 400, error.code=validation_failed, and
 // a fields.<name> detail for every field expected to be flagged. This

@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"math/big"
 	"net/http"
 	"strings"
@@ -9,6 +11,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
+
+	"github.com/livant05/rrhh-go/internal/auth"
 )
 
 // GET /api/employees — whitelists exactly `id` and `status` (spec "Employees
@@ -43,6 +47,18 @@ func (a *API) ListEmployees(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	full, ok := a.employeePayAccess(w, r, companyID)
+	if !ok {
+		return
+	}
+	if !full {
+		out := make([]map[string]json.RawMessage, 0, len(rows))
+		for _, row := range rows {
+			out = append(out, redactEmployee(row))
+		}
+		writeRows(w, http.StatusOK, out)
+		return
+	}
 	writeRows(w, http.StatusOK, rows)
 }
 
@@ -68,7 +84,69 @@ func (a *API) GetEmployee(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	full, ok := a.employeePayAccess(w, r, companyID)
+	if !ok {
+		return
+	}
+	if !full {
+		writeJSON(w, http.StatusOK, redactEmployee(row))
+		return
+	}
 	writeJSON(w, http.StatusOK, row)
+}
+
+// redactedEmployeeFields are the pay and personal-identity columns hidden
+// from roles that hold neither `employees` nor `payroll`. The shared reads
+// stay open (directory, birthday calendar), so phone and birth_date remain.
+var redactedEmployeeFields = []string{
+	"salary", "hourly_rate", "cedula", "ss_number", "address",
+	"emergency_contact", "emergency_phone", "emergency_relation",
+}
+
+// canSeeEmployeePay reports whether the caller may read the full employee
+// record: admin, or a role holding `employees` or `payroll`. A role with no
+// row is denied; any other lookup error is returned, so the handler answers
+// 500 instead of a redacted 200 (the PATCH is a full-column replace, and a
+// permitted user saving a record whose salary/cedula came back null would
+// overwrite the real values).
+func (a *API) canSeeEmployeePay(r *http.Request, companyID pgtype.UUID) (bool, error) {
+	return a.permissionLookup(r, companyID, "employees", "payroll")
+}
+
+// employeePayAccess runs canSeeEmployeePay for a read handler. On a lookup
+// failure it logs the error, writes the 500 and reports ok=false.
+func (a *API) employeePayAccess(w http.ResponseWriter, r *http.Request, companyID pgtype.UUID) (full, ok bool) {
+	full, err := a.canSeeEmployeePay(r, companyID)
+	if err != nil {
+		role := auth.RoleFromContext(r.Context())
+		// A client that went away mid-request is not an outage: keep it out of
+		// the error level so real roles-lookup failures stay visible.
+		if errors.Is(err, context.Canceled) || r.Context().Err() != nil {
+			a.Log.Warn("employee field permission lookup", "role", role, "err", err)
+		} else {
+			a.Log.Error("employee field permission lookup", "role", role, "err", err)
+		}
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "could not check permissions")
+		return false, false
+	}
+	return full, true
+}
+
+// redactEmployee marshals the row with its normal JSON shape and replaces
+// the sensitive fields with null, so the response keeps every key.
+func redactEmployee(row db.Employee) map[string]json.RawMessage {
+	raw, err := json.Marshal(row)
+	if err != nil {
+		return map[string]json.RawMessage{}
+	}
+	out := map[string]json.RawMessage{}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return map[string]json.RawMessage{}
+	}
+	for _, f := range redactedEmployeeFields {
+		out[f] = json.RawMessage("null")
+	}
+	return out
 }
 
 // employeeRequest is the exact 33-field contract `saveEmp` sends

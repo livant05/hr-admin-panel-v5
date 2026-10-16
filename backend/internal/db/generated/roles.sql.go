@@ -29,6 +29,22 @@ func (q *Queries) CountRoles(ctx context.Context, arg CountRolesParams) (int64, 
 	return count, err
 }
 
+const countUsersWithRole = `-- name: CountUsersWithRole :one
+SELECT count(*) FROM users WHERE company_id = $1 AND role = $2
+`
+
+type CountUsersWithRoleParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	Name      string      `json:"name"`
+}
+
+func (q *Queries) CountUsersWithRole(ctx context.Context, arg CountUsersWithRoleParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countUsersWithRole, arg.CompanyID, arg.Name)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createRole = `-- name: CreateRole :one
 INSERT INTO roles (company_id, name, permissions)
 VALUES ($1, $2, $3)
@@ -123,6 +139,34 @@ func (q *Queries) GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (R
 	return i, err
 }
 
+const getRoleForUpdate = `-- name: GetRoleForUpdate :one
+SELECT id, company_id, name, permissions, created_at
+FROM roles
+WHERE id = $2 AND company_id = $1
+FOR UPDATE
+`
+
+type GetRoleForUpdateParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+// Locks the role row for a rename or delete. User writes that assign this
+// role take LockRoleForShare first, so they wait for this transaction and
+// never leave a user on a name renamed or deleted meanwhile.
+func (q *Queries) GetRoleForUpdate(ctx context.Context, arg GetRoleForUpdateParams) (Role, error) {
+	row := q.db.QueryRow(ctx, getRoleForUpdate, arg.CompanyID, arg.ID)
+	var i Role
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Name,
+		&i.Permissions,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const listRoles = `-- name: ListRoles :many
 SELECT id, company_id, name, permissions, created_at
 FROM roles
@@ -168,6 +212,50 @@ func (q *Queries) ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, e
 		return nil, err
 	}
 	return items, nil
+}
+
+const lockRoleForShare = `-- name: LockRoleForShare :one
+SELECT id FROM roles
+WHERE company_id = $1 AND name = $2
+FOR SHARE
+`
+
+type LockRoleForShareParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	Name      string      `json:"name"`
+}
+
+// A user write that assigns a custom role takes this shared lock first, before
+// any user row: it then waits for a rename or delete of the role in flight
+// (GetRoleForUpdate) and re-reads it, so a user never ends up on a name that
+// was renamed or deleted meanwhile. Same order everywhere (role, then users),
+// so the two never deadlock.
+func (q *Queries) LockRoleForShare(ctx context.Context, arg LockRoleForShareParams) (pgtype.UUID, error) {
+	row := q.db.QueryRow(ctx, lockRoleForShare, arg.CompanyID, arg.Name)
+	var id pgtype.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const renameUsersRole = `-- name: RenameUsersRole :execrows
+UPDATE users SET role = $2
+WHERE company_id = $1 AND role = $3
+`
+
+type RenameUsersRoleParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	NewName   string      `json:"new_name"`
+	OldName   string      `json:"old_name"`
+}
+
+// users.role holds the role NAME (permissions are looked up by it), so a
+// role rename carries the company's users along in the same transaction.
+func (q *Queries) RenameUsersRole(ctx context.Context, arg RenameUsersRoleParams) (int64, error) {
+	result, err := q.db.Exec(ctx, renameUsersRole, arg.CompanyID, arg.NewName, arg.OldName)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const updateRole = `-- name: UpdateRole :one
