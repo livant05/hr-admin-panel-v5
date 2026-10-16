@@ -136,7 +136,7 @@ Options, ranked (decide, then record the choice and the reason below):
 
 | Rank | Option | What it gives | Limits |
 |------|--------|---------------|--------|
-| 1 | Operator pre-registration and **no auto-create** | A device must be registered by an admin before it is accepted; unknown serials are refused, not pooled. Works on all firmware. Also closes B3. | Does not stop forgery with a known serial. Requires a code change (today an unknown `SN` self-registers). |
+| 1 | Operator pre-registration and **no auto-create** | A device must be registered by an admin before it is accepted; unknown serials are refused, not pooled. Works on all firmware. Also closes B3. | Does not stop forgery with a known serial. Implemented: an unknown `SN` is refused with `403` and nothing is written. |
 | 2 | Comm Key (`pushcommkey`) or Security PUSH token | The only cryptographic binding of a request to a device. | Needs a real-device test; firmware-dependent; protocol work in the backend. |
 | 3 | IP allowlist or VPN per site | Restricts who can reach `/iclock/`. | Breaks behind shared or changing NAT; operational upkeep. |
 | 4 | TLS only | Prevents sniffing and tampering in transit. | No device identity; firmware support to verify. |
@@ -144,7 +144,12 @@ Options, ranked (decide, then record the choice and the reason below):
 
 Recommended minimum for go-live: rank 1, plus rank 3 or 2 if the device and network allow it.
 
-Decision (fill in): `__________________________________________________`
+Decision: **rank 1, implemented on 2026-10-15** (branch `feat/device-preregistration`). Every ADMS
+endpoint answers `403` to a serial with no row in `zkteco_devices` and writes nothing; an admin
+registers a device first (Configuración > ZKTeco > Registrar, or `POST /api/zkteco_devices`). Reason:
+it works on every firmware and closes B3 at the source. **Still open:** a forged request with a
+registered serial is accepted. Decide rank 2 (Comm Key) or rank 3 (allowlist/VPN) once a real device
+and the site network can be tested.
 
 ### B3. Unclaimed-pool flooding mitigation (CO-S5b-2)
 
@@ -161,7 +166,9 @@ Mitigations (pick at least one, record it below):
 - Meanwhile, monitor: `SELECT count(*) FROM zkteco_devices WHERE company_id IS NULL;` and purge
   junk by hand.
 
-Decision (fill in): `__________________________________________________`
+Decision: **closed by B2 rank 1** (2026-10-15). An unknown serial never creates a row, so the
+unclaimed list only holds devices the importer loaded without a company (step 9). Its refusals are
+not logged per request; the per-IP ADMS rate limit stays the only throttle.
 
 ### Other OPS-1 items to verify on the device
 
@@ -446,6 +453,9 @@ Imported devices have no owner, so **no attendance is ingested from them until t
 
 - **Per device (default):** log in as the company admin, open Configuración > ZKTeco, and claim
   each device from the unclaimed list (or `POST /api/zkteco_devices/{id}/claim`).
+- **Devices that are not in the export** are registered, not claimed: Configuración > ZKTeco >
+  Registrar with the serial number the device shows (or `POST /api/zkteco_devices`). ADMS refuses
+  any serial that has no row (B2).
 - **Guarded single-company backfill**, only if exactly one company exists. The `WHERE` clause makes
   the statement do nothing when a second company is present:
 
@@ -482,7 +492,9 @@ curl -s http://<host>/api/health
 
 ### 11. Repoint devices `[USER-OPS]` (OPS-8)
 
-Only after blockers B1 to B3 are closed and step 9 is done. On each device set the cloud/ADMS
+Only after blockers B1 to B3 are closed and step 9 is done: every device must be claimed or
+registered first. A serial with no row is refused with `403`; the device keeps its punches and
+retries, but nothing is recorded until it is registered. On each device set the cloud/ADMS
 server address to `http://<host>/iclock/` and the agreed port (OPS-2). The Edge Function stays
 deployed; to roll a device back, point it at the Edge Function again.
 
