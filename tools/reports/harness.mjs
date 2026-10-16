@@ -2,9 +2,9 @@
 //
 // Drives the REAL report pieces of hr_admin_panel.html: the "Vacaciones" and
 // "Horas Extras" reports (loadReport with rpt-type=vac / ot_summary) and the
-// "días de vacaciones sin usar" alert (calcAlerts), and the overtime and
-// attendance CSV exports (exportOTCSV, exportAttCSV), in a node:vm sandbox
-// with fake Supa/DOM. Sources are
+// "días de vacaciones sin usar" alert (calcAlerts), and the overtime,
+// attendance and full-employee CSV exports (exportOTCSV, exportAttCSV,
+// exportAllCSV), in a node:vm sandbox with fake Supa/DOM. Sources are
 // sliced out of the HTML by name and executed as written.
 //
 // Outside demo mode DS is emptied at sign-in and never refilled, so they must
@@ -20,36 +20,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction, extractMaybeAsync } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.REPORTS_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-// Only used on functions without regex literals.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
-// exportOTCSV may or may not be declared async; keep the keyword if present.
-function extractMaybeAsync(src, header) {
-  const fn = extractFunction(src, header);
-  const at = src.indexOf(header);
-  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
-}
 const optional = (header) => (html.includes(header) ? extractFunction(html, header) : '');
 
 const srcs = [
@@ -58,6 +33,10 @@ const srcs = [
   extractFunction(html, 'async function calcAlerts('),
   extractMaybeAsync(html, 'function exportOTCSV('),
   extractMaybeAsync(html, 'function exportAttCSV('),
+  extractMaybeAsync(html, 'function exportAllCSV('),
+  optional('function csvCell('),
+  optional('function csvText('),
+  extractFunction(html, 'function apiErrMsg('),
   extractFunction(html, 'function hwCalc('),
 ].join('\n');
 
@@ -76,7 +55,7 @@ const OTS = [
   { id: 'o3', company_id: 'c1', employee_id: 'e2', employee_name: 'Luis Gomez', date: '2026-10-01', hours: 3, amount: 30 },
 ];
 
-function makeEnv({ bals = BALS, ots = OTS, atts = [], type = 'vac' } = {}) {
+function makeEnv({ bals = BALS, ots = OTS, atts = [], emps = [], type = 'vac', fail = false } = {}) {
   const queries = [];
   const charts = [], toasts = [], downloads = [];
   const els = {};
@@ -84,8 +63,9 @@ function makeEnv({ bals = BALS, ots = OTS, atts = [], type = 'vac' } = {}) {
   el('rpt-type').value = type;
   const sandbox = {
     A: { companyId: 'c1', demo: false },
-    DS: { leave_balances: [], overtime_logs: [], attendance_logs: [] },
+    DS: { leave_balances: [], overtime_logs: [], attendance_logs: [], employees: [] },
     TS: '2026-10-14',
+    API_FIELD_ES: {}, API_CONFLICT_ES: {},
     escHtml, fmt,
     daysTo: () => null,
     renderRptChart: (labels, data, label) => charts.push({ labels, data, label }),
@@ -93,8 +73,8 @@ function makeEnv({ bals = BALS, ots = OTS, atts = [], type = 'vac' } = {}) {
     toast: (msg, type) => toasts.push({ msg, type: type || 'success' }),
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
-      sel: async (tbl, flt) => { queries.push({ tbl, flt }); const rows = { employees: [], leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
-      selAll: async (tbl, flt) => { queries.push({ tbl, flt }); const rows = { employees: [], leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
+      sel: async (tbl, flt) => { queries.push({ tbl, flt }); const rows = { employees: emps, leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
+      selAll: async (tbl, flt) => { queries.push({ tbl, flt }); if (fail) return { error: { code: 'internal', message: 'internal error' } }; const rows = { employees: emps, leave_requests: [], leave_balances: bals, overtime_logs: ots, attendance_logs: atts }[tbl] || []; return rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v)); },
     },
     document: { getElementById: el },
   };
@@ -200,6 +180,54 @@ test('exportAttCSV with no attendance today warns and downloads nothing', async 
   await e.run('exportAttCSV()');
   assert.equal(e.downloads.length, 0);
   assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+const EMP_ROWS = [
+  { id: 'e1', company_id: 'c1', first_name: 'Ana', last_name: 'Diaz', cedula: '8-123-456', position: 'Cajera', department: 'Ventas', salary: 1000, start_date: '2020-01-01', status: 'active', email: 'ana@x.test', phone: '6000-0000', contract_type: 'indefinido', ss_number: '123' },
+  // a role without employees/payroll gets the sensitive fields as null (server redaction)
+  { id: 'e2', company_id: 'c1', first_name: 'Luis "Lucho"', last_name: 'Gomez', cedula: null, position: null, department: null, salary: null, start_date: '2021-05-03', status: 'inactive', email: null, phone: '6111-1111', contract_type: null, ss_number: null },
+];
+
+test('exportAllCSV exports every employee from the API, not the empty DS', async () => {
+  const e = makeEnv({ emps: EMP_ROWS });
+  await e.run('exportAllCSV()');
+  assert.equal(e.downloads.length, 1);
+  const { csv, name } = e.downloads[0];
+  assert.equal(name, 'empleados_completo_2026-10-14.csv');
+  const lines = csv.split('\n');
+  assert.equal(lines[0], '"Nombre","Apellido","Cédula","Cargo","Departamento","Salario","Ingreso","Estado","Email","Teléfono","Contrato","SS"');
+  assert.equal(lines[1], '"Ana","Diaz","8-123-456","Cajera","Ventas","1000","2020-01-01","active","ana@x.test","6000-0000","indefinido","123"');
+  assert.equal(lines[2], '"Luis ""Lucho""","Gomez","","","","","2021-05-03","inactive","","6111-1111","",""', 'quotes doubled, redacted nulls empty');
+  assert.deepEqual(e.toasts, [{ msg: '✅ CSV exportado', type: 'success' }]);
+});
+
+test('exportAllCSV with no employees warns and downloads nothing', async () => {
+  const e = makeEnv({ emps: [] });
+  await e.run('exportAllCSV()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+test('CSV exports neutralize text cells that a spreadsheet would run as a formula', async () => {
+  const e = makeEnv({ ots: [
+    { id: 'x1', company_id: 'c1', employee_name: '=HYPERLINK("http://evil","x")', date: '2026-10-02', hours: 1, type: 'regular', amount: 10, notes: '+cmd' },
+    { id: 'x2', company_id: 'c1', employee_name: '@SUM(A1)', date: '2026-10-03', hours: 2, type: 'regular', amount: -5, notes: '-nota' },
+  ] });
+  await e.run('exportOTCSV()');
+  const lines = e.downloads[0].csv.split('\n');
+  assert.equal(lines[1], '"\'=HYPERLINK(""http://evil"",""x"")","2026-10-02","1","regular","10","\'+cmd"');
+  assert.equal(lines[2], '"\'@SUM(A1)","2026-10-03","2","regular","-5","\'-nota"', 'a numeric -5 stays a number; text starting with - is neutralized');
+});
+
+test('exports report a failed read as an error, never as "Sin datos"', async () => {
+  for (const fn of ['exportOTCSV', 'exportAttCSV', 'exportAllCSV']) {
+    const e = makeEnv({ fail: true });
+    await e.run(fn + '()');
+    assert.equal(e.downloads.length, 0, fn);
+    assert.equal(e.toasts.length, 1, fn);
+    assert.equal(e.toasts[0].type, 'danger', fn);
+    assert.match(e.toasts[0].msg, /error interno del servidor/, fn);
+  }
 });
 
 let failed = 0;
