@@ -15,36 +15,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction, extractMaybeAsync } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.OVERTIME_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-// Only used on functions without regex literals.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
-// The function may or may not be declared async; keep the keyword if present.
-function extractMaybeAsync(src, header) {
-  const fn = extractFunction(src, header);
-  const at = src.indexOf(header);
-  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
-}
 
 const srcs = [
   extractMaybeAsync(html, 'function renderOTTable('),
@@ -76,6 +51,7 @@ function makeEnv({ ots = OTS, insResult = null, delResult = null } = {}) {
     TS: '2026-10-14',
     OT_RATES: { regular: 1.25, mixed: 1.5, night: 1.75, sunday: 1.5, holiday: 2.5 },
     API_FIELD_ES: {},
+    API_CONFLICT_ES: {},
     fmt, escHtml,
     gv: (id) => el(id).value,
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
