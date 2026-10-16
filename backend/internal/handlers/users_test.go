@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -766,6 +767,14 @@ func TestUsers_PatchRefusesToRemoveTheLastActiveAdmin(t *testing.T) {
 // The guard must hold under concurrency: two admins demoting each other at the
 // same time must never leave the company without an active admin. A COUNT
 // without row locks passes the single-request tests above and fails here.
+//
+// The race is forced, not hoped for: the test holds the admin rows FOR UPDATE,
+// both requests pass the (lock-free) session check and park on
+// LockActiveAdmins, and only then is the lock released. The first request
+// demotes its target; the second re-reads the committed rows and must get the
+// last-admin 409. The two bodies (role demotion, deactivation) swap admins
+// between the iterations; which parked request wins the lock is up to the
+// scheduler, and either way exactly one 200 and one 409 must come back.
 func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
@@ -773,79 +782,101 @@ func TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive(t *testing.T) {
 	tok := c.Token(t, signer)
 	second, _ := seedUserAs(t, pool, c, "admin", "active")
 	ids := [2]string{c.UserID, second}
+	ctx := context.Background()
 
-	bodies := []map[string]any{{"role": "empleado"}, {"status": "inactive"}}
-	const rounds = 25
-	guardRaced := 0
-	for round := 0; round < rounds; round++ {
-		if _, err := pool.Exec(context.Background(),
+	for _, bodies := range [][2]map[string]any{
+		{{"role": "empleado"}, {"status": "inactive"}},
+		{{"status": "inactive"}, {"role": "empleado"}},
+	} {
+		if _, err := pool.Exec(ctx,
 			`UPDATE users SET role = 'admin', status = 'active', token_version = 0 WHERE id = ANY($1)`, ids[:]); err != nil {
 			t.Fatalf("reset admins: %v", err)
 		}
 
+		holder, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatalf("begin holder: %v", err)
+		}
+		// A failed assertion must still release the rows, or the parked
+		// requests and the company cleanup would wait forever.
+		t.Cleanup(func() { _ = holder.Rollback(ctx) })
+		if _, err := holder.Exec(ctx,
+			`SELECT id FROM users WHERE company_id = $1 AND role = 'admin' AND status = 'active' ORDER BY id FOR UPDATE`, c.CompanyID); err != nil {
+			t.Fatalf("hold admin rows: %v", err)
+		}
+
 		// Requests are built on the test goroutine; the racing goroutines only
-		// serve them and record the recorder, so no t.Fatalf / testutil.Do
-		// ever runs off the test goroutine.
-		reqs := make([]*http.Request, len(ids))
+		// serve them, so no t.Fatalf ever runs off the test goroutine.
 		recs := make([]*httptest.ResponseRecorder, len(ids))
+		var wg sync.WaitGroup
 		for i := range ids {
-			// Alternate role/status demotion so both guard paths race.
-			payload, err := json.Marshal(bodies[(round+i)%2])
+			payload, err := json.Marshal(bodies[i])
 			if err != nil {
 				t.Fatalf("marshal body: %v", err)
 			}
-			reqs[i] = httptest.NewRequest(http.MethodPatch, "/api/users/"+ids[i], bytes.NewReader(payload))
-			reqs[i].Header.Set("Content-Type", "application/json")
-			reqs[i].Header.Set("Authorization", "Bearer "+tok)
+			req := httptest.NewRequest(http.MethodPatch, "/api/users/"+ids[i], bytes.NewReader(payload))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+tok)
 			recs[i] = httptest.NewRecorder()
-		}
-
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		for i := range ids {
 			wg.Add(1)
-			go func(i int) {
+			go func(rec *httptest.ResponseRecorder, req *http.Request) {
 				defer wg.Done()
-				<-start
-				h.ServeHTTP(recs[i], reqs[i])
-			}(i)
+				h.ServeHTTP(rec, req)
+			}(recs[i], req)
 		}
-		close(start)
+		waitUntilParkedOnAdminLock(t, pool, len(ids))
+		if err := holder.Rollback(ctx); err != nil {
+			t.Fatalf("release admin rows: %v", err)
+		}
 		wg.Wait()
-		codes := make([]int, len(recs))
-		for i, rec := range recs {
-			codes[i] = rec.Code
-		}
 
-		if n := countActiveAdmins(t, pool, c.CompanyID); n < 1 {
-			t.Fatalf("round %d: company left with %d active admins (codes %v)", round, n, codes)
+		codes := []int{recs[0].Code, recs[1].Code}
+		if n := countActiveAdmins(t, pool, c.CompanyID); n != 1 {
+			t.Fatalf("bodies %v: company left with %d active admins (codes %v), want exactly 1", bodies, n, codes)
 		}
-		ok, conflict, lost := 0, 0, 0
-		for _, code := range codes {
-			switch code {
+		ok, conflict := 0, 0
+		for i, rec := range recs {
+			switch rec.Code {
 			case http.StatusOK:
 				ok++
 			case http.StatusConflict:
 				conflict++
-			case http.StatusForbidden, http.StatusUnauthorized:
-				// The caller is itself one of the two admins: when the other
-				// request's demotion commits before this request's session
-				// check, the caller is correctly refused (role/status come
-				// from the database on every request).
-				lost++
+				if msg := errMessage(t, rec); msg != "company must keep at least one active admin" {
+					t.Fatalf("request %d: 409 message %q, want the last-admin guard", i, msg)
+				}
 			default:
-				t.Fatalf("round %d: unexpected status %v (a deadlock or server error must not escape)", round, codes)
+				t.Fatalf("bodies %v: unexpected statuses %v (a deadlock or server error must not escape)", bodies, codes)
 			}
 		}
-		if ok != 1 || conflict+lost != 1 {
-			t.Fatalf("round %d: statuses %v, want exactly one 200 and one refusal", round, codes)
-		}
-		if conflict == 1 {
-			guardRaced++
+		if ok != 1 || conflict != 1 {
+			t.Fatalf("bodies %v: statuses %v, want exactly one 200 and one last-admin 409", bodies, codes)
 		}
 	}
-	if guardRaced == 0 {
-		t.Fatalf("no round reached the last-admin guard with both requests in flight; the race is not being exercised")
+}
+
+// waitUntilParkedOnAdminLock waits until n backends wait for a row lock inside
+// LockActiveAdmins (sqlc sends the query with its "-- name:" comment, which is
+// what the match keys on; only this test database is counted). The first waits on the holder; the next queue behind it
+// (pg_blocking_pids names the first waiter, not the holder), so the count goes
+// by query instead of by blocker.
+func waitUntilParkedOnAdminLock(t *testing.T, pool *pgxpool.Pool, n int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var parked int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM pg_stat_activity
+			 WHERE datname = current_database() AND wait_event_type = 'Lock'
+			   AND query LIKE '%name: LockActiveAdmins%' AND cardinality(pg_blocking_pids(pid)) > 0`).Scan(&parked); err != nil {
+			t.Fatalf("count parked requests: %v", err)
+		}
+		if parked >= n {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("only %d of %d requests parked on the admin lock within 10s", parked, n)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
