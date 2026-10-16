@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -10,12 +11,17 @@ import (
 	db "github.com/livant05/rrhh-go/internal/db/generated"
 )
 
-// Shared plumbing of the recruitment resources. The body decoders
-// (decodeRecruitmentBody, decodeRecruitmentPatch) live in job_postings.go.
+// Shared write plumbing, born with the recruitment resources and now also used
+// by trainings, enrollments and ZKTeco devices. The body decoders
+// (decodeStrictBody, decodeStrictPatch) live in job_postings.go.
 
-// beginRecruitmentTx opens the transaction of a recruitment write and writes
+// maxWriteBody bounds the body decodeStrictBody and decodeStrictPatch read
+// (1 MiB, the same cap the other tenant resources use).
+const maxWriteBody = 1 << 20
+
+// beginWriteTx opens the transaction of a write and writes
 // the 500 itself when it cannot. The caller defers the returned rollback.
-func (a *API) beginRecruitmentTx(w http.ResponseWriter, r *http.Request, op string) (pgx.Tx, *db.Queries, bool) {
+func (a *API) beginWriteTx(w http.ResponseWriter, r *http.Request, op string) (pgx.Tx, *db.Queries, bool) {
 	tx, err := a.Pool.Begin(r.Context())
 	if err != nil {
 		a.Log.Error(op+" begin tx", "err", err)
@@ -25,8 +31,8 @@ func (a *API) beginRecruitmentTx(w http.ResponseWriter, r *http.Request, op stri
 	return tx, a.Queries.WithTx(tx), true
 }
 
-// commitRecruitmentTx commits and writes the 500 itself when it cannot.
-func (a *API) commitRecruitmentTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, op string) bool {
+// commitWriteTx commits and writes the 500 itself when it cannot.
+func (a *API) commitWriteTx(w http.ResponseWriter, r *http.Request, tx pgx.Tx, op string) bool {
 	if err := tx.Commit(r.Context()); err != nil {
 		a.Log.Error(op+" commit tx", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -67,7 +73,7 @@ func (a *API) deleteGuarded(w http.ResponseWriter, r *http.Request, g guardedDel
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, g.op)
+	tx, q, ok := a.beginWriteTx(w, r, g.op)
 	if !ok {
 		return
 	}
@@ -96,8 +102,31 @@ func (a *API) deleteGuarded(w http.ResponseWriter, r *http.Request, g guardedDel
 		writeErrCode(w, http.StatusNotFound, codeNotFound, "not found")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, g.op) {
+	if !a.commitWriteTx(w, r, tx, g.op) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// onlySentFieldErrors drops the errors of fields the client did not send: a
+// PATCH re-validates the merged record, and an imported row may already break
+// today's rules in a field nobody is editing. Those stored values are kept as
+// they are. linked names the sent keys that make a cross-field error count
+// (an end_date before start_date matters when either date is sent).
+func onlySentFieldErrors(fields map[string]string, sent map[string]json.RawMessage, linked map[string][]string) {
+	for name := range fields {
+		keys := linked[name]
+		if keys == nil {
+			keys = []string{name}
+		}
+		keep := false
+		for _, k := range keys {
+			if _, ok := sent[k]; ok {
+				keep = true
+			}
+		}
+		if !keep {
+			delete(fields, name)
+		}
+	}
 }
