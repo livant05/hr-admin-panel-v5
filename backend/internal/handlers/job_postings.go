@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -22,9 +23,6 @@ const (
 	jobStatusClosed = "closed"
 
 	maxJobTitle = 200
-	// maxRecruitmentBody bounds a recruitment write body (1 MiB, the same cap
-	// the other tenant resources use).
-	maxRecruitmentBody = 1 << 20
 )
 
 // jobPostingFields is the writable surface of a job posting. It deliberately
@@ -43,10 +41,10 @@ type jobPostingFields struct {
 	Status       pgtype.Text     `json:"status"`
 }
 
-// decodeRecruitmentBody reads exactly one JSON value, rejects unknown fields
+// decodeStrictBody reads exactly one JSON value, rejects unknown fields
 // and writes the 400 itself. Shared by the recruitment resources.
-func decodeRecruitmentBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRecruitmentBody))
+func decodeStrictBody(w http.ResponseWriter, r *http.Request, dst any) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWriteBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
@@ -187,7 +185,7 @@ func (a *API) CreateJobPosting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req jobPostingFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	params, fields := validateJobPosting(req)
@@ -205,11 +203,11 @@ func (a *API) CreateJobPosting(w http.ResponseWriter, r *http.Request) {
 	writeRows(w, http.StatusCreated, []db.JobPosting{row})
 }
 
-// decodeRecruitmentPatch is decodeRecruitmentBody plus the set of keys the
+// decodeStrictPatch is decodeStrictBody plus the set of keys the
 // client actually sent, so an absent field (keep) can be told from an explicit
 // null (clear). Unknown fields are still a 400.
-func decodeRecruitmentPatch(w http.ResponseWriter, r *http.Request, dst any) (map[string]json.RawMessage, bool) {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRecruitmentBody))
+func decodeStrictPatch(w http.ResponseWriter, r *http.Request, dst any) (map[string]json.RawMessage, bool) {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBody))
 	if err != nil {
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
 		return nil, false
@@ -225,7 +223,37 @@ func decodeRecruitmentPatch(w http.ResponseWriter, r *http.Request, dst any) (ma
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
 		return nil, false
 	}
+	// The decoder matches keys case-insensitively, but the merge looks keys up
+	// exactly: "Title" would pass decoding and then be silently ignored.
+	known := jsonFieldNames(dst)
+	for k := range sent {
+		if !known[k] {
+			writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
+			return nil, false
+		}
+	}
 	return sent, true
+}
+
+// jsonFieldNames returns the exact JSON key of every field of the struct dst
+// points to. It reads top-level fields only: every patch DTO passed to
+// decodeStrictPatch is a flat struct with an explicit lowercase json tag
+// on each field; an embedded struct would need its promoted fields added here.
+func jsonFieldNames(dst any) map[string]bool {
+	t := reflect.TypeOf(dst).Elem()
+	names := make(map[string]bool, t.NumField())
+	for i := 0; i < t.NumField(); i++ {
+		f := t.Field(i)
+		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if name == "-" {
+			continue
+		}
+		if name == "" {
+			name = f.Name
+		}
+		names[name] = true
+	}
+	return names
 }
 
 // mergeJobPosting overlays the sent fields on the stored row, so a PATCH is
@@ -289,12 +317,12 @@ func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req jobPostingFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update job posting")
+	tx, q, ok := a.beginWriteTx(w, r, "update job posting")
 	if !ok {
 		return
 	}
@@ -328,7 +356,7 @@ func (a *API) UpdateJobPosting(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update job posting")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update job posting") {
+	if !a.commitWriteTx(w, r, tx, "update job posting") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.JobPosting{row})
