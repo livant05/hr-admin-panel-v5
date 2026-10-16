@@ -22,7 +22,8 @@ const zeroUUID = "00000000-0000-0000-0000-000000000001"
 //	handler   authorization enforced inside the handler (admin / medical)
 //	perm:a|b  route wrapper requires at least one of the module permissions
 var wantRouteClasses = map[string]string{
-	"GET /api/me": "open",
+	"GET /api/me":           "open",
+	"POST /api/auth/logout": "open", // authenticated, no module permission
 
 	"GET /api/departments":         "open",
 	"POST /api/departments":        "perm:settings",
@@ -139,6 +140,16 @@ var wantRouteClasses = map[string]string{
 	"POST /api/generated_documents":       "perm:documents",
 	"GET /api/generated_documents/{id}":   "perm:documents",
 
+	"GET /api/enrollments":          "perm:employees",
+	"POST /api/enrollments":         "perm:employees",
+	"GET /api/enrollments/{id}":     "perm:employees",
+	"PATCH /api/enrollments/{id}":   "perm:employees",
+	"DELETE /api/enrollments/{id}":  "perm:employees",
+	"GET /api/trainings":            "perm:employees",
+	"POST /api/trainings":           "perm:employees",
+	"GET /api/trainings/{id}":       "perm:employees",
+	"PATCH /api/trainings/{id}":     "perm:employees",
+	"DELETE /api/trainings/{id}":    "perm:employees",
 	"GET /api/job_postings":         "perm:recruitment",
 	"POST /api/job_postings":        "perm:recruitment",
 	"GET /api/job_postings/{id}":    "perm:recruitment",
@@ -223,8 +234,8 @@ func TestRoutes_ModulePermissionGate(t *testing.T) {
 		seed("has_"+key, `{"`+key+`": true}`)
 	}
 	admin := c.Token(t, signer)
-	elsewhere := c.TokenAs(t, signer, "elsewhere")
-	norole := c.TokenAs(t, signer, "ghost")
+	elsewhere := c.TokenAs(t, pool, signer, "elsewhere")
+	norole := c.TokenAs(t, pool, signer, "ghost")
 
 	for route, class := range wantRouteClasses {
 		list, ok := strings.CutPrefix(class, "perm:")
@@ -255,7 +266,7 @@ func TestRoutes_ModulePermissionGate(t *testing.T) {
 				t.Fatalf("admin must pass the gate, got 403 (body=%s)", rec.Body.String())
 			}
 			for _, key := range accepted {
-				tok := c.TokenAs(t, signer, "has_"+key)
+				tok := c.TokenAs(t, pool, signer, "has_"+key)
 				if rec := testutil.Do(t, h, method, path, tok, nil); rec.Code == http.StatusForbidden {
 					t.Fatalf("role with %q must pass the gate, got 403 (body=%s)", key, rec.Body.String())
 				}

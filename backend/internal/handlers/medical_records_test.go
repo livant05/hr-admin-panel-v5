@@ -667,7 +667,7 @@ func TestMedicalRecords_RequiresMedicalPermission(t *testing.T) {
 	seedMedRole(t, pool, c, "medtrue", `{"medical": true}`)
 
 	denied := func(t *testing.T, role string) {
-		tok := c.TokenAs(t, signer, role)
+		tok := c.TokenAs(t, pool, signer, role)
 		before := countMed(t, pool)
 
 		calls := []struct {
@@ -703,7 +703,7 @@ func TestMedicalRecords_RequiresMedicalPermission(t *testing.T) {
 	t.Run("role with no roles row is denied", func(t *testing.T) { denied(t, "ghost") })
 
 	t.Run("role with medical:true behaves normally", func(t *testing.T) {
-		tok := c.TokenAs(t, signer, "medtrue")
+		tok := c.TokenAs(t, pool, signer, "medtrue")
 		if rows := listMed(t, h, tok, ""); len(rows) != 1 {
 			t.Fatalf("list: expected 1 row, got %d", len(rows))
 		}

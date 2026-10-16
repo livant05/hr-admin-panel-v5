@@ -1,6 +1,6 @@
 -- name: GetUserForLogin :one
 SELECT u.id, u.company_id, u.email, u.role, u.first_name, u.last_name, u.status,
-       u.password_hash, c.name AS company_name
+       u.password_hash, u.token_version, c.name AS company_name
 FROM users u
 JOIN companies c ON c.id = u.company_id
 WHERE lower(u.email) = lower(sqlc.arg(email)::text)
@@ -11,6 +11,13 @@ SELECT id, company_id, email, role, first_name, last_name, status, password_hash
 FROM users
 WHERE id = $1
 LIMIT 1;
+
+-- name: GetSessionUser :one
+-- Per-request session check (auth middleware): primary-key lookup of only the
+-- columns that decide whether a token is still honoured.
+SELECT status, role, company_id, token_version
+FROM users
+WHERE id = $1;
 
 -- The users API selects explicit columns and never password_hash, so the
 -- generated row types cannot carry the hash (XC-2 holds structurally).
@@ -65,3 +72,9 @@ UPDATE users
 SET status = 'inactive'
 WHERE id = $2 AND company_id = $1
 RETURNING id, company_id, email, role, first_name, last_name, status, created_at;
+
+-- name: BumpUserTokenVersion :exec
+-- Invalidates every token issued to the user (logout, role or status change).
+UPDATE users
+SET token_version = token_version + 1
+WHERE id = $1;
