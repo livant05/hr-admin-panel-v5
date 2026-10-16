@@ -5,6 +5,8 @@ WHERE company_id = $1
   AND ($2::uuid IS NULL OR id = $2)
   AND (sqlc.narg('employee_id')::uuid IS NULL OR employee_id = sqlc.narg('employee_id'))
   AND (sqlc.narg('date')::date IS NULL OR date = sqlc.narg('date'))
+  AND (sqlc.narg('date_from')::date IS NULL OR date >= sqlc.narg('date_from'))
+  AND (sqlc.narg('date_to')::date IS NULL OR date <= sqlc.narg('date_to'))
 ORDER BY date DESC
 LIMIT $3 OFFSET $4;
 

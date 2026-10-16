@@ -80,6 +80,20 @@ func (p payrollPeriod) dateRange(year, month int32) (start, end pgtype.Date) {
 		pgtype.Date{Time: endT, Valid: true}
 }
 
+// label is the human `periodo` text stored on the ledger row.
+func (p payrollPeriod) label(monthName string, year int32) string {
+	base := fmt.Sprintf("%s %d", monthName, year)
+	switch p.StartDay {
+	case 1:
+		if p.EndDay == 16 {
+			return base + " - 1ra Quincena"
+		}
+	case 16:
+		return base + " - 2da Quincena"
+	}
+	return base
+}
+
 const payrollPeriodError = "must be 'mensual', 'quincenal1' or 'quincenal2'"
 
 // employeeRunResult pairs one active employee's identity with their
@@ -101,12 +115,13 @@ type employeeRunResult struct {
 // plain a.Queries (preview, no transaction) or a.Queries.WithTx(tx) (the
 // committing run), so the committed write path calculates against the exact
 // same transactional snapshot it then writes from.
-func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UUID, year, month int32, period payrollPeriod) ([]employeeRunResult, error) {
+func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UUID, year, month int32, period payrollPeriod, employeeID pgtype.UUID) ([]employeeRunResult, error) {
 	start, end := period.dateRange(year, month)
 	rows, err := q.ListPayrollRunInputs(ctx, db.ListPayrollRunInputsParams{
-		CompanyID: companyID,
-		StartDate: start,
-		EndDate:   end,
+		CompanyID:  companyID,
+		StartDate:  start,
+		EndDate:    end,
+		EmployeeID: employeeID, // invalid (NULL) = every active employee
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list payroll run inputs: %w", err)
@@ -157,7 +172,7 @@ func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UU
 	return out, nil
 }
 
-// GET /api/payroll_history/calculate?month=&year=&period= -- pure preview
+// GET /api/payroll_history/calculate?month=&year=&period=[&employee_id=] -- pure preview
 // (design R4e, task 5.9). Writes nothing; the committing run is slice 3f's
 // CreatePayrollRun. The literal "/calculate" segment ranks above
 // payroll_history's future "/{id}" under Go 1.22 ServeMux (Q5c).
@@ -182,12 +197,17 @@ func (a *API) CalculatePayroll(w http.ResponseWriter, r *http.Request) {
 	if !okPeriod {
 		fields["period"] = payrollPeriodError
 	}
+	// Optional: the payslip previews one employee instead of the whole company.
+	employeeID, err := optionalUUIDFilter(q.Get("employee_id"))
+	if err != nil {
+		fields["employee_id"] = "must be a uuid"
+	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
 	}
 
-	results, err := calculatePayrollRun(r.Context(), a.Queries, companyID, int32(year), int32(month), period)
+	results, err := calculatePayrollRun(r.Context(), a.Queries, companyID, int32(year), int32(month), period, employeeID)
 	if err != nil {
 		a.Log.Error("calculate payroll", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -289,7 +309,29 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 
 	q := a.Queries.WithTx(tx)
 
-	results, err := calculatePayrollRun(r.Context(), q, companyID, req.Year, req.Month, period)
+	// Serialize runs of this (company, year, month): a double submit waits for
+	// the first run to commit, then replaces it (one history row survives).
+	if err := q.LockPayrollRun(r.Context(), fmt.Sprintf("payroll_run:%s:%d:%d", uuidToString(companyID), req.Year, req.Month)); err != nil {
+		a.Log.Error("create payroll run: lock", "err", err)
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+		return
+	}
+
+	// A month is paid as one mensual run or as quincenas, never both.
+	conflicts, err := q.CountConflictingPayrollPeriods(r.Context(), db.CountConflictingPayrollPeriodsParams{
+		CompanyID: companyID, Year: req.Year, Month: req.Month, Period: req.Period,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "create payroll run: check exclusivity")
+		return
+	}
+	if conflicts > 0 {
+		writeErrCode(w, http.StatusConflict, codeConflict,
+			"this month already has payroll in a different period type: a month is paid either as one mensual run or as quincenas; delete the existing run and its pay records first")
+		return
+	}
+
+	results, err := calculatePayrollRun(r.Context(), q, companyID, req.Year, req.Month, period, pgtype.UUID{})
 	if err != nil {
 		a.Log.Error("create payroll run: calculate", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -305,9 +347,9 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	monthName := payroll.MonthNameES(int(req.Month))
-	periodo := fmt.Sprintf("%s %d", monthName, req.Year)
+	periodo := period.label(monthName, req.Year)
 
-	historyRow, err := q.CreatePayrollHistory(r.Context(), db.CreatePayrollHistoryParams{
+	historyRow, err := q.UpsertPayrollHistory(r.Context(), db.UpsertPayrollHistoryParams{
 		CompanyID:     companyID,
 		Period:        req.Period,
 		Month:         req.Month,
@@ -331,6 +373,7 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 			Periodo:         pgtype.Text{String: periodo, Valid: true},
 			PeriodYear:      req.Year,
 			PeriodMonth:     req.Month,
+			Period:          req.Period,
 			GrossSalary:     numToNumeric(rr.Result.SalBase),
 			OvertimeAmount:  numToNumeric(rr.Result.OtAmt),
 			TotalEarned:     numToNumeric(rr.Result.B),
