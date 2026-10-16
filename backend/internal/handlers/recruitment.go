@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,10 @@ import (
 // Shared write plumbing, born with the recruitment resources and now also used
 // by trainings, enrollments and ZKTeco devices. The body decoders
 // (decodeStrictBody, decodeStrictPatch) live in job_postings.go.
+
+// maxWriteBody bounds the body decodeStrictBody and decodeStrictPatch read
+// (1 MiB, the same cap the other tenant resources use).
+const maxWriteBody = 1 << 20
 
 // beginWriteTx opens the transaction of a write and writes
 // the 500 itself when it cannot. The caller defers the returned rollback.
@@ -101,4 +106,27 @@ func (a *API) deleteGuarded(w http.ResponseWriter, r *http.Request, g guardedDel
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// onlySentFieldErrors drops the errors of fields the client did not send: a
+// PATCH re-validates the merged record, and an imported row may already break
+// today's rules in a field nobody is editing. Those stored values are kept as
+// they are. linked names the sent keys that make a cross-field error count
+// (an end_date before start_date matters when either date is sent).
+func onlySentFieldErrors(fields map[string]string, sent map[string]json.RawMessage, linked map[string][]string) {
+	for name := range fields {
+		keys := linked[name]
+		if keys == nil {
+			keys = []string{name}
+		}
+		keep := false
+		for _, k := range keys {
+			if _, ok := sent[k]; ok {
+				keep = true
+			}
+		}
+		if !keep {
+			delete(fields, name)
+		}
+	}
 }

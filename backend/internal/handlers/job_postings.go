@@ -23,9 +23,6 @@ const (
 	jobStatusClosed = "closed"
 
 	maxJobTitle = 200
-	// maxRecruitmentBody bounds a recruitment write body (1 MiB, the same cap
-	// the other tenant resources use).
-	maxRecruitmentBody = 1 << 20
 )
 
 // jobPostingFields is the writable surface of a job posting. It deliberately
@@ -47,7 +44,7 @@ type jobPostingFields struct {
 // decodeStrictBody reads exactly one JSON value, rejects unknown fields
 // and writes the 400 itself. Shared by the recruitment resources.
 func decodeStrictBody(w http.ResponseWriter, r *http.Request, dst any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRecruitmentBody))
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWriteBody))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
@@ -210,7 +207,7 @@ func (a *API) CreateJobPosting(w http.ResponseWriter, r *http.Request) {
 // client actually sent, so an absent field (keep) can be told from an explicit
 // null (clear). Unknown fields are still a 400.
 func decodeStrictPatch(w http.ResponseWriter, r *http.Request, dst any) (map[string]json.RawMessage, bool) {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxRecruitmentBody))
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBody))
 	if err != nil {
 		writeErrCode(w, http.StatusBadRequest, codeBadRequest, "invalid body")
 		return nil, false

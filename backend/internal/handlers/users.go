@@ -176,7 +176,7 @@ func (a *API) CreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !known {
-			fields["role"] = "must be admin, empleado or an existing role"
+			fields["role"] = msgUnknownRole
 		}
 	}
 	if len(fields) > 0 {
@@ -206,7 +206,7 @@ func (a *API) CreateUser(w http.ResponseWriter, r *http.Request) {
 	q := a.Queries.WithTx(tx)
 	if err := lockAssignedRole(r.Context(), q, companyID, role); err != nil {
 		if errors.Is(err, errRoleGone) {
-			writeFieldErr(w, map[string]string{"role": "must be admin, empleado or an existing role"})
+			writeFieldErr(w, map[string]string{"role": msgUnknownRole})
 			return
 		}
 		a.writeDBErr(w, err, "create user")
@@ -252,6 +252,10 @@ type updateUserRequest struct {
 // errLastActiveAdmin is returned when a change would leave a company with no
 // active admin (UM-3, UM-4).
 var errLastActiveAdmin = errors.New("company must keep at least one active admin")
+
+// msgUnknownRole is the 400 field error for a role that is neither built in
+// nor an existing custom role of the company.
+const msgUnknownRole = "must be admin, empleado or an existing role"
 
 // errRoleGone: the custom role a user write assigns was deleted or renamed
 // while the write waited for its lock. Answered like an unknown role (400).
@@ -341,7 +345,7 @@ func (a *API) writeUserChangeErr(w http.ResponseWriter, err error, op string) {
 		return
 	}
 	if errors.Is(err, errRoleGone) {
-		writeFieldErr(w, map[string]string{"role": "must be admin, empleado or an existing role"})
+		writeFieldErr(w, map[string]string{"role": msgUnknownRole})
 		return
 	}
 	a.writeDBErr(w, err, op)
@@ -394,7 +398,7 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role != nil {
 		role = strings.TrimSpace(*req.Role)
 		if role == "" {
-			fields["role"] = "must be admin, empleado or an existing role"
+			fields["role"] = msgUnknownRole
 		}
 	}
 	if len(fields) == 0 && req.Role != nil {
@@ -404,7 +408,7 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !known {
-			fields["role"] = "must be admin, empleado or an existing role"
+			fields["role"] = msgUnknownRole
 		}
 	}
 	if len(fields) > 0 {
