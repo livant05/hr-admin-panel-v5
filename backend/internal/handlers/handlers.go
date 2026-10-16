@@ -238,8 +238,14 @@ func (a *API) SessionLookup(ctx context.Context, userID string) (auth.Session, e
 	}
 	if err != nil {
 		// Runs on every authenticated request; the middleware answers 500
-		// without detail, so this is the only trace of the failure.
-		a.Log.Error("session lookup", "user_id", userID, "err", err)
+		// without detail, so this is the only trace of the failure. A client
+		// that went away mid-request is not an outage: it stays out of the
+		// error level so real database failures remain easy to spot.
+		if errors.Is(err, context.Canceled) || ctx.Err() != nil {
+			a.Log.Warn("session lookup", "user_id", userID, "err", err)
+		} else {
+			a.Log.Error("session lookup", "user_id", userID, "err", err)
+		}
 		return auth.Session{}, err
 	}
 	return auth.Session{

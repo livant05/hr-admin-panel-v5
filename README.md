@@ -40,6 +40,13 @@ Sistema completo de gestión de Recursos Humanos construido con **AdminLTE 3 + J
 | **SQL Schema** | 24 tablas con RLS multiempresa |
 | **Backup** | Exportar/importar JSON + CSV |
 
+## 🧾 Planilla por período
+- **Períodos**: `mensual`, 1ra quincena (días 1-15) y 2da quincena (día 16 al fin de mes). Un mes se paga como una planilla mensual **o** como dos quincenas, nunca ambas (el servidor responde 409).
+- **Cálculo por quincena**: salario base y cuotas de deducciones al 50 %; horas extras y ausencias solo de los días de esa quincena (ausencia = salario/30 por día).
+- **Guardar**: una fila de historial y una fila por empleado en el historial de planilla por período. Volver a guardar el mismo período lo reemplaza; un doble clic no duplica.
+- **Liquidación**: las dos quincenas de un mes cuentan como un solo mes (sumadas) en los acumulados.
+- Requiere la migración `0014_payroll_periods.sql` (ver `docs/cutover-runbook.md`).
+
 ## 🔐 Roles
 - **Admin** — Acceso total
 - **RRHH** — Gestión de personal
