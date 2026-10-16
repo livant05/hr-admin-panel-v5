@@ -16,33 +16,16 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.DEDUCTIONS_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 
 const srcs = [
   extractFunction(html, 'async function renderDedTable('),
   extractFunction(html, 'async function loadLiqEmp('),
+  extractFunction(html, 'function vacTotalsByEmployee('),
   extractFunction(html, 'async function saveDed('),
   extractFunction(html, 'async function saldaDed('),
   extractFunction(html, 'async function delDed('),
@@ -73,7 +56,7 @@ function makeEnv({ deds = API_DEDS, bals = API_BALS, insResult = null, updResult
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '', innerHTML: '', style: { display: 'none' }, classList: { add() {} } });
   el('liq-emp').value = 'e1';
-  const pick = (rows, flt) => rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v));
+  const pick = (rows, flt) => !Array.isArray(rows) ? rows : rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v));
   const sandbox = {
     A: { companyId: 'c1', demo: false },
     DS: { deductions: [], leave_balances: [] },
@@ -84,6 +67,7 @@ function makeEnv({ deds = API_DEDS, bals = API_BALS, insResult = null, updResult
     calcLiq: () => {},
     TS: '2026-10-14',
     API_FIELD_ES: { quota: 'cuota' },
+    API_CONFLICT_ES: {},
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
       sel: async (tbl, flt) => { calls.push({ fn: 'sel', tbl, flt }); return pick({ employees: [EMP], deductions: deds, leave_balances: bals }[tbl] || [], flt); },
@@ -214,6 +198,14 @@ test('loadLiqEmp hides the installments box when the employee has none (unchange
   const e = makeEnv({ deds: [] });
   await e.run('loadLiqEmp()');
   assert.equal(e.el('liq-ded-wrap').style.display, 'none');
+});
+
+test('renderDedTable shows a failed read as an error, not as "Sin deducciones"', async () => {
+  const e = makeEnv({ deds: { error: { code: 'internal', message: 'internal error' } } });
+  await e.run('renderDedTable()');
+  const tb = e.el('ded-tbody').innerHTML;
+  assert.doesNotMatch(tb, /Sin deducciones/);
+  assert.match(tb, /No se pudieron cargar las deducciones: error interno del servidor/);
 });
 
 let failed = 0;

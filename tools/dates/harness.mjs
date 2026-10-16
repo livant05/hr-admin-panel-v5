@@ -16,6 +16,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.DATES_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
@@ -27,17 +28,6 @@ const lineOf = (prefix) => {
   assert.ok(at >= 0, `${prefix} not found in hr_admin_panel.html`);
   return html.slice(at + 1, html.indexOf('\n', at + 1));
 };
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  let i = src.indexOf('{', at), depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'") { for (i++; src[i] !== c; i++) if (src[i] === '\\') i++; }
-    else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 const srcs = [
   html.includes('\nfunction panamaDate(') ? extractFunction(html, 'function panamaDate(') : '',
   lineOf('var TD = '),
