@@ -801,3 +801,136 @@ func TestZktecoDevices_ParallelClaimsNeverBothSucceed(t *testing.T) {
 		t.Fatalf("owner %q is not one of the claimers", got)
 	}
 }
+
+// An admin registers a device for their company before pointing it at the
+// server; only then does ADMS accept its serial (runbook B2 rank 1).
+func TestZktecoDevices_Register(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	a := testutil.Company(t, pool, "ZkRegA")
+	b := testutil.Company(t, pool, "ZkRegB")
+	tokA := a.Token(t, signer)
+
+	newSerial := func(t *testing.T) string {
+		sn := "ZKR-" + uuid.NewString()[:12]
+		t.Cleanup(func() {
+			_, _ = pool.Exec(context.Background(), `DELETE FROM zkteco_devices WHERE serial_number = $1`, sn)
+		})
+		return sn
+	}
+	count := func(t *testing.T, sn string) int {
+		var n int
+		if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM zkteco_devices WHERE serial_number = $1`, sn).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	t.Run("an admin registers a device for their own company", func(t *testing.T) {
+		sn := newSerial(t)
+		rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, tokA, map[string]any{"serial_number": sn, "name": "Entrada", "location": "Lobby"})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("got %d (%s), want 201", rec.Code, rec.Body.String())
+		}
+		rows := testutil.DecodeRows[zkDeviceRow](t, rec)
+		if len(rows) != 1 || rows[0].SerialNumber != sn || rows[0].CompanyID == nil || *rows[0].CompanyID != a.CompanyID ||
+			textOrNull(rows[0].Name) != "Entrada" || textOrNull(rows[0].Location) != "Lobby" {
+			t.Fatalf("registered row = %+v", rows)
+		}
+		var company string
+		if err := pool.QueryRow(context.Background(), `SELECT company_id::text FROM zkteco_devices WHERE serial_number = $1`, sn).Scan(&company); err != nil || company != a.CompanyID {
+			t.Fatalf("stored company = %q err=%v, want %s", company, err, a.CompanyID)
+		}
+		// It now appears in the company's device list.
+		found := false
+		for _, r := range testutil.DecodeRows[zkDeviceRow](t, testutil.Do(t, h, http.MethodGet, zkDevicesPath, tokA, nil)) {
+			found = found || r.SerialNumber == sn
+		}
+		if !found {
+			t.Fatal("the registered device is missing from GET /api/zkteco_devices")
+		}
+	})
+
+	t.Run("name and location are optional", func(t *testing.T) {
+		sn := newSerial(t)
+		rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, tokA, map[string]any{"serial_number": sn})
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("got %d (%s), want 201", rec.Code, rec.Body.String())
+		}
+		if r := testutil.DecodeRows[zkDeviceRow](t, rec)[0]; r.Name != nil || r.Location != nil {
+			t.Fatalf("labels must be null: %+v", r)
+		}
+	})
+
+	t.Run("non-admin roles get 403 and nothing is written", func(t *testing.T) {
+		for _, role := range []string{"empleado", "manager", "rrhh"} {
+			sn := newSerial(t)
+			rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, a.TokenAs(t, pool, signer, role), map[string]any{"serial_number": sn})
+			if rec.Code != http.StatusForbidden || testutil.ErrCode(t, rec) != "forbidden" {
+				t.Fatalf("%s: got %d (%s), want 403 forbidden", role, rec.Code, rec.Body.String())
+			}
+			if n := count(t, sn); n != 0 {
+				t.Fatalf("%s: a refused register wrote %d rows", role, n)
+			}
+		}
+	})
+
+	t.Run("no token is 401", func(t *testing.T) {
+		if rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, "", map[string]any{"serial_number": newSerial(t)}); rec.Code != http.StatusUnauthorized {
+			t.Fatalf("got %d, want 401", rec.Code)
+		}
+	})
+
+	t.Run("a serial that already exists is 409 and keeps its owner", func(t *testing.T) {
+		owned := seedZkDevice(t, pool, zkSeed{companyID: &a.CompanyID})
+		pooled := seedZkDevice(t, pool, zkSeed{name: "imported"})
+		for name, sn := range map[string]string{"owned by another company": owned.SerialNumber, "unclaimed": pooled.SerialNumber} {
+			rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, b.Token(t, signer), map[string]any{"serial_number": sn})
+			if rec.Code != http.StatusConflict || testutil.ErrCode(t, rec) != "conflict" {
+				t.Fatalf("%s: got %d (%s), want 409 conflict", name, rec.Code, rec.Body.String())
+			}
+		}
+		if after := readZkDevice(t, pool, owned.ID); !sameZkDevice(after, owned) {
+			t.Fatalf("owned device changed: %+v", after)
+		}
+		if after := readZkDevice(t, pool, pooled.ID); !sameZkDevice(after, pooled) {
+			t.Fatalf("unclaimed device changed: %+v", after)
+		}
+	})
+
+	t.Run("invalid bodies are 400 and write nothing", func(t *testing.T) {
+		sn := newSerial(t)
+		for name, c := range map[string]struct {
+			body  map[string]any
+			field string // "" means a bad_request without fields
+		}{
+			"missing serial":   {map[string]any{"name": "x"}, "serial_number"},
+			"empty serial":     {map[string]any{"serial_number": ""}, "serial_number"},
+			"malformed serial": {map[string]any{"serial_number": "AB CD"}, "serial_number"},
+			"overlong serial":  {map[string]any{"serial_number": "S" + strings.Repeat("9", 64)}, "serial_number"},
+			"long name":        {map[string]any{"serial_number": sn, "name": strings.Repeat("n", 201)}, "name"},
+			"empty location":   {map[string]any{"serial_number": sn, "location": "  "}, "location"},
+			"company_id":       {map[string]any{"serial_number": sn, "company_id": b.CompanyID}, ""},
+			"status":           {map[string]any{"serial_number": sn, "status": "online"}, ""},
+		} {
+			rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, tokA, c.body)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("%s: got %d (%s), want 400", name, rec.Code, rec.Body.String())
+			}
+			if c.field != "" && errField(t, rec, c.field) == "" {
+				t.Fatalf("%s: missing fields.%s in %s", name, c.field, rec.Body.String())
+			}
+		}
+		if n := count(t, sn); n != 0 {
+			t.Fatalf("invalid bodies wrote %d rows", n)
+		}
+		// The longest valid serial (64) is accepted, so the boundary is exact.
+		long := "S" + strings.Repeat("8", 63)
+		t.Cleanup(func() {
+			_, _ = pool.Exec(context.Background(), `DELETE FROM zkteco_devices WHERE serial_number = $1`, long)
+		})
+		if rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, tokA, map[string]any{"serial_number": long}); rec.Code != http.StatusCreated {
+			t.Fatalf("64 character serial: got %d (%s), want 201", rec.Code, rec.Body.String())
+		}
+	})
+}

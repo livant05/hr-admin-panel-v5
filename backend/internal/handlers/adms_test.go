@@ -90,6 +90,18 @@ func claimedDevice(t *testing.T, pool *pgxpool.Pool, tn testutil.Tenant) string 
 	return sn
 }
 
+// unclaimedDevice inserts a device with no company, as the importer leaves an
+// unclaimed one, and returns its serial: a known serial ADMS accepts.
+func unclaimedDevice(t *testing.T, pool *pgxpool.Pool) string {
+	t.Helper()
+	sn := admsSerial(t, pool)
+	if _, err := pool.Exec(context.Background(),
+		`INSERT INTO zkteco_devices (serial_number, status, last_seen) VALUES ($1, 'offline', now() - interval '1 day')`, sn); err != nil {
+		t.Fatalf("insert unclaimed device: %v", err)
+	}
+	return sn
+}
+
 func deviceCount(t *testing.T, pool *pgxpool.Pool, sn string) int {
 	t.Helper()
 	var n int
@@ -158,7 +170,7 @@ func wantBody(t *testing.T, rec *httptest.ResponseRecorder, status int, body str
 func TestADMS_PublicEndpointsNeedNoTokenAndAPIStaysProtected(t *testing.T) {
 	pool := testutil.Pool(t)
 	env := newADMSDefault(t, pool)
-	sn := admsSerial(t, pool)
+	sn := unclaimedDevice(t, pool)
 
 	rec := env.do(http.MethodGet, admsPath+"?SN="+sn+"&options=all", "")
 	if rec.Code != http.StatusOK {
@@ -186,13 +198,13 @@ func TestADMS_PublicEndpointsNeedNoTokenAndAPIStaysProtected(t *testing.T) {
 	}
 }
 
-func TestADMS_HeartbeatSelfRegistersAndNeverChangesOwner(t *testing.T) {
+func TestADMS_HeartbeatRefreshesKnownDevicesAndNeverChangesOwner(t *testing.T) {
 	pool := testutil.Pool(t)
 	env := newADMSDefault(t, pool)
 	a := testutil.Company(t, pool, "AdmsHttpHbA")
 
-	t.Run("unknown serial creates one unclaimed online device", func(t *testing.T) {
-		sn := admsSerial(t, pool)
+	t.Run("an imported unclaimed device is refreshed and stays unclaimed", func(t *testing.T) {
+		sn := unclaimedDevice(t, pool)
 		if env.do(http.MethodGet, admsPath+"?SN="+sn, "").Code != http.StatusOK {
 			t.Fatal("heartbeat failed")
 		}
@@ -210,7 +222,7 @@ func TestADMS_HeartbeatSelfRegistersAndNeverChangesOwner(t *testing.T) {
 	})
 
 	t.Run("a lower-case sn parameter is accepted", func(t *testing.T) {
-		sn := admsSerial(t, pool)
+		sn := unclaimedDevice(t, pool)
 		if env.do(http.MethodGet, admsPath+"?sn="+sn, "").Code != http.StatusOK || deviceCount(t, pool, sn) != 1 {
 			t.Fatal("lower-case sn not accepted")
 		}
@@ -275,15 +287,50 @@ func TestADMS_HeartbeatSelfRegistersAndNeverChangesOwner(t *testing.T) {
 				}
 			}
 		}
-		// The longest valid serial (64) is accepted, so the boundary is exact.
+		// The longest valid serial (64) is accepted once registered, so the
+		// boundary is exact.
 		long := "S" + strings.Repeat("9", 63)
 		t.Cleanup(func() {
 			_, _ = pool.Exec(context.Background(), `DELETE FROM zkteco_devices WHERE serial_number = $1`, long)
 		})
+		if _, err := pool.Exec(context.Background(), `INSERT INTO zkteco_devices (serial_number) VALUES ($1)`, long); err != nil {
+			t.Fatalf("register long serial: %v", err)
+		}
 		if env.do(http.MethodGet, admsPath+"?SN="+long, "").Code != http.StatusOK || deviceCount(t, pool, long) != 1 {
-			t.Fatal("a 64 character serial must be accepted")
+			t.Fatal("a registered 64 character serial must be accepted")
 		}
 	})
+}
+
+// A serial nobody registered is refused on every ADMS endpoint and leaves no
+// trace: no device row, no rejection counter, no unknown pin (runbook B2/B3).
+func TestADMS_UnknownSerialIsRefusedAndWritesNothing(t *testing.T) {
+	pool := testutil.Pool(t)
+	env := newADMSDefault(t, pool)
+	sn := admsSerial(t, pool)
+
+	for _, c := range []struct{ method, target, body string }{
+		{http.MethodGet, admsPath + "?SN=" + sn + "&options=all", ""},
+		{http.MethodGet, admsGetPath + "?SN=" + sn, ""},
+		{http.MethodPost, admsPath + "?table=ATTLOG&SN=" + sn, line("1234", admsDay+" 08:00:00", 0)},
+		{http.MethodPost, admsPath + "?table=OPERLOG&SN=" + sn, "OPLOG 1\n"},
+		{http.MethodPost, admsCmdPath + "?SN=" + sn, "ID=1&Return=0&CMD=DATA"},
+	} {
+		rec := env.do(c.method, c.target, c.body)
+		if rec.Code != http.StatusForbidden {
+			t.Fatalf("%s %s got %d (%s), want 403", c.method, c.target, rec.Code, rec.Body.String())
+		}
+		if code := testutil.ErrCode(t, rec); code != "forbidden" {
+			t.Fatalf("%s %s error.code = %q, want forbidden", c.method, c.target, code)
+		}
+	}
+	if n := deviceCount(t, pool, sn); n != 0 {
+		t.Fatalf("an unknown serial created %d device rows", n)
+	}
+	wantCounters(t, pool, sn, map[string]int64{})
+	if _, exists := unknownPinAttempts(t, pool, sn, "1234"); exists {
+		t.Fatal("an unknown serial must not write unknown pins")
+	}
 }
 
 func TestADMS_UnclaimedDeviceNeverCreatesAttendance(t *testing.T) {
@@ -292,7 +339,7 @@ func TestADMS_UnclaimedDeviceNeverCreatesAttendance(t *testing.T) {
 	a := testutil.Company(t, pool, "AdmsHttpUnclaimed")
 	pin := "UC-" + uuid.NewString()[:8]
 	emp := admsEmployee(t, pool, a, pin)
-	sn := admsSerial(t, pool)
+	sn := unclaimedDevice(t, pool)
 
 	rec := env.push(sn, batch(
 		line(pin, admsDay+" 08:00:00", 0),
@@ -309,7 +356,7 @@ func TestADMS_UnclaimedDeviceNeverCreatesAttendance(t *testing.T) {
 		t.Fatal("an unclaimed device must not write unknown pins")
 	}
 	if deviceCount(t, pool, sn) != 1 {
-		t.Fatal("the POST must still self-register the device")
+		t.Fatal("the POST must keep exactly the one imported device row")
 	}
 
 	// Claiming it later makes the same punch count.
@@ -627,7 +674,7 @@ func TestADMS_BodyAndLineCapsRefuseBeforeAnyWrite(t *testing.T) {
 func TestADMS_RateLimitedPerClientWith429(t *testing.T) {
 	pool := testutil.Pool(t)
 	env := newADMS(t, pool, 3, 3)
-	sn := admsSerial(t, pool)
+	sn := unclaimedDevice(t, pool)
 
 	for i := 1; i <= 3; i++ {
 		if rec := env.do(http.MethodGet, admsGetPath+"?SN="+sn, ""); rec.Code != http.StatusOK {

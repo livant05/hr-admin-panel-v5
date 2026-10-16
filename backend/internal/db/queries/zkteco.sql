@@ -36,7 +36,8 @@ ORDER BY p.last_seen DESC NULLS LAST, p.id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
 
 -- name: ListUnclaimedZktecoDevices :many
--- The unclaimed pool: devices that heartbeated but belong to no company. The
+-- The unclaimed pool: devices with no company (loaded by the importer, or
+-- self-registered before devices were pre-registered). The
 -- caller must be gated by requireAdmin; the rows carry the serial number an
 -- admin needs to recognize the physical device before claiming it.
 SELECT id, company_id, serial_number, name, location, status, last_seen,
@@ -45,6 +46,15 @@ FROM zkteco_devices
 WHERE company_id IS NULL
 ORDER BY last_seen DESC NULLS LAST, id DESC
 LIMIT sqlc.arg('limit') OFFSET sqlc.arg('offset');
+
+-- name: RegisterZktecoDevice :one
+-- An admin registers a device for their company before pointing it at the
+-- server; ADMS only accepts serials that have a row. serial_number is UNIQUE:
+-- a serial already registered (by any company) or imported is a 23505.
+INSERT INTO zkteco_devices (company_id, serial_number, name, location)
+VALUES ($1, $2, $3, $4)
+RETURNING id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at;
 
 -- name: ClaimZktecoDevice :one
 -- Atomic claim: the ownership check and the write are ONE statement. Two

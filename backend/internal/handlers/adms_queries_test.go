@@ -2,10 +2,12 @@ package handlers_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -102,46 +104,44 @@ func orNil(p *string) string {
 	return *p
 }
 
-func TestUpsertDeviceHeartbeat_CreatesUnclaimedAndNeverChangesOwner(t *testing.T) {
+func TestTouchDeviceHeartbeat_RefreshesOnlyKnownDevicesAndNeverChangesOwner(t *testing.T) {
 	pool := testutil.Pool(t)
 	ctx := context.Background()
 	q := db.New(pool)
 	a := testutil.Company(t, pool, "AdmsHbA")
 	sn := admsSerial(t, pool)
 
-	first, err := q.UpsertDeviceHeartbeat(ctx, sn)
-	if err != nil {
-		t.Fatalf("first heartbeat: %v", err)
+	// An unknown serial matches nothing and is never inserted.
+	if _, err := q.TouchDeviceHeartbeat(ctx, sn); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("unknown serial: err = %v, want pgx.ErrNoRows", err)
 	}
-	if first.CompanyID.Valid {
-		t.Fatalf("new device must be unclaimed, company_id = %v", first.CompanyID)
-	}
-	var status string
-	if err := pool.QueryRow(ctx, `SELECT status FROM zkteco_devices WHERE id = $1`, first.ID).Scan(&status); err != nil || status != "online" {
-		t.Fatalf("status = %q err=%v, want online", status, err)
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM zkteco_devices WHERE serial_number = $1`, sn).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("unknown serial left %d rows (err %v), want 0", n, err)
 	}
 
-	// Claim, age the row, heartbeat again: ownership must survive and
-	// last_seen/status must refresh.
-	if _, err := pool.Exec(ctx,
-		`UPDATE zkteco_devices SET company_id = $1, status = 'offline', last_seen = now() - interval '1 day' WHERE id = $2`,
-		a.CompanyID, first.ID); err != nil {
-		t.Fatalf("claim device: %v", err)
+	// A registered, aged device: ownership must survive and last_seen/status
+	// must refresh.
+	var id string
+	if err := pool.QueryRow(ctx,
+		`INSERT INTO zkteco_devices (company_id, serial_number, status, last_seen) VALUES ($1, $2, 'offline', now() - interval '1 day') RETURNING id`,
+		a.CompanyID, sn).Scan(&id); err != nil {
+		t.Fatalf("register device: %v", err)
 	}
-	second, err := q.UpsertDeviceHeartbeat(ctx, sn)
+	got, err := q.TouchDeviceHeartbeat(ctx, sn)
 	if err != nil {
-		t.Fatalf("second heartbeat: %v", err)
+		t.Fatalf("heartbeat: %v", err)
 	}
-	if second.ID != first.ID {
-		t.Fatalf("heartbeat created a second row: %v vs %v", second.ID, first.ID)
+	if got.ID != admsUUID(t, id) {
+		t.Fatalf("heartbeat touched another row: %v, want %s", got.ID, id)
 	}
-	if !second.CompanyID.Valid || second.CompanyID != admsUUID(t, a.CompanyID) {
-		t.Fatalf("heartbeat changed ownership: %v, want %s", second.CompanyID, a.CompanyID)
+	if !got.CompanyID.Valid || got.CompanyID != admsUUID(t, a.CompanyID) {
+		t.Fatalf("heartbeat changed ownership: %v, want %s", got.CompanyID, a.CompanyID)
 	}
 	var recent bool
 	if err := pool.QueryRow(ctx,
 		`SELECT status = 'online' AND last_seen > now() - interval '1 minute' FROM zkteco_devices WHERE id = $1`,
-		first.ID).Scan(&recent); err != nil || !recent {
+		id).Scan(&recent); err != nil || !recent {
 		t.Fatalf("heartbeat did not refresh status/last_seen: recent=%v err=%v", recent, err)
 	}
 }
