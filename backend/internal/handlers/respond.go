@@ -3,6 +3,7 @@ package handlers
 import "net/http"
 
 // A2 error codes — every error response nests one of these under "error.code".
+// codeRateLimited extends the original set (HTTP 429, always with Retry-After).
 const (
 	codeBadRequest   = "bad_request"
 	codeUnauthorized = "unauthorized"
@@ -11,6 +12,7 @@ const (
 	codeConflict     = "conflict"
 	codeValidation   = "validation_failed"
 	codeInternal     = "internal"
+	codeRateLimited  = "rate_limited"
 )
 
 type errBody struct {

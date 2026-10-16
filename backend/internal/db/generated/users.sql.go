@@ -11,49 +11,56 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const getCompanyByID = `-- name: GetCompanyByID :one
-SELECT id, name, ruc, address, phone, created_at
-FROM companies
+const bumpUserTokenVersion = `-- name: BumpUserTokenVersion :exec
+UPDATE users
+SET token_version = token_version + 1
 WHERE id = $1
-LIMIT 1
 `
 
-func (q *Queries) GetCompanyByID(ctx context.Context, id pgtype.UUID) (Company, error) {
-	row := q.db.QueryRow(ctx, getCompanyByID, id)
-	var i Company
-	err := row.Scan(
-		&i.ID,
-		&i.Name,
-		&i.Ruc,
-		&i.Address,
-		&i.Phone,
-		&i.CreatedAt,
+// Invalidates every token issued to the user (logout, role or status change).
+func (q *Queries) BumpUserTokenVersion(ctx context.Context, id pgtype.UUID) error {
+	_, err := q.db.Exec(ctx, bumpUserTokenVersion, id)
+	return err
+}
+
+const createUser = `-- name: CreateUser :one
+INSERT INTO users (company_id, email, role, first_name, last_name, status, password_hash)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, company_id, email, role, first_name, last_name, status, created_at
+`
+
+type CreateUserParams struct {
+	CompanyID    pgtype.UUID `json:"company_id"`
+	Email        pgtype.Text `json:"email"`
+	Role         string      `json:"role"`
+	FirstName    pgtype.Text `json:"first_name"`
+	LastName     pgtype.Text `json:"last_name"`
+	Status       string      `json:"status"`
+	PasswordHash string      `json:"password_hash"`
+}
+
+type CreateUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (CreateUserRow, error) {
+	row := q.db.QueryRow(ctx, createUser,
+		arg.CompanyID,
+		arg.Email,
+		arg.Role,
+		arg.FirstName,
+		arg.LastName,
+		arg.Status,
+		arg.PasswordHash,
 	)
-	return i, err
-}
-
-const getUserByEmail = `-- name: GetUserByEmail :one
-SELECT id, company_id, email, role, first_name, last_name, status, password_hash, created_at
-FROM users
-WHERE email = $1
-LIMIT 1
-`
-
-type GetUserByEmailRow struct {
-	ID           pgtype.UUID        `json:"id"`
-	CompanyID    pgtype.UUID        `json:"company_id"`
-	Email        pgtype.Text        `json:"email"`
-	Role         string             `json:"role"`
-	FirstName    pgtype.Text        `json:"first_name"`
-	LastName     pgtype.Text        `json:"last_name"`
-	Status       string             `json:"status"`
-	PasswordHash string             `json:"password_hash"`
-	CreatedAt    pgtype.Timestamptz `json:"created_at"`
-}
-
-func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUserByEmailRow, error) {
-	row := q.db.QueryRow(ctx, getUserByEmail, email)
-	var i GetUserByEmailRow
+	var i CreateUserRow
 	err := row.Scan(
 		&i.ID,
 		&i.CompanyID,
@@ -62,7 +69,110 @@ func (q *Queries) GetUserByEmail(ctx context.Context, email pgtype.Text) (GetUse
 		&i.FirstName,
 		&i.LastName,
 		&i.Status,
-		&i.PasswordHash,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const deactivateUser = `-- name: DeactivateUser :one
+UPDATE users
+SET status = 'inactive'
+WHERE id = $2 AND company_id = $1
+RETURNING id, company_id, email, role, first_name, last_name, status, created_at
+`
+
+type DeactivateUserParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type DeactivateUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) DeactivateUser(ctx context.Context, arg DeactivateUserParams) (DeactivateUserRow, error) {
+	row := q.db.QueryRow(ctx, deactivateUser, arg.CompanyID, arg.ID)
+	var i DeactivateUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getSessionUser = `-- name: GetSessionUser :one
+SELECT status, role, company_id, token_version
+FROM users
+WHERE id = $1
+`
+
+type GetSessionUserRow struct {
+	Status       string      `json:"status"`
+	Role         string      `json:"role"`
+	CompanyID    pgtype.UUID `json:"company_id"`
+	TokenVersion int32       `json:"token_version"`
+}
+
+// Per-request session check (auth middleware): primary-key lookup of only the
+// columns that decide whether a token is still honoured.
+func (q *Queries) GetSessionUser(ctx context.Context, id pgtype.UUID) (GetSessionUserRow, error) {
+	row := q.db.QueryRow(ctx, getSessionUser, id)
+	var i GetSessionUserRow
+	err := row.Scan(
+		&i.Status,
+		&i.Role,
+		&i.CompanyID,
+		&i.TokenVersion,
+	)
+	return i, err
+}
+
+const getUser = `-- name: GetUser :one
+SELECT id, company_id, email, role, first_name, last_name, status, created_at
+FROM users
+WHERE id = $2 AND company_id = $1
+`
+
+type GetUserParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type GetUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error) {
+	row := q.db.QueryRow(ctx, getUser, arg.CompanyID, arg.ID)
+	var i GetUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -99,6 +209,241 @@ func (q *Queries) GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDR
 		&i.LastName,
 		&i.Status,
 		&i.PasswordHash,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getUserForLogin = `-- name: GetUserForLogin :one
+SELECT u.id, u.company_id, u.email, u.role, u.first_name, u.last_name, u.status,
+       u.password_hash, u.token_version, c.name AS company_name
+FROM users u
+JOIN companies c ON c.id = u.company_id
+WHERE lower(u.email) = lower($1::text)
+LIMIT 1
+`
+
+type GetUserForLoginRow struct {
+	ID           pgtype.UUID `json:"id"`
+	CompanyID    pgtype.UUID `json:"company_id"`
+	Email        pgtype.Text `json:"email"`
+	Role         string      `json:"role"`
+	FirstName    pgtype.Text `json:"first_name"`
+	LastName     pgtype.Text `json:"last_name"`
+	Status       string      `json:"status"`
+	PasswordHash string      `json:"password_hash"`
+	TokenVersion int32       `json:"token_version"`
+	CompanyName  string      `json:"company_name"`
+}
+
+func (q *Queries) GetUserForLogin(ctx context.Context, email string) (GetUserForLoginRow, error) {
+	row := q.db.QueryRow(ctx, getUserForLogin, email)
+	var i GetUserForLoginRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
+		&i.PasswordHash,
+		&i.TokenVersion,
+		&i.CompanyName,
+	)
+	return i, err
+}
+
+const getUserForUpdate = `-- name: GetUserForUpdate :one
+SELECT id, company_id, email, role, first_name, last_name, status, created_at
+FROM users
+WHERE id = $2 AND company_id = $1
+FOR UPDATE
+`
+
+type GetUserForUpdateParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+}
+
+type GetUserForUpdateRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) GetUserForUpdate(ctx context.Context, arg GetUserForUpdateParams) (GetUserForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getUserForUpdate, arg.CompanyID, arg.ID)
+	var i GetUserForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const listUsers = `-- name: ListUsers :many
+
+SELECT id, company_id, email, role, first_name, last_name, status, created_at
+FROM users
+WHERE company_id = $1
+  AND ($2::uuid IS NULL OR id = $2)
+  AND ($3::text IS NULL OR role = $3)
+  AND ($4::text IS NULL OR status = $4)
+ORDER BY created_at, id
+LIMIT $6 OFFSET $5
+`
+
+type ListUsersParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+	Role      pgtype.Text `json:"role"`
+	Status    pgtype.Text `json:"status"`
+	Offset    int32       `json:"offset"`
+	Limit     int32       `json:"limit"`
+}
+
+type ListUsersRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+// The users API selects explicit columns and never password_hash, so the
+// generated row types cannot carry the hash (XC-2 holds structurally).
+func (q *Queries) ListUsers(ctx context.Context, arg ListUsersParams) ([]ListUsersRow, error) {
+	rows, err := q.db.Query(ctx, listUsers,
+		arg.CompanyID,
+		arg.ID,
+		arg.Role,
+		arg.Status,
+		arg.Offset,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUsersRow
+	for rows.Next() {
+		var i ListUsersRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.CompanyID,
+			&i.Email,
+			&i.Role,
+			&i.FirstName,
+			&i.LastName,
+			&i.Status,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const lockActiveAdmins = `-- name: LockActiveAdmins :many
+
+SELECT id
+FROM users
+WHERE company_id = $1 AND role = 'admin' AND status = 'active'
+ORDER BY id
+FOR UPDATE
+`
+
+// The write path below locks rows so the last-active-admin guard holds under
+// concurrency (design D6). Callers MUST run LockActiveAdmins first and
+// GetUserForUpdate second, inside one transaction: every transaction then takes
+// the admin rows in id order before any other user row, so two requests can
+// never wait on each other.
+func (q *Queries) LockActiveAdmins(ctx context.Context, companyID pgtype.UUID) ([]pgtype.UUID, error) {
+	rows, err := q.db.Query(ctx, lockActiveAdmins, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []pgtype.UUID
+	for rows.Next() {
+		var id pgtype.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const updateUser = `-- name: UpdateUser :one
+UPDATE users
+SET email = $3, role = $4, first_name = $5, last_name = $6, status = $7
+WHERE id = $2 AND company_id = $1
+RETURNING id, company_id, email, role, first_name, last_name, status, created_at
+`
+
+type UpdateUserParams struct {
+	CompanyID pgtype.UUID `json:"company_id"`
+	ID        pgtype.UUID `json:"id"`
+	Email     pgtype.Text `json:"email"`
+	Role      string      `json:"role"`
+	FirstName pgtype.Text `json:"first_name"`
+	LastName  pgtype.Text `json:"last_name"`
+	Status    string      `json:"status"`
+}
+
+type UpdateUserRow struct {
+	ID        pgtype.UUID        `json:"id"`
+	CompanyID pgtype.UUID        `json:"company_id"`
+	Email     pgtype.Text        `json:"email"`
+	Role      string             `json:"role"`
+	FirstName pgtype.Text        `json:"first_name"`
+	LastName  pgtype.Text        `json:"last_name"`
+	Status    string             `json:"status"`
+	CreatedAt pgtype.Timestamptz `json:"created_at"`
+}
+
+func (q *Queries) UpdateUser(ctx context.Context, arg UpdateUserParams) (UpdateUserRow, error) {
+	row := q.db.QueryRow(ctx, updateUser,
+		arg.CompanyID,
+		arg.ID,
+		arg.Email,
+		arg.Role,
+		arg.FirstName,
+		arg.LastName,
+		arg.Status,
+	)
+	var i UpdateUserRow
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.Email,
+		&i.Role,
+		&i.FirstName,
+		&i.LastName,
+		&i.Status,
 		&i.CreatedAt,
 	)
 	return i, err

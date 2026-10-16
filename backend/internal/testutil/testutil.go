@@ -21,11 +21,13 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/livant05/rrhh-go/internal/auth"
@@ -93,22 +95,49 @@ func failOrSkip(t *testing.T, msg string) {
 	t.Fatal(msg)
 }
 
+// migrationLockKey is the pg_advisory_xact_lock key serializing migration
+// application across concurrently running test packages.
+const migrationLockKey = 7261008810
+
+// firstIdempotentMigration is the number of the first migration written to be
+// safely re-applied. Every migration numbered at or above it MUST be
+// idempotent: this harness re-applies it on every Pool() call.
+const firstIdempotentMigration = 10
+
+// UsersEmailLowerIndex is the name of the unique lower(email) index created by
+// migration 0010. Tests share this constant instead of repeating the literal.
+const UsersEmailLowerIndex = "idx_users_email_lower"
+
+// isIdempotentMigration reports whether a migration file is numbered
+// >= firstIdempotentMigration.
+func isIdempotentMigration(base string) bool {
+	if len(base) < 4 {
+		return false
+	}
+	n, err := strconv.Atoi(base[:4])
+	return err == nil && n >= firstIdempotentMigration
+}
+
+// dedupeLegacyEmailsSQL rewrites, in TEST databases only, every user whose
+// lower(email) collides with an older row (oldest created_at, then id, wins).
+// Old fixtures stored fixed emails, so a long-lived test database may hold
+// case-insensitive duplicates that would abort migration 0010. Never part of
+// the production migration path.
+const dedupeLegacyEmailsSQL = `
+UPDATE users u
+SET email = 'dedup-' || u.id::text || '-' || u.email
+FROM (
+  SELECT id, row_number() OVER (PARTITION BY lower(email) ORDER BY created_at, id) AS rn
+  FROM users WHERE email IS NOT NULL
+) r
+WHERE r.id = u.id AND r.rn > 1`
+
 // applyMigrations globs migrations/*.sql, sorts by filename, skips any file
 // whose name contains "seed" (the seeded Ventatec company/user is fixture
 // noise that would make list assertions fragile), and applies the rest
-// inside one transaction if a sentinel table ("departments") is absent.
+// inside one transaction if a sentinel table ("departments") is absent. Files
+// numbered >= 0010 are idempotent and applied on every call.
 func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	var exists bool
-	err := pool.QueryRow(ctx, `SELECT EXISTS (
-		SELECT 1 FROM information_schema.tables WHERE table_name = 'departments'
-	)`).Scan(&exists)
-	if err != nil {
-		return fmt.Errorf("check sentinel table: %w", err)
-	}
-	if exists {
-		return nil
-	}
-
 	files, err := filepath.Glob(filepath.Join(migrationsDir(), "*.sql"))
 	if err != nil {
 		return fmt.Errorf("glob migrations: %w", err)
@@ -121,8 +150,44 @@ func applyMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 	}
 	defer tx.Rollback(ctx)
 
+	// Concurrent `go test ./...` packages each call this; the advisory lock
+	// serializes them so the idempotent files below never race.
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("take migration lock: %w", err)
+	}
+
+	// The sentinel check MUST follow the lock: checked before it, two callers
+	// on a fresh database could both see "absent" and the loser would re-apply
+	// the non-idempotent pre-0010 files. Scoped to current_schema() so a
+	// schema-isolated pool is judged by its own tables, not public's.
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS (
+		SELECT 1 FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = 'departments'
+	)`).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("check sentinel table: %w", err)
+	}
+
+	// An already-initialized test database may hold legacy case-insensitive
+	// duplicate emails; heal them before any idempotent migration (0010+)
+	// re-applies the unique index.
+	if exists {
+		if _, err := tx.Exec(ctx, dedupeLegacyEmailsSQL); err != nil {
+			return fmt.Errorf("dedupe legacy test emails: %w", err)
+		}
+	}
+
 	for _, f := range files {
-		if strings.Contains(filepath.Base(f), "seed") {
+		base := filepath.Base(f)
+		if strings.Contains(base, "seed") {
+			continue
+		}
+		// Files below 0010 predate idempotency and only run on a fresh
+		// database (sentinel table absent). From 0010 on every migration is
+		// idempotent and is always re-applied, so an already-initialized
+		// test database picks up new migrations automatically.
+		if exists && !isIdempotentMigration(base) {
 			continue
 		}
 		sqlBytes, err := os.ReadFile(f)
@@ -190,7 +255,7 @@ func Company(t *testing.T, pool *pgxpool.Pool, name string) Tenant {
 	_, err = pool.Exec(ctx,
 		`INSERT INTO users (id, company_id, email, role, first_name, last_name, status)
 		 VALUES ($1, $2, $3, 'admin', 'Test', 'Admin', 'active')`,
-		userID, companyID, name+"-admin@example.test",
+		userID, companyID, name+"-admin-"+uuid.NewString()[:8]+"@example.test",
 	)
 	if err != nil {
 		t.Fatalf("insert test user: %v", err)
@@ -206,21 +271,30 @@ func Company(t *testing.T, pool *pgxpool.Pool, name string) Tenant {
 // Token mints a real JWT via signer.Sign — same code path as Login.
 func (tn Tenant) Token(t *testing.T, signer *auth.Signer) string {
 	t.Helper()
-	tok, err := signer.Sign(tn.UserID, tn.CompanyID, tn.Role)
+	tok, err := signer.Sign(tn.UserID, tn.CompanyID, tn.Role, 0)
 	if err != nil {
 		t.Fatalf("sign test token: %v", err)
 	}
 	return tok
 }
 
-// TokenAs mints a JWT for this tenant asserting a role other than the one
-// Company created (always "admin"). The JWT role need not match a `users`
-// row for the middleware to accept it — role comes from the signed claim,
-// not a DB lookup. Needed by Phase 2's permission tests (design Q4/Q7),
-// e.g. an "empleado" token to prove requirePermission denies it.
-func (tn Tenant) TokenAs(t *testing.T, signer *auth.Signer, role string) string {
+// TokenAs mints a JWT for a fresh active user of this tenant holding role.
+// The auth middleware takes role and company from the users row, not from the
+// token, so asserting a role means a row that has it: every call inserts a
+// new user (never the tenant's admin), keeping tokens for different roles
+// independent of each other.
+func (tn Tenant) TokenAs(t *testing.T, pool *pgxpool.Pool, signer *auth.Signer, role string) string {
 	t.Helper()
-	tok, err := signer.Sign(tn.UserID, tn.CompanyID, role)
+	userID := uuid.NewString()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO users (id, company_id, email, role, first_name, last_name, status)
+		 VALUES ($1, $2, $3, $4, 'Test', 'Role', 'active')`,
+		userID, tn.CompanyID, "role-"+uuid.NewString()[:8]+"@example.test", role,
+	)
+	if err != nil {
+		t.Fatalf("insert test user with role %s: %v", role, err)
+	}
+	tok, err := signer.Sign(userID, tn.CompanyID, role, 0)
 	if err != nil {
 		t.Fatalf("sign test token as %s: %v", role, err)
 	}
@@ -444,24 +518,16 @@ func ErrCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	return body.Error.Code
 }
 
-// IsolatedSchema creates a fresh Postgres schema in the test database, applies
-// every migration INCLUDING the seed into it, and returns a pool whose
-// search_path points at that schema (with public as fallback for the
-// uuid-ossp functions) plus a connection URL carrying the same search_path.
-// It exists for tests that bulk-load data (the Supabase import tool): they
-// must not touch the shared tables other packages' tests read, and the seed
-// company/admin must be present so "seed untouched" can be asserted. The
-// schema is dropped on cleanup.
-//
-// Caveat: 0007's constraint guard looks up pg_constraint by name only, so it
-// sees epr_origin_chk from the public schema and skips creating it here.
-func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
+// newSchemaURL creates an empty, uniquely named schema in the test database
+// (dropped on cleanup) and returns its name plus a connection URL whose
+// search_path points at it, with public as fallback for the uuid-ossp
+// functions. It applies no migrations.
+func newSchemaURL(t *testing.T) (schema, isoURL string) {
 	t.Helper()
 	admin := Pool(t)
-	ctx := context.Background()
 
-	schema := "imp_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
-	if _, err := admin.Exec(ctx, `CREATE SCHEMA `+schema); err != nil {
+	schema = "imp_" + strings.ReplaceAll(uuid.NewString(), "-", "")[:16]
+	if _, err := admin.Exec(context.Background(), `CREATE SCHEMA `+schema); err != nil {
 		t.Fatalf("create schema: %v", err)
 	}
 	t.Cleanup(func() {
@@ -479,7 +545,24 @@ func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
 	q := u.Query()
 	q.Set("search_path", schema+",public")
 	u.RawQuery = q.Encode()
-	isoURL := u.String()
+	return schema, u.String()
+}
+
+// IsolatedSchema creates a fresh Postgres schema in the test database, applies
+// every migration INCLUDING the seed into it, and returns a pool whose
+// search_path points at that schema (with public as fallback for the
+// uuid-ossp functions) plus a connection URL carrying the same search_path.
+// It exists for tests that bulk-load data (the Supabase import tool): they
+// must not touch the shared tables other packages' tests read, and the seed
+// company/admin must be present so "seed untouched" can be asserted. The
+// schema is dropped on cleanup.
+//
+// Caveat: 0007's constraint guard looks up pg_constraint by name only, so it
+// sees epr_origin_chk from the public schema and skips creating it here.
+func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
+	t.Helper()
+	ctx := context.Background()
+	schema, isoURL := newSchemaURL(t)
 
 	pool, err := pgxpool.New(ctx, isoURL)
 	if err != nil {
@@ -510,4 +593,33 @@ func IsolatedSchema(t *testing.T) (*pgxpool.Pool, string) {
 		t.Fatalf("commit schema migrations: %v", err)
 	}
 	return pool, isoURL
+}
+
+// DropIndexInIsolatedSchema drops the named index from the schema the pool is
+// isolated into. The DROP is schema-qualified, so it can never resolve to a
+// same-named index in public through search_path; the test fails instead when
+// the pool is not schema-isolated or the index is absent from its schema.
+func DropIndexInIsolatedSchema(t *testing.T, pool *pgxpool.Pool, index string) {
+	t.Helper()
+	ctx := context.Background()
+
+	var schema string
+	if err := pool.QueryRow(ctx, `SELECT current_schema()`).Scan(&schema); err != nil {
+		t.Fatalf("current_schema: %v", err)
+	}
+	if schema == "public" {
+		t.Fatalf("refusing to drop index %s: pool is on public, not an isolated schema", index)
+	}
+	var exists bool
+	if err := pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = $1 AND indexname = $2)`,
+		schema, index).Scan(&exists); err != nil {
+		t.Fatalf("check index %s.%s: %v", schema, index, err)
+	}
+	if !exists {
+		t.Fatalf("index %s is absent from isolated schema %s", index, schema)
+	}
+	if _, err := pool.Exec(ctx, `DROP INDEX `+pgx.Identifier{schema, index}.Sanitize()); err != nil {
+		t.Fatalf("drop index %s.%s: %v", schema, index, err)
+	}
 }

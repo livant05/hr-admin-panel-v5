@@ -187,6 +187,7 @@ type EmployeePayRecord struct {
 	Notes           pgtype.Text        `json:"notes"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 }
 
 type Enrollment struct {
@@ -409,6 +410,7 @@ type User struct {
 	Status       string             `json:"status"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	PasswordHash string             `json:"password_hash"`
+	TokenVersion int32              `json:"token_version"`
 }
 
 type ZktecoDevice struct {
@@ -421,6 +423,14 @@ type ZktecoDevice struct {
 	LastSeen        pgtype.Timestamptz `json:"last_seen"`
 	FirmwareVersion pgtype.Text        `json:"firmware_version"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
+}
+
+type ZktecoIngestRejection struct {
+	SerialNumber string             `json:"serial_number"`
+	Reason       string             `json:"reason"`
+	Count        int64              `json:"count"`
+	LastPin      pgtype.Text        `json:"last_pin"`
+	LastSeen     pgtype.Timestamptz `json:"last_seen"`
 }
 
 type ZktecoUnknownPin struct {

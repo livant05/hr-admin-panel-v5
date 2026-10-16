@@ -30,7 +30,6 @@ body.dark-mode .input-group-text{background:#16213e;border-color:var(--border);c
 .page-section{display:none}.page-section.active{display:block}
 .stat-card{transition:transform .2s,box-shadow .2s}.stat-card:hover{transform:translateY(-3px);box-shadow:0 8px 20px rgba(0,0,0,.15)}
 .toast-container{position:fixed;top:70px;right:20px;z-index:9999}
-.setup-wrap{min-height:100vh;background:linear-gradient(135deg,#1a1a2e,#0f3460);display:flex;align-items:center;justify-content:center}
 .tpl-card{border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px;cursor:pointer;transition:all .2s}
 .tpl-card:hover,.tpl-card.selected{border-color:#007bff;background:rgba(0,123,255,.05)}
 .var-chip{display:inline-block;background:#e8f4f8;color:#0c5460;border:1px solid #bee5eb;border-radius:4px;padding:2px 7px;font-size:.72rem;margin:2px;cursor:pointer;font-family:monospace}
@@ -67,22 +66,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 <body class="hold-transition login-page">
 <div class="toast-container" id="toastCont"></div>
 
-<!-- SETUP -->
-<div id="v-setup" style="display:none" class="setup-wrap">
-  <div style="max-width:500px;width:100%;padding:16px"><div class="card shadow-lg">
-    <div class="card-header text-center" style="background:linear-gradient(135deg,#007bff,#6610f2)">
-      <h5 class="text-white mb-0"><i class="fas fa-database mr-2"></i>Configurar Supabase</h5></div>
-    <div class="card-body p-4">
-      <div class="alert alert-info py-2 small"><i class="fas fa-info-circle mr-1"></i>Ir a <strong>supabase.com → Proyecto → Settings → API</strong></div>
-      <div class="form-group"><label>Project URL</label><input type="url" id="s-url" class="form-control" placeholder="https://xxxxx.supabase.co"></div>
-      <div class="form-group"><label>Anon Key</label>
-        <div class="input-group"><input type="password" id="s-key" class="form-control" placeholder="eyJhbGci...">
-        <div class="input-group-append"><button class="btn btn-outline-secondary" onclick="togglePwd('s-key')"><i class="fas fa-eye"></i></button></div></div></div>
-      <button class="btn btn-primary btn-block" onclick="saveConfig()"><i class="fas fa-save mr-1"></i>Guardar y Continuar</button>
-      <hr><button class="btn btn-outline-secondary btn-block btn-sm" onclick="demoMode()"><i class="fas fa-flask mr-1"></i>Modo Demo (sin Supabase)</button>
-    </div></div></div>
-</div>
-
 <!-- LOGIN -->
 <div id="v-login" style="display:none">
   <div class="login-box" style="width:400px;margin:auto">
@@ -103,7 +86,8 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
       </div>
       <hr>
       <a href="#" onclick="showV('register')" class="btn btn-outline-secondary btn-block btn-sm">Registrar nueva empresa</a>
-      <a href="#" onclick="showV('setup')" class="text-muted mt-2 d-block text-center" style="font-size:.75rem"><i class="fas fa-cog mr-1"></i>Configurar Supabase</a>
+      <button type="button" id="btn-demo-enter" class="btn btn-outline-secondary btn-block btn-sm mt-2" onclick="demoMode()"><i class="fas fa-flask mr-1"></i>Modo Demo</button>
+      <button type="button" id="btn-demo-exit" class="btn btn-outline-warning btn-block btn-sm mt-2 d-none" onclick="exitDemo()"><i class="fas fa-door-open mr-1"></i>Salir del modo demo</button>
     </div></div>
   </div>
 </div>
@@ -673,7 +657,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
           <div class="col-md-2"><select id="pr-year" class="form-control form-control-sm" onchange="loadPayroll()"></select></div>
           <div class="col-md-6 text-right">
             <button class="btn btn-outline-secondary btn-sm mr-1" onclick="seedTestAttendance()" title="Insertar asistencia de prueba para el mes actual"><i class="fas fa-database mr-1"></i>Datos de prueba</button>
-            <button class="btn btn-info btn-sm mr-1" onclick="savePayrollRun()"><i class="fas fa-save mr-1"></i>Guardar historial</button>
+            <button id="pr-save-btn" class="btn btn-info btn-sm mr-1" onclick="savePayrollRun()"><i class="fas fa-save mr-1"></i>Guardar historial</button>
             <button class="btn btn-success btn-sm mr-1" onclick="exportPayrollCSV()"><i class="fas fa-file-csv mr-1"></i>CSV</button>
             <button class="btn btn-danger btn-sm" onclick="printPayroll()"><i class="fas fa-print mr-1"></i>Imprimir</button>
           </div>
@@ -1371,7 +1355,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
               <h6><i class="fas fa-download mr-1"></i>Exportar Datos</h6>
               <button class="btn btn-success btn-block" onclick="exportBackup()"><i class="fas fa-file-archive mr-1"></i>Backup JSON</button>
               <button class="btn btn-outline-secondary btn-block mt-2" onclick="exportAllCSV()"><i class="fas fa-file-csv mr-1"></i>Exportar CSV Completo</button>
-              <button class="btn btn-outline-primary btn-block mt-2" onclick="showSQLSchema()"><i class="fas fa-code mr-1"></i>Ver SQL Schema Supabase</button>
             </div>
             <div class="col-md-6">
               <h6><i class="fas fa-upload mr-1"></i>Restaurar Backup</h6>
@@ -1397,16 +1380,15 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                   En el dispositivo → <em>Menú → Configuración → Comunicación → Servidor ADMS</em> (o similar según modelo):
                   <ol class="mb-0 mt-1">
                     <li>Activar <strong>Push Protocol / ADMS</strong></li>
-                    <li>Copiar la URL del servidor (abajo)</li>
-                    <li>Puerto: <strong>443</strong> · HTTPS: <strong>Sí</strong></li>
-                    <li>El dispositivo empezará a enviar marcadas automáticamente</li>
+                    <li>Copiar la dirección del servidor (abajo)</li>
+                    <li>Puerto y HTTPS (<strong>provisional</strong>, confirmar con el modelo del reloj): por defecto el servidor atiende HTTP en el puerto indicado en la dirección (80 si no aparece) y HTTPS: <strong>No</strong>; si se publica con TLS, usar 443 y HTTPS: <strong>Sí</strong></li>
+                    <li>El reloj aparecerá en <em>Relojes sin asignar</em> hasta que un administrador lo reclame</li>
                   </ol>
                 </div>
                 <div class="form-group">
-                  <label><strong>URL del Servidor ADMS</strong></label>
+                  <label><strong>Dirección del Servidor ADMS</strong> <small class="text-muted">(provisional)</small></label>
                   <div class="input-group input-group-sm">
-                    <input type="text" id="zk-server-url" class="form-control form-control-sm font-weight-bold" readonly
-                      value="https://swciybuhetkfrtpyjvgb.supabase.co/functions/v1/zkteco-adms">
+                    <input type="text" id="zk-server-url" class="form-control form-control-sm font-weight-bold" readonly value="">
                     <div class="input-group-append">
                       <button class="btn btn-outline-secondary btn-sm" onclick="copyZKUrl()"><i class="fas fa-copy"></i></button>
                     </div>
@@ -1420,7 +1402,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                     Asegurate de que el PIN configurado en el reloj coincida con la cédula registrada en el empleado.
                   </div>
                 </div>
-                <button class="btn btn-outline-success btn-sm btn-block" onclick="testZKConnection()"><i class="fas fa-plug mr-1"></i>Probar conexión Edge Function</button>
+                <button class="btn btn-outline-success btn-sm btn-block" id="zk-test-btn" onclick="testZKConnection()"><i class="fas fa-plug mr-1"></i>Probar conexión con el servidor</button>
               </div>
             </div>
 
@@ -1451,16 +1433,20 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
             </div>
 
             <div class="card mt-3">
-              <div class="card-header bg-dark"><h3 class="card-title text-white text-sm"><i class="fas fa-code mr-1"></i>Despliegue de la Edge Function</h3></div>
+              <div class="card-header"><h3 class="card-title"><i class="fas fa-inbox mr-1"></i>Relojes sin asignar</h3></div>
+              <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                  <thead class="thead-light"><tr><th>Número de Serie</th><th>Último contacto</th><th>Firmware</th><th></th></tr></thead>
+                  <tbody id="zk-unclaimed-tbody"><tr><td colspan="4" class="text-center text-muted p-3">Sin relojes pendientes de asignar</td></tr></tbody>
+                </table>
+              </div>
+              <div class="card-footer small text-muted">Un reloj nuevo se registra solo al contactar el servidor. Reclamarlo lo asigna a tu empresa.</div>
+            </div>
+
+            <div class="card mt-3">
+              <div class="card-header bg-dark"><h3 class="card-title text-white text-sm"><i class="fas fa-server mr-1"></i>Recepción de marcadas</h3></div>
               <div class="card-body small">
-                <ol class="mb-1">
-                  <li>Ir a <a href="https://supabase.com/dashboard/project/swciybuhetkfrtpyjvgb/functions" target="_blank">Supabase → Edge Functions</a></li>
-                  <li>Crear nueva función: <strong>zkteco-adms</strong></li>
-                  <li>Pegar el contenido de <code>supabase/functions/zkteco-adms/index.ts</code></li>
-                  <li>Hacer clic en <strong>Deploy</strong></li>
-                  <li>Ejecutar el SQL de <code>zkteco_tables.sql</code> en el SQL Editor</li>
-                </ol>
-                <div class="alert alert-secondary py-1 mb-0"><small>La función ya está en el repo: <code>supabase/functions/zkteco-adms/index.ts</code></small></div>
+                Los relojes envían las marcadas al servidor de la aplicación (ruta <code>/iclock/</code>, protocolo ADMS). La recepción se activa en la puesta en marcha del servidor; los detalles del protocolo y el puerto son provisionales hasta probarlos con un reloj real. Ver <code>backend/README.md</code>.
               </div>
             </div>
           </div>
@@ -1473,7 +1459,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
 </div><!-- content-wrapper -->
 <footer class="main-footer">
   <div class="float-right d-none d-sm-block"><b>Versión Final</b> · Todas las fases completadas</div>
-  <strong>HR Admin Panel</strong> &copy; 2025 · AdminLTE + Supabase · Panamá
+  <strong>HR Admin Panel</strong> &copy; 2025 · AdminLTE · Panamá
 </footer>
 </div><!-- wrapper -->
 
@@ -1607,6 +1593,25 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
 </div></div></div>
 
+<!-- MODAL: Calificar inscripción -->
+<div class="modal fade" id="gradeModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-star mr-2"></i>Calificar inscripción</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="gr-id">
+    <p class="text-muted small mb-2" id="gr-who"></p>
+    <div class="form-row">
+      <div class="col form-group"><label>Estado</label><select id="gr-status" class="form-control form-control-sm"><option value="programado">Programado</option><option value="en_progreso">En progreso</option><option value="completado">Completado</option></select></div>
+      <div class="col form-group"><label>Nota (0-100)</label><input type="number" id="gr-score" class="form-control form-control-sm" min="0" max="100" step="0.01" placeholder="Sin nota"></div>
+    </div>
+    <div class="form-group"><label>Notas</label><textarea id="gr-notes" class="form-control form-control-sm" rows="2"></textarea></div>
+    <small class="text-muted">El certificado aparece cuando la inscripción está completada y tiene nota.</small>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-primary btn-sm" onclick="saveGrade()"><i class="fas fa-save mr-1"></i>Guardar</button>
+  </div>
+</div></div></div>
+
 <!-- MODAL: Comunicado -->
 <div class="modal fade" id="announcementModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
   <div class="modal-header"><h5 class="modal-title"><i class="fas fa-bullhorn mr-2"></i>Nuevo Comunicado</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
@@ -1652,7 +1657,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-primary btn-sm" onclick="saveJob()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" class="btn btn-primary btn-sm" id="rj-save" onclick="saveJob()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1674,7 +1679,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-success btn-sm" onclick="saveCandidate()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" class="btn btn-success btn-sm" id="rc-save" onclick="saveCandidate()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1693,7 +1698,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-info btn-sm" onclick="saveApplication()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" class="btn btn-info btn-sm" id="ra-save" onclick="saveApplication()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
 </div></div></div>
 
@@ -1732,12 +1737,25 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
     <div class="form-group"><label>Nombre</label><input type="text" id="um-name" class="form-control form-control-sm"></div>
     <div class="form-group"><label>Email</label><input type="email" id="um-email" class="form-control form-control-sm"></div>
     <div class="form-group"><label>Rol</label><select id="um-role" class="form-control form-control-sm"><option value="admin">Admin</option><option value="rrhh">RRHH</option><option value="supervisor">Supervisor</option><option value="empleado">Empleado</option></select></div>
-    <div class="alert alert-info small"><i class="fas fa-info-circle mr-1"></i>En producción con Supabase se enviará invitación por email.</div>
+    <div class="alert alert-info small"><i class="fas fa-info-circle mr-1"></i>Al crear un usuario se genera una contraseña temporal que se muestra una sola vez; entrégala de forma segura.</div>
   </div>
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
-    <button type="button" class="btn btn-primary btn-sm" onclick="saveUser()"><i class="fas fa-save mr-1"></i>Guardar</button>
+    <button type="button" id="um-save" class="btn btn-primary btn-sm" onclick="saveUser()"><i class="fas fa-save mr-1"></i>Guardar</button>
   </div>
+</div></div></div>
+
+<div class="modal fade" id="userTempPwModal" tabindex="-1" data-backdrop="static" data-keyboard="false"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-key mr-2"></i>Contraseña temporal</h5></div>
+  <div class="modal-body">
+    <p class="small mb-2">Usuario creado: <strong id="utp-email"></strong></p>
+    <div class="input-group input-group-sm mb-2">
+      <input type="text" id="utp-pass" class="form-control" readonly autocomplete="off">
+      <div class="input-group-append"><button type="button" class="btn btn-outline-secondary" onclick="copyTempPassword()"><i class="fas fa-copy mr-1"></i>Copiar</button></div>
+    </div>
+    <div class="alert alert-warning small mb-0"><i class="fas fa-exclamation-triangle mr-1"></i>Se muestra una sola vez. Al cerrar esta ventana no se podrá volver a ver.</div>
+  </div>
+  <div class="modal-footer"><button type="button" class="btn btn-primary btn-sm" data-dismiss="modal">Cerrar</button></div>
 </div></div></div>
 
 <div class="modal fade" id="rolePermsModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
@@ -1762,19 +1780,6 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   <div class="modal-footer">
     <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
     <button type="button" class="btn btn-success btn-sm" id="csv-confirm-btn" onclick="confirmImport()"><i class="fas fa-file-import mr-1"></i>Importar</button>
-  </div>
-</div></div></div>
-
-<div class="modal fade" id="sqlModal" tabindex="-1"><div class="modal-dialog modal-xl"><div class="modal-content">
-  <div class="modal-header bg-dark text-white"><h5 class="modal-title"><i class="fas fa-code mr-2"></i>SQL Schema — Supabase (PostgreSQL)</h5><button type="button" class="close text-white" data-dismiss="modal"><span>×</span></button></div>
-  <div class="modal-body p-0">
-    <div class="alert alert-info m-3 mb-0 py-2 small"><i class="fas fa-info-circle mr-1"></i>Ejecuta este SQL en <strong>Supabase → SQL Editor</strong> para crear todas las tablas.</div>
-    <pre id="sql-schema-pre" style="background:#1e1e1e;color:#d4d4d4;padding:20px;margin:12px;border-radius:8px;font-size:.72rem;max-height:500px;overflow-y:auto;white-space:pre"></pre>
-  </div>
-  <div class="modal-footer">
-    <button type="button" class="btn btn-success btn-sm" onclick="copySQLSchema()"><i class="fas fa-copy mr-1"></i>Copiar SQL</button>
-    <button type="button" class="btn btn-primary btn-sm" onclick="downloadSQLSchema()"><i class="fas fa-download mr-1"></i>Descargar .sql</button>
-    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cerrar</button>
   </div>
 </div></div></div>
 
@@ -1899,8 +1904,15 @@ var A = {
 };
 
 // ════════════════ DEMO DATA ══════════════════════════════════
-var TD = new Date(), TS = TD.toISOString().split('T')[0];
-function fy(d){ var r=new Date(TD); r.setDate(r.getDate()+d); return r.toISOString().split('T')[0]; }
+// "Today" is the Panama date (UTC-5, no DST; the zone the backend scheduler
+// uses), not the UTC date: from 19:00 in Panama the UTC date is already tomorrow.
+function panamaDate(d) {
+  var p={};
+  new Intl.DateTimeFormat('en-US',{timeZone:'America/Panama',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(d).forEach(function(x){ p[x.type]=x.value; });
+  return p.year+'-'+p.month+'-'+p.day;
+}
+var TD = new Date(), TS = panamaDate(TD);
+function fy(d){ return panamaDate(new Date(TD.getTime()+d*86400000)); }
 var DS = {
   companies:[{id:'co1',name:'Empresa Demo S.A.'}],
   users:[{id:'u1',email:'admin@demo.com',company_id:'co1',role:'admin',first_name:'Admin',last_name:'Demo',status:'active'}],
@@ -1976,27 +1988,19 @@ var VARS = {
   '{{SALARIO_HORA}}': function(e){ return ((e.salary||0) / ((e.weekly_hours||44)*52/12)).toFixed(2); }
 };
 
-// ════════════════ RRHH-GO ROUTING ═════════════════════════════
-// Phase-by-phase cutover from Supabase to the Go backend: a table is moved
-// to Go by adding its name to GO_TABLES, one phase at a time. No dual-write.
-// localStorage['hr_go_tables'] instantly reverts any subset to Supabase
-// with no code revert (see sdd/rrhh-go-table-migration/phase1-design P7).
-var GO_TABLES = ['departments', 'positions', 'branches', 'roles', 'employees', 'attendance_logs', 'leave_balances', 'leave_requests', 'overtime_logs', 'deductions', 'employee_pay_records', 'payroll_history', 'liquidation_history', 'document_templates', 'generated_documents', 'medical_records', 'evaluations', 'uniforms'];
-var A_goUrl = ''; // '' => /api/... on the current origin (nginx proxies /api/)
-try {
-  var _goOv = localStorage.getItem('hr_go_tables');
-  if (_goOv !== null) GO_TABLES = _goOv ? _goOv.split(',').map(function(s){ return s.trim(); }) : [];
-  A_goUrl = localStorage.getItem('hr_go_url') || '';
-} catch(e) {}
+// ════════════════ RRHH-GO BASE URL ════════════════════════════
+// Every table lives on the Go backend. '' => /api/... on the current origin
+// (nginx proxies /api/). localStorage['hr_go_url'] is a dev-only override that
+// points the page at another backend, e.g. http://localhost:8080.
+var A_goUrl = '';
+try { A_goUrl = localStorage.getItem('hr_go_url') || ''; } catch(e) {}
 
-// ════════════════ SUPABASE CLIENT ════════════════════════════
+// ════════════════ API CLIENT ═════════════════════════════════
+// The facade keeps the name `Supa` (many call sites); it talks to Go only.
 var Supa = {
   goUrl: A_goUrl,
-  goTables: GO_TABLES.reduce(function(m,t){ m[t]=true; return m; }, {}),
 
-  route: function(tbl){ return this.goTables[tbl] ? 'go' : 'supa'; },
-
-  // No apikey header on the Go path — Go authenticates on the Bearer JWT alone.
+  // Go authenticates on the Bearer JWT alone.
   ghdr: function() {
     var h = {'Content-Type':'application/json'};
     if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
@@ -2013,11 +2017,14 @@ var Supa = {
 
   // Normalizes the Go A2 envelope ({"error":{"code","message"}}) into the
   // {error:{message}} shape the existing call sites already read (e.g.
-  // saveEmp's `res.error.message`). Also tolerates a raw PostgREST-shaped
-  // error body ({code,message}, no `.error` key) so the same `r && r.error`
-  // call-site guard still catches it if this path is ever reused against a
-  // Supabase-shaped error response.
+  // saveEmp's `res.error.message`). Also tolerates a bare {code,message} body
+  // (no `.error` key) so the same `r && r.error` call-site guard still
+  // catches it.
   gres: async function(r) {
+    // A 401 on an authenticated Go call means the token is no longer accepted
+    // (expired, signed with another secret, user removed). Public auth calls
+    // never come through here, so a wrong password is not an expiry.
+    if (r.status === 401 && !A.demo && A.session) this.onUnauthorized();
     if (r.status === 204) return [];
     var body = await r.json().catch(function(){ return null; });
     if (!r.ok) {
@@ -2028,19 +2035,64 @@ var Supa = {
     return body;
   },
 
-  hdr: function() {
-    var h = {'Content-Type':'application/json', apikey:A.key};
-    if (A.session && A.session.access_token) h['Authorization'] = 'Bearer ' + A.session.access_token;
-    return h;
+  // ── Go auth (AUTH-1, AUTH-6, AUTH-9) ─────────────────────────────────────
+  // sessionExpired makes onUnauthorized re-entrancy safe: several requests in
+  // flight can all come back 401, but the user sees one toast and one reset.
+  // startSession re-arms it for the next session.
+  sessionExpired: false,
+  authFields: {company_name:'empresa', first_name:'nombre', last_name:'apellido', email:'correo', password:'contraseña'},
+
+  onUnauthorized: function() {
+    if (this.sessionExpired) return;
+    this.sessionExpired = true;
+    clearSession();
+    showV('login');
+    toast('Sesión expirada', 'warning');
   },
+
+  // Spanish text for a Go auth error. Server messages are English and never
+  // shown; only the code and the field names (a closed set) pick the wording.
+  authErrMsg: function(err, retryAfter, fallback) {
+    var self = this;
+    if (err.code === 'unauthorized') return 'Credenciales inválidas';
+    if (err.code === 'rate_limited') {
+      var n = parseInt(retryAfter, 10);
+      return n > 0 ? 'Demasiados intentos, intenta en ' + n + ' s' : 'Demasiados intentos, intenta más tarde';
+    }
+    if (err.code === 'conflict') return 'Ya existe una cuenta con ese correo';
+    if (err.code === 'validation_failed') {
+      var f = Object.keys(err.fields || {}).map(function(k){ return self.authFields[k]; }).filter(Boolean);
+      return f.length ? 'Datos inválidos: revisa ' + f.join(', ') : 'Datos inválidos';
+    }
+    return fallback;
+  },
+
+  // POST to a public Go auth endpoint. Parsed here, NOT through gres, so its
+  // 401 never reaches the session-expiry hook. Always resolves to either the
+  // session payload or {error:{code,message}} (message already in Spanish).
+  authCall: async function(path, payload, fallback) {
+    var r;
+    try {
+      r = await fetch(this.goUrl + path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+    } catch (e) {
+      return {error:{code:'network', message:'No se pudo conectar con el servidor'}};
+    }
+    var body = await r.json().catch(function(){ return null; });
+    if (r.ok) return body && body.access_token ? body : {error:{code:'bad_response', message:'Respuesta inválida del servidor'}};
+    var err = (body && body.error) || {};
+    return {error:{code:err.code || 'internal', message:this.authErrMsg(err, r.headers.get('Retry-After'), fallback)}};
+  },
+
   signIn: async function(em, pw) {
     if (A.demo) {
       var u = DS.users.find(function(x){ return x.email === em; });
       if (!u || pw.length < 4) return {error:{message:'Credenciales inválidas'}};
-      return {access_token:'demo-'+Date.now(), user:{id:u.id, email:u.email, user_metadata:Object.assign({},u)}};
+      // Mirrors the Go login payload, which carries company_name at the top level.
+      var co = DS.companies.find(function(c){ return c.id === u.company_id; });
+      return {access_token:'demo-'+Date.now(), company_name:co ? co.name : undefined,
+              user:{id:u.id, email:u.email, user_metadata:Object.assign({},u)}};
     }
-    var r = await fetch(A.url+'/auth/v1/token?grant_type=password',{method:'POST',headers:{'Content-Type':'application/json',apikey:A.key},body:JSON.stringify({email:em,password:pw})});
-    return r.json();
+    return this.authCall('/api/auth/login', {email:em, password:pw}, 'No se pudo iniciar sesión');
   },
   signUp: async function(em, pw, meta) {
     if (A.demo) {
@@ -2050,34 +2102,44 @@ var Supa = {
       DS.users.push(u);
       return {access_token:'demo-jwt', user:{id:u.id, email:em, user_metadata:u}};
     }
-    var r = await fetch(A.url+'/auth/v1/signup',{method:'POST',headers:{'Content-Type':'application/json',apikey:A.key},body:JSON.stringify({email:em,password:pw,data:meta})});
-    return r.json();
+    // Only the fields the Go endpoint accepts: it rejects unknown keys, and
+    // the company id and the admin role are always assigned server-side.
+    return this.authCall('/api/auth/register',
+      {company_name:meta.company_name, first_name:meta.first_name, last_name:meta.last_name, email:em, password:pw},
+      'No se pudo crear la empresa');
   },
+  // Best-effort server-side logout: the server bumps the user's token version,
+  // which invalidates every token of this user. It is NOT routed through gres
+  // (a 401 here must not start the "Sesión expirada" flow) and never throws or
+  // toasts: the caller clears the local session whatever happens. Demo mode
+  // and a missing session make no request.
   signOut: async function() {
-    if (!A.demo && A.session && A.session.access_token)
-      await fetch(A.url+'/auth/v1/logout',{method:'POST',headers:this.hdr()}).catch(function(){});
+    if (A.demo || !A.session) return;
+    try {
+      await fetch(this.goUrl + '/api/auth/logout', {method:'POST', headers:this.ghdr(), keepalive:true});
+    } catch (e) { /* offline or server down: the local sign-out still happens */ }
   },
   sel: async function(tbl, flt) {
     flt = flt || {};
     if (A.demo) {
       var rows = (DS[tbl]||[]).filter(function(r){ return r.company_id === A.companyId; });
-      Object.keys(flt).forEach(function(k){ rows = rows.filter(function(r){ return r[k] === flt[k]; }); });
+      // date_from/date_to are an inclusive range on r.date, as in the API; every other key is an exact match
+      Object.keys(flt).forEach(function(k){ rows = rows.filter(function(r){
+        if (k === 'date_from') return String(r.date||'') >= flt[k];
+        if (k === 'date_to') return String(r.date||'') <= flt[k];
+        return r[k] === flt[k];
+      }); });
       return rows;
     }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl+this.gq(flt), {headers:this.ghdr()}));
-    var url = A.url+'/rest/v1/'+tbl+'?select=*&company_id=eq.'+A.companyId;
-    Object.keys(flt).forEach(function(k){ url += '&'+k+'=eq.'+flt[k]; });
-    var r = await fetch(url, {headers:this.hdr()});
-    return r.json();
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl+this.gq(flt), {headers:this.ghdr()}));
   },
   // Whole-list read for screens that compute stats/inventory over every row.
-  // A4's default page (200 rows) would silently truncate a bare `sel`. On the
-  // Go route, page _limit=1000&_offset= until a short page; on demo/supa
-  // routes delegate to `sel` WITHOUT _limit/_offset (demo `sel` filters rows by
-  // strict equality on every flt key, so a _limit key would drop every row).
+  // A4's default page (200 rows) would silently truncate a bare `sel`. In real
+  // mode, page _limit=1000&_offset= until a short page; in demo mode delegate
+  // to `sel` WITHOUT _limit/_offset (demo `sel` filters rows by strict
+  // equality on every flt key, so a _limit key would drop every row).
   selAll: async function(tbl, flt) {
-    if (A.demo || this.route(tbl) !== 'go') return this.sel(tbl, flt);
+    if (A.demo) return this.sel(tbl, flt);
     var all = [], offset = 0, pageSize = 1000;
     while (true) {
       var q = Object.assign({}, flt || {}, {_limit:pageSize, _offset:offset});
@@ -2096,11 +2158,8 @@ var Supa = {
       DS[tbl].push(row);
       return [row];
     }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl,
-        {method:'POST', headers:this.ghdr(), body:JSON.stringify(data)})); // company_id is NOT injected — the Go handler binds it from the JWT
-    var r = await fetch(A.url+'/rest/v1/'+tbl,{method:'POST',headers:Object.assign({'Prefer':'return=representation'},this.hdr()),body:JSON.stringify(Object.assign({company_id:A.companyId},data))});
-    return r.json();
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl,
+      {method:'POST', headers:this.ghdr(), body:JSON.stringify(data)})); // company_id is NOT injected — the Go handler binds it from the JWT
   },
   upd: async function(tbl, id, data) {
     if (A.demo) {
@@ -2108,17 +2167,12 @@ var Supa = {
       if (idx > -1) DS[tbl][idx] = Object.assign({}, DS[tbl][idx], data);
       return [DS[tbl] ? DS[tbl][idx] : null];
     }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id,
-        {method:'PATCH', headers:this.ghdr(), body:JSON.stringify(data)}));
-    var r = await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'PATCH',headers:Object.assign({'Prefer':'return=representation'},this.hdr()),body:JSON.stringify(data)});
-    return r.json();
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id,
+      {method:'PATCH', headers:this.ghdr(), body:JSON.stringify(data)}));
   },
   del: async function(tbl, id) {
     if (A.demo) { if (DS[tbl]) DS[tbl] = DS[tbl].filter(function(r){ return r.id !== id; }); return; }
-    if (this.route(tbl) === 'go')
-      return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id, {method:'DELETE', headers:this.ghdr()}));
-    await fetch(A.url+'/rest/v1/'+tbl+'?id=eq.'+id,{method:'DELETE',headers:this.hdr()});
+    return this.gres(await fetch(this.goUrl+'/api/'+tbl+'/'+id, {method:'DELETE', headers:this.ghdr()}));
   },
   // Direct fetch against a literal Go path that isn't a plain table CRUD
   // route (e.g. /payroll_history/calculate, /liquidation_history/calculate,
@@ -2161,6 +2215,15 @@ function hwCalc(ti, to) {
   return Math.max(0,((p2[0]*60+p2[1])-(p1[0]*60+p1[1]))/60).toFixed(1);
 }
 function togglePwd(id){ var e=document.getElementById(id); if(e) e.type = e.type==='password'?'text':'password'; }
+// One CSV cell: null as empty, inner quotes doubled, and text that a spreadsheet
+// would run as a formula (= + - @ tab CR first) prefixed with ' so it opens as
+// text. Numbers are left alone, so a negative amount stays a number.
+function csvCell(x) {
+  var s=String(x!=null?x:'');
+  if(typeof x==='string'&&s&&'=+-@\t\r'.indexOf(s.charAt(0))>=0) s="'"+s;
+  return '"'+s.split('"').join('""')+'"';
+}
+function csvText(rows) { return rows.map(function(r){ return r.map(csvCell).join(','); }).join('\n'); }
 function downCSV(csv, name) {
   var a=document.createElement('a');
   a.href=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
@@ -2221,7 +2284,7 @@ var MENU_MAP = {
   'recruitment':   'm-recruitment'
 };
 function showV(vv) {
-  ['setup','login','register','app'].forEach(function(x){ var e=document.getElementById('v-'+x); if(e) e.style.display='none'; });
+  ['login','register','app'].forEach(function(x){ var e=document.getElementById('v-'+x); if(e) e.style.display='none'; });
   var t=document.getElementById('v-'+vv); if(t) t.style.display='';
   document.body.className='hold-transition';
   if(vv==='login'||vv==='register') document.body.classList.add('login-page');
@@ -2275,7 +2338,7 @@ function go(pg) {
     'notifications': loadNotifications,
     'settings': function(){
       var u = document.getElementById('st-url');
-      if(u) u.textContent = A.demo ? 'Modo Demo activo' : A.url;
+      if(u) u.textContent = A.demo ? 'Modo Demo activo' : 'Servidor: este sitio';
       var n = document.getElementById('st-coname');
       if(n) n.value = A.companyName;
     }
@@ -2293,15 +2356,8 @@ async function doLogin() {
   var res=await Supa.signIn(em,pw);
   btn.innerHTML='Entrar'; btn.disabled=false;
   if(res.error||!res.access_token){ errEl.textContent=res.error?res.error.message:'Error'; errEl.classList.remove('d-none'); return; }
-  A.session=res;
-  var meta=res.user&&res.user.user_metadata ? res.user.user_metadata : {};
-  A.role=meta.role||'admin'; A.companyId=meta.company_id||'co1';
-  var cos=await Supa.sel('companies',{id:A.companyId});
-  A.companyName=(Array.isArray(cos)&&cos[0]?cos[0].name:null)||meta.company_name||'Mi Empresa';
-  var uMeta={role:A.role,companyId:A.companyId,companyName:A.companyName,email:em,name:((meta.first_name||'')+' '+(meta.last_name||'')).trim()};
-  try{localStorage.setItem('hr_sess',JSON.stringify(A.session)); localStorage.setItem('hr_meta',JSON.stringify(uMeta));}catch(e){}
-  loadUI(uMeta); showV('app'); go('dashboard'); toast('¡Bienvenido! 👋');
-  loadRolePerms(); setTimeout(loadNotifications,1500);
+  startSession(res,em);
+  toast('¡Bienvenido! 👋');
 }
 
 async function doReg() {
@@ -2313,25 +2369,94 @@ async function doReg() {
   if(pw!==c2){ errEl.textContent='Contraseñas no coinciden'; errEl.classList.remove('d-none'); return; }
   if(pw.length<8){ errEl.textContent='Mínimo 8 caracteres'; errEl.classList.remove('d-none'); return; }
   btn.innerHTML='<i class="fas fa-spinner fa-spin"></i>'; btn.disabled=true;
-  var cId=crypto.randomUUID();
-  var res=await Supa.signUp(em,pw,{first_name:fn,last_name:gv('rg-ln'),company_id:cId,company_name:co,role:'admin'});
+  // company_id is generated for the demo adapter only; Go assigns its own.
+  var res=await Supa.signUp(em,pw,{first_name:fn,last_name:gv('rg-ln'),company_id:crypto.randomUUID(),company_name:co,role:'admin'});
   btn.innerHTML='Crear empresa'; btn.disabled=false;
   if(res.error){ errEl.textContent=res.error.message; errEl.classList.remove('d-none'); return; }
-  var tmpKey=A.key, tmpUrl=A.url;
-  A.companyId=cId;
-  await fetch(tmpUrl+'/rest/v1/companies',{method:'POST',headers:{'Content-Type':'application/json','apikey':tmpKey,'Authorization':'Bearer '+(res.access_token||''),'Prefer':'return=minimal'},body:JSON.stringify({id:cId,name:co})});
-  toast('¡Empresa creada! Inicia sesión.'); showV('login');
+  if(A.demo){ toast('¡Empresa creada! Inicia sesión.'); showV('login'); return; }
+  startSession(res,em); // register answers with a login payload: no second login step
+  toast('¡Empresa creada! 👋');
 }
 
 async function doLogout() {
-  await Supa.signOut(); A.session=null;
+  // Fire and forget: the request (headers already built from the live token)
+  // must not delay or block the local sign-out.
+  Supa.signOut();
+  clearSession();
+  showV('login'); toast('Sesión cerrada','info');
+}
+
+// True when a JWT is unusable as a session: not three segments, a payload that
+// does not decode to JSON, no numeric exp, or exp already reached. The browser
+// only reads the claims to decide whether to show login; the server still
+// verifies the signature on every call.
+function tokenExpired(token) {
+  try {
+    var parts=String(token).split('.');
+    if(parts.length!==3) return true;
+    var b64=parts[1].replace(/-/g,'+').replace(/_/g,'/');
+    while(b64.length%4) b64+='=';
+    var exp=JSON.parse(atob(b64)).exp;
+    if(typeof exp!=='number'||!isFinite(exp)) return true;
+    return exp*1000<=Date.now();
+  } catch(e) { return true; }
+}
+
+// Shared by doLogin and doReg (register auto-logs in): keeps the session the
+// server issued, remembers it across reloads and opens the app.
+function startSession(res, email) {
+  Supa.sessionExpired=false; // a new session can expire again
+  A.session=res;
+  var meta=res.user&&res.user.user_metadata ? res.user.user_metadata : {};
+  A.role=meta.role||'admin'; A.companyId=meta.company_id||'co1';
+  A.companyName=res.company_name||meta.company_name||'Mi Empresa';
+  var uMeta={role:A.role,companyId:A.companyId,companyName:A.companyName,email:email,name:((meta.first_name||'')+' '+(meta.last_name||'')).trim()};
+  try{localStorage.setItem('hr_sess',JSON.stringify(A.session)); localStorage.setItem('hr_meta',JSON.stringify(uMeta));}catch(e){}
+  loadUI(uMeta); showV('app'); enterApp();
+}
+
+// Opens the app after login/register/restore. Admin keeps the immediate flow;
+// any other role waits for its permissions (fail-closed) and lands on the first
+// page it may see instead of a denied dashboard.
+async function enterApp() {
+  if(A.role==='admin'){ go('dashboard'); loadRolePerms(); }
+  else{
+    await loadRolePerms();
+    if(!A.session) return; // logged out while the roles request was in flight
+    var first=Object.keys(PAGE_PERM_MAP).find(isPageAllowed);
+    if(first) go(first);
+    else toast('Tu rol no tiene módulos asignados. Contactá al administrador.','warning');
+  }
+  setTimeout(loadNotifications,1500);
+}
+
+// Shared by doLogout and the 401 hook: drops everything tied to the session.
+// It never shows a view or a toast; the caller decides what the user sees.
+function clearSession() {
+  A.session=null; A.perms=null; stopZKPolling();
   try{localStorage.removeItem('hr_sess'); localStorage.removeItem('hr_meta');}catch(e){}
   ['employees','departments','positions','attendance_logs','leave_balances','leave_requests',
    'overtime_logs','deductions','payroll_history','liquidation_history','document_templates',
    'generated_documents','evaluations','uniforms','medical_records','surveys','survey_responses',
-   'trainings','enrollments','announcements','job_postings','candidates','applications'
+   'trainings','enrollments','trainingEmployees','announcements','job_postings','candidates','applications'
   ].forEach(function(k){ DS[k]=[]; });
-  showV('login'); toast('Sesión cerrada','info');
+}
+
+// The login view shows "Modo Demo" in real mode and "Salir del modo demo" in demo mode.
+function syncDemoUI() {
+  var enter=document.getElementById('btn-demo-enter'), exit=document.getElementById('btn-demo-exit');
+  if(enter) enter.classList.toggle('d-none', !!A.demo);
+  if(exit) exit.classList.toggle('d-none', !A.demo);
+}
+function demoMode() {
+  A.demo=true; A.companyId='co1';
+  try{localStorage.setItem('hr_demo','1');}catch(e){}
+  syncDemoUI(); toast('Modo Demo activado','info'); showV('login');
+}
+function exitDemo() {
+  A.demo=false; A.companyId='';
+  try{localStorage.removeItem('hr_demo');}catch(e){}
+  syncDemoUI(); toast('Modo Demo desactivado','info'); showV('login');
 }
 
 function loadUI(meta) {
@@ -2367,17 +2492,20 @@ var SIDEBAR_PERM_MAP=[
   ['m-announcements','documents',  null],
   ['m-settings',    'settings',    null]
 ];
+// Mirrors the server: admin is never restricted; every other role is
+// fail-closed (a missing key, roles row or failed fetch means denied).
+function permOk(pval,subKey){
+  if(pval===undefined||pval===null) return false;
+  if(subKey&&typeof pval==='object') return !!pval[subKey];
+  if(typeof pval==='object') return Object.keys(pval).some(function(k){return !!pval[k];});
+  return !!pval;
+}
 function applyPermissions(perms){
-  if(!perms) return;
+  perms=perms||{};
   document.querySelectorAll('.nav-sidebar .nav-item, .nav-sidebar .nav-header').forEach(function(el){ el.style.display=''; });
   SIDEBAR_PERM_MAP.forEach(function(entry){
     var menuId=entry[0], permKey=entry[1], subKey=entry[2];
-    var pval=perms[permKey];
-    var allowed;
-    if(pval===undefined||pval===null){ allowed=true; }
-    else if(subKey&&typeof pval==='object'){ allowed=!!pval[subKey]; }
-    else if(typeof pval==='object'){ allowed=Object.keys(pval).some(function(k){return !!pval[k];}); }
-    else{ allowed=!!pval; }
+    var allowed=A.role==='admin'||permOk(perms[permKey],subKey);
     var el=document.getElementById(menuId);
     if(el&&el.parentElement) el.parentElement.style.display=allowed?'':'none';
   });
@@ -2398,33 +2526,19 @@ var PAGE_PERM_MAP={
   'recruitment':'recruitment','settings':'settings'
 };
 function isPageAllowed(pg){
-  if(!A.perms) return true;
+  if(A.role==='admin') return true;
   var entry=PAGE_PERM_MAP[pg]; if(!entry) return true;
   var permKey=Array.isArray(entry)?entry[0]:entry;
   var subKey=Array.isArray(entry)?entry[1]:null;
-  var pval=A.perms[permKey];
-  if(pval===undefined||pval===null) return true;
-  if(subKey&&typeof pval==='object') return !!pval[subKey];
-  if(typeof pval==='object') return Object.keys(pval).some(function(k){return !!pval[k];});
-  return !!pval;
+  return permOk((A.perms||{})[permKey],subKey);
 }
 async function loadRolePerms(){
-  var roles=await Supa.sel('roles'); if(!Array.isArray(roles)) return;
-  var role=roles.find(function(r){ return r.name===A.role; });
-  if(role&&role.permissions){ A.perms=role.permissions; applyPermissions(role.permissions); }
-}
-
-function saveConfig() {
-  var url=gv('s-url'), key=gv('s-key');
-  if(!url||!key){ toast('Completa ambos campos','warning'); return; }
-  A.url=url; A.key=key; A.demo=false;
-  try{localStorage.setItem('hr_url',url); localStorage.setItem('hr_key',key); localStorage.removeItem('hr_demo');}catch(e){}
-  toast('¡Configuración guardada!'); showV('login');
-}
-function demoMode() {
-  A.demo=true; A.url='demo'; A.key='demo'; A.companyId='co1';
-  try{localStorage.setItem('hr_demo','1');}catch(e){}
-  toast('Modo Demo activado','info'); showV('login');
+  // A rejected request (network down) is handled like an error answer: no
+  // permissions (fail-closed), so enterApp still ends in a page or a toast
+  var roles; try{ roles=await Supa.sel('roles'); }catch(e){ roles=null; }
+  var role=Array.isArray(roles)&&roles.find(function(r){ return r.name===A.role; });
+  A.perms=role&&role.permissions&&typeof role.permissions==='object' ? role.permissions : {};
+  applyPermissions(A.perms);
 }
 
 // ════════════════ DASHBOARD ══════════════════════════════════
@@ -2651,7 +2765,10 @@ async function showEmpProfile(id) {
   var emps=await Supa.sel('employees');
   var e=Array.isArray(emps)?emps.find(function(x){ return x.id===id; }):null;
   if(!e) return;
-  var bal=DS.leave_balances.find(function(b){ return b.employee_id===id&&b.company_id===A.companyId; });
+  // Leave balances come from the API (DS is empty outside demo mode), summed
+  // over every year like everywhere else (vacTotalsByEmployee)
+  var balRes=await Supa.sel('leave_balances',{employee_id:id});
+  var bal=vacTotalsByEmployee((Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===id; }))[0]||null;
   // Planilla tab estimate, via the server preview endpoint (design R4e) --
   // prCalc was deleted in slice 3h. The preview only covers ACTIVE
   // employees for the current month (ListPayrollRunInputs' WHERE clause),
@@ -2677,7 +2794,7 @@ async function showEmpProfile(id) {
     +'<div class="col-6 mt-2"><small class="text-muted d-block">Ingreso</small><strong>'+escHtml(e.start_date||'—')+'</strong></div>'
     +'<div class="col-6 mt-2"><small class="text-muted d-block">Antigüedad</small><strong>'+seniStr(e.start_date)+'</strong></div>'
     +'<div class="col-12 mt-2"><small class="text-muted d-block">Vacaciones saldo</small>'
-    +(bal?'<strong>'+bal.remaining_days+' días de '+bal.earned_days+' ganados</strong><div class="progress mt-1" style="height:5px"><div class="progress-bar bg-success" style="width:'+Math.round(bal.remaining_days/bal.earned_days*100)+'%"></div></div>':'<strong>Sin registro</strong>')
+    +(bal?'<strong>'+bal.remaining_days+' días de '+bal.earned_days+' ganados</strong><div class="progress mt-1" style="height:5px"><div class="progress-bar bg-success" style="width:'+(bal.earned_days>0?Math.round(bal.remaining_days/bal.earned_days*100):0)+'%"></div></div>':'<strong>Sin registro</strong>')
     +'</div></div></div>'
     +'<div class="tab-pane fade" id="mp-plan"><table class="table table-sm mb-0">'
     +'<tr><td>Salario Bruto</td><td class="text-right"><strong>'+fmt(pr.b)+'</strong></td></tr>'
@@ -2778,14 +2895,22 @@ async function saveAttendance() {
   var date=gv('att-date'); if(!date){toast('Selecciona fecha','warning');return;}
   var ae=document.getElementById('att-emp'), sel=ae&&ae.options[ae.selectedIndex];
   var name=sel?sel.getAttribute('data-name'):'—', dept=sel?sel.getAttribute('data-dept'):'—';
-  var existing=DS.attendance_logs.find(function(l){ return l.employee_id===empId&&l.date===date&&l.company_id===A.companyId; });
+  // Ask the API (DS is empty outside demo mode) whether this employee already
+  // has a log that day, so the save updates it and says so
+  var found=await Supa.sel('attendance_logs',{employee_id:empId,date:date});
+  var existing=(Array.isArray(found)?found:[]).find(function(l){ return l.employee_id===empId&&l.date===date; });
   var wt=parseInt(gv('att-wtype'))||null;
   var data={employee_id:empId,employee_name:name,department:dept,date:date,time_in:gv('att-in'),time_out:gv('att-out'),status:gv('att-st')||'present',work_type:wt,notes:gv('att-note')};
-  if(existing){ await Supa.upd('attendance_logs',existing.id,data); toast('✅ Registro actualizado'); }
-  else { await Supa.ins('attendance_logs',data); toast('✅ Asistencia registrada'); }
+  var r=existing?await Supa.upd('attendance_logs',existing.id,data):await Supa.ins('attendance_logs',data);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la asistencia'),'danger'); return; }
+  toast(existing?'✅ Registro actualizado':'✅ Asistencia registrada');
   loadAttendance();
 }
-async function delAtt(id) { await Supa.del('attendance_logs',id); toast('Eliminado','info'); loadAttendance(); }
+async function delAtt(id) {
+  var r=await Supa.del('attendance_logs',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar el registro'),'danger'); return; }
+  toast('Eliminado','info'); loadAttendance();
+}
 async function loadAttHistory() {
   var empId=document.getElementById('att-h-emp').value||'', from=gv('att-h-from'), to=gv('att-h-to');
   // Push the filters server-side (employee_id/date_from/date_to) instead of
@@ -2809,19 +2934,45 @@ function initAttRepSelectors() {
   MONTHS.forEach(function(m,i){ var o=document.createElement('option'); o.value=i+1; o.textContent=m; if(i===TD.getMonth()) o.selected=true; ms.appendChild(o); });
   for(var y=TD.getFullYear();y>=TD.getFullYear()-2;y--){ var o=document.createElement('option'); o.value=y; if(y===TD.getFullYear()) o.selected=true; o.textContent=y; ys.appendChild(o); }
 }
-function loadAttReport() {
+// Attendance logs of one month, shared by the monthly report and its export.
+// They come from the API (DS is empty outside demo mode). The month is matched
+// on the "YYYY-MM" text: new Date('YYYY-MM-01') is UTC midnight, which
+// getMonth() in Panama (UTC-5) puts in the previous month.
+async function attMonthLogs(mo, yr) {
+  var ym=yr+'-'+(mo<10?'0':'')+mo, last=new Date(yr,mo,0).getDate();
+  var res=await Supa.selAll('attendance_logs',{date_from:ym+'-01',date_to:ym+'-'+last});
+  if(res&&res.error) return res; // callers show the failure instead of an empty month
+  return (Array.isArray(res)?res:[]).filter(function(l){ return String(l.date||'').slice(0,7)===ym; });
+}
+async function loadAttReport() {
   var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
-  var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; });
+  var logs=await attMonthLogs(mo,yr);
+  if(logs.error){ var rcE=document.getElementById('att-rep-content'); if(rcE) rcE.innerHTML='<div class="col-12"><div class="alert alert-danger py-2 mb-3">'+escHtml(apiErrMsg(logs.error,'No se pudo cargar la asistencia del mes'))+'</div></div>'; return; }
+  var empRes=await Supa.selAll('employees',{status:'active'});
   var byEmp={};
-  DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; }).forEach(function(e){
+  (Array.isArray(empRes)?empRes:[]).filter(function(e){ return e.status==='active'; }).forEach(function(e){
     var el=logs.filter(function(l){ return l.employee_id===e.id; });
     byEmp[e.id]={name:e.first_name+' '+e.last_name,dept:e.department||'—',present:el.filter(function(l){ return l.status==='present'; }).length,late:el.filter(function(l){ return l.status==='late'; }).length,absent:el.filter(function(l){ return l.status==='absent'; }).length,permission:el.filter(function(l){ return l.status==='permission'; }).length};
   });
   var rc=document.getElementById('att-rep-content');
   if(rc) rc.innerHTML='<div class="col-12"><div class="card"><div class="card-header"><h3 class="card-title">Asistencia — '+MONTHS[mo-1]+' '+yr+'</h3></div><div class="card-body p-0"><div class="table-responsive"><table class="table table-sm table-hover mb-0"><thead class="thead-light"><tr><th>Empleado</th><th>Departamento</th><th class="text-success">Presentes</th><th class="text-warning">Tardanzas</th><th class="text-danger">Ausentes</th><th class="text-info">Permisos</th></tr></thead><tbody>'+Object.values(byEmp).map(function(r){ return '<tr><td><strong>'+escHtml(r.name)+'</strong></td><td>'+escHtml(r.dept)+'</td><td class="text-center text-success">'+r.present+'</td><td class="text-center text-warning">'+r.late+'</td><td class="text-center text-danger">'+r.absent+'</td><td class="text-center text-info">'+r.permission+'</td></tr>'; }).join('')+'</tbody></table></div></div></div></div>';
 }
-function exportAttCSV() { var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&l.date===TS; }); var csv=[['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia.csv'); toast('Exportado 📥'); }
-function exportAttReport() { var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear(); var logs=DS.attendance_logs.filter(function(l){ return l.company_id===A.companyId&&new Date(l.date).getMonth()+1===mo&&new Date(l.date).getFullYear()===yr; }); var csv=[['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in||'',l.time_out||'',hwCalc(l.time_in,l.time_out),l.status]; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥'); }
+async function exportAttCSV() {
+  // Today's logs from the API (DS is empty outside demo mode; Supa reads DS itself in demo)
+  var logs=await Supa.selAll('attendance_logs',{date:TS});
+  if(logs&&logs.error){ toast(apiErrMsg(logs.error,'No se pudo exportar'),'danger'); return; }
+  if(!Array.isArray(logs)||!logs.length){ toast('Sin datos','warning'); return; }
+  var csv=csvText([['Empleado','Departamento','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })));
+  downCSV(csv,'asistencia.csv'); toast('Exportado 📥');
+}
+async function exportAttReport() {
+  var mo=parseInt(document.getElementById('att-r-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('att-r-year').value)||TD.getFullYear();
+  var logs=await attMonthLogs(mo,yr);
+  if(logs.error){ toast(apiErrMsg(logs.error,'No se pudo exportar'),'danger'); return; }
+  if(!logs.length){ toast('Sin datos','warning'); return; }
+  var csv=csvText([['Empleado','Dpto','Fecha','Entrada','Salida','Horas','Estado']].concat(logs.map(function(l){ return [l.employee_name,l.department,l.date,l.time_in,l.time_out,hwCalc(l.time_in,l.time_out),l.status]; })));
+  downCSV(csv,'asistencia_'+MONTHS[mo-1]+'_'+yr+'.csv'); toast('Exportado 📥');
+}
 
 async function exportPayDayReloj() {
   var fromStr=document.getElementById('pd-from').value;
@@ -2923,12 +3074,23 @@ async function saveLeaveReq() {
   var s=gv('vn-start'), e=gv('vn-end'); if(!s||!e){toast('Selecciona fechas','warning');return;}
   var emps=await Supa.sel('employees',{id:empId}), emp=Array.isArray(emps)?emps[0]:null;
   var days=parseInt(gv('vn-days'))||0;
-  await Supa.ins('leave_requests',{employee_id:empId,employee_name:emp?emp.first_name+' '+emp.last_name:'—',type:gv('vn-type')||'vacaciones',start_date:s,end_date:e,days:days,status:'pending',notes:gv('vn-notes')});
+  var body={employee_id:empId,employee_name:emp?emp.first_name+' '+emp.last_name:'—',type:gv('vn-type')||'vacaciones',start_date:s,end_date:e,days:days,notes:gv('vn-notes')};
+  // The Go handler rejects unknown fields and creates requests as pending itself; only the local demo store needs the status.
+  if(A.demo) body.status='pending';
+  var r=await Supa.ins('leave_requests',body);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo enviar la solicitud'),'danger'); return; }
   toast('✅ Solicitud enviada'); loadVacations();
 }
-async function approveLeave(id,approve) { await Supa.upd('leave_requests',id,{status:approve?'approved':'rejected'}); toast(approve?'✅ Aprobada':'❌ Rechazada',approve?'success':'danger'); loadVacations(); }
+async function approveLeave(id,approve) { var r=await Supa.upd('leave_requests',id,{status:approve?'approved':'rejected'}); if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo actualizar la solicitud'),'danger'); return; } toast(approve?'✅ Aprobada':'❌ Rechazada',approve?'success':'danger'); loadVacations(); }
 function fullCalcVac() { var s=gv('vc-sdate'), e=gv('vc-edate'), used=parseInt(gv('vc-used'))||0; if(!s||!e) return; var dw=Math.floor((new Date(e)-new Date(s))/86400000), earned=Math.floor(dw/11), rem=Math.max(0,earned-used); document.getElementById('vc-r1').textContent=dw; document.getElementById('vc-r2').textContent=earned; document.getElementById('vc-r3').textContent=rem; }
-function exportVacCSV() { var rows=DS.leave_balances.filter(function(b){ return b.company_id===A.companyId; }); var csv=[['Empleado','Año','Ganados','Usados','Saldo']].concat(rows.map(function(b){ return [b.employee_name,b.year,b.earned_days,b.used_days,b.remaining_days]; })).map(function(r){ return r.map(function(x){ return '"'+x+'"'; }).join(','); }).join('\n'); downCSV(csv,'vacaciones.csv'); toast('Exportado 📥'); }
+async function exportVacCSV() {
+  // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
+  var rows=await Supa.selAll('leave_balances');
+  if(rows&&rows.error){ toast(apiErrMsg(rows.error,'No se pudo exportar'),'danger'); return; }
+  if(!Array.isArray(rows)||!rows.length){ toast('Sin datos','warning'); return; }
+  var csv=csvText([['Empleado','Año','Ganados','Usados','Saldo']].concat(rows.map(function(b){ return [b.employee_name,b.year,b.earned_days,b.used_days,b.remaining_days]; })));
+  downCSV(csv,'vacaciones.csv'); toast('Exportado 📥');
+}
 
 // ════════════════ PAYROLL ════════════════════════════════════
 function initPRSelectors() {
@@ -2938,22 +3100,42 @@ function initPRSelectors() {
   for(var y=TD.getFullYear();y>=TD.getFullYear()-3;y--){ var o=document.createElement('option'); o.value=y; if(y===TD.getFullYear()) o.selected=true; o.textContent=y; ys.appendChild(o); }
 }
 var _prRows = [];
+// Period vocabulary shared with the Go API ('mensual' | 'quincenal1' | 'quincenal2').
+// A quincena pays HALF of the base salary and HALF of each deduction quota
+// (the server applies the same factor); date-based inputs (attendance,
+// overtime) only count inside the half: days 1-15 / day 16 to month end.
+var PR_PERIODS={mensual:{factor:1,label:'Mensual'},quincenal1:{factor:0.5,label:'1ra Quincena'},quincenal2:{factor:0.5,label:'2da Quincena'}};
+
+function prFactor(period){ return PR_PERIODS[period]?PR_PERIODS[period].factor:1; }
+function prPeriodLabel(period){ return PR_PERIODS[period]?PR_PERIODS[period].label:(period==='quincenal'?'Quincenal':String(period||'')); }
+function prQuota(quota,period){ return (quota||0)*prFactor(period); }
+// The inclusive date range of a payroll period: the month, or days 1-15 /
+// 16-month end for a quincena. The one place that rule lives.
+function prPeriodRange(period,year,month){
+  var mm=(month<10?'0':'')+month, last=new Date(Date.UTC(year,month,0)).getUTCDate();
+  return {from:year+'-'+mm+'-'+(period==='quincenal2'?'16':'01'), to:year+'-'+mm+'-'+(period==='quincenal1'?'15':String(last))};
+}
+// True when a 'YYYY-MM-DD' date falls inside the selected period of year/month.
+function prInPeriod(dateStr,period,year,month){
+  if(!dateStr) return false;
+  var d=String(dateStr).substring(0,10), r=prPeriodRange(period,year,month);
+  return d>=r.from&&d<=r.to;
+}
 async function loadPayroll() {
   var emps=await Supa.sel('employees',{status:'active'});
   var actives=Array.isArray(emps)?emps:[];
   var period=document.getElementById('pr-period').value||'mensual';
   var month=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
   var year=parseInt(document.getElementById('pr-year').value)||TD.getFullYear();
-  var factor=period==='mensual'?1:0.5;
+  var factor=prFactor(period);
 
-  var mPfx=year+'-'+(month<10?'0'+month:''+month);
   var allAtt=await Supa.sel('attendance_logs');
   var allOT=await Supa.sel('overtime_logs');
-  var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return l.date&&l.date.startsWith(mPfx); }):[];
-  var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return o.date&&o.date.startsWith(mPfx); }):[];
+  var mAtt=Array.isArray(allAtt)?allAtt.filter(function(l){ return prInPeriod(l.date,period,year,month); }):[];
+  var mOT=Array.isArray(allOT)?allOT.filter(function(o){ return prInPeriod(o.date,period,year,month); }):[];
   // Active medical records starting in the selected month (display-only badge)
   var allMed=await Supa.selAll('medical_records',{status:'activa'});
-  var mMed=Array.isArray(allMed)?allMed.filter(function(r){ return r.start_date&&r.start_date.substring(0,7)===mPfx; }):[];
+  var mMed=Array.isArray(allMed)?allMed.filter(function(r){ return prInPeriod(r.start_date,period,year,month); }):[];
   var wDays=getWorkingDays(year,month);
   var pDays=period==='mensual'?wDays:Math.floor(wDays/2);
 
@@ -3072,11 +3254,9 @@ async function seedTestAttendance() {
     var e=emps[i], pat=pats[i];
     for(var j=0;j<days.length;j++){
       var p=pat[j];
-      // Route through Supa.ins instead of a raw Supabase fetch (which would
-      // keep writing to the retired store post-cutover): the Go handler's
-      // POST /api/attendance_logs is already an upsert on (employee_id,date)
-      // (design Q2), so the on_conflict query param this raw fetch used to
-      // need is no longer necessary.
+      // Route through Supa.ins: the Go handler's POST /api/attendance_logs is
+      // already an upsert on (employee_id,date) (design Q2), so no on_conflict
+      // query param is needed.
       await Supa.ins('attendance_logs',{employee_id:e.id,employee_name:e.first_name+' '+e.last_name,department:e.department||'',date:days[j],time_in:p[1],time_out:p[2],status:p[0]}).catch(function(){});
       done++;
     }
@@ -3109,43 +3289,42 @@ async function printPayslip(empId) {
   var yr=document.getElementById('pr-year').value||TD.getFullYear();
   var period=document.getElementById('pr-period').value||'mensual';
   var perLbl={mensual:'Mensual',quincenal1:'1ra Quincena',quincenal2:'2da Quincena'};
-  var factor=period==='mensual'?1:0.5;
-  // Use cached attendance data from loadPayroll if available
-  var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
-  var pr;
-  if(cachedRow){
-    pr={b:cachedRow.b,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
-  } else {
-    // No cached row (payroll "Calcular" was never run for this period) --
-    // prCalc's degraded no-attendance/no-dedQuota recompute is retired
-    // (design R8's "no payslip endpoint" note): the payslip now always
-    // calls the same authoritative server preview the main table uses,
-    // never a locally-approximated figure.
-    var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
-    var slipYr=parseInt(yr)||TD.getFullYear();
-    var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
-    var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
-    if(!row){ toast(calc&&calc.error?calc.error.message:'No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
-    pr={b:row.b||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
-  }
+  // Always the server preview, never the row cached by "Calcular": overtime or
+  // absences logged since then would leave the totals stale next to the fresh
+  // overtime rows listed below. Same authoritative endpoint as the table.
+  var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
+  var slipYr=parseInt(yr)||TD.getFullYear();
+  // Only this employee: the full preview would compute the whole company per slip
+  var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period,employee_id:empId}));
+  var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
+  if(!row){ toast(calc&&calc.error?apiErrMsg(calc.error,'No se pudo calcular el recibo'):'No se pudo calcular el recibo','danger'); return; }
+  var pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
-  // OT: filter to selected month only (was using full history before — bug fix)
+  // OT: only the selected period (month, or the 1st/2nd half for a quincena)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
-  var slipMPfx=yr+'-'+(slipMonth<10?'0'+slipMonth:''+slipMonth);
-  var otLogs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId&&l.employee_id===empId&&l.date&&l.date.startsWith(slipMPfx); });
-  var otTotal=cachedRow?(cachedRow.att.otAmount||0):otLogs.reduce(function(s,l){ return s+(l.amount||0); },0);
-  // Deductions: use cached quotas if available (consistent with table)
-  var dedLogs=cachedRow?(cachedRow.dedData?cachedRow.dedData.quotas||[]:[]):DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
-  var dedTotal=cachedRow?(cachedRow.dedQuota||0):dedLogs.reduce(function(s,d){ return s+(d.quota||0); },0);
+  // Same source as loadPayroll (the API); DS only holds demo data outside demo mode
+  // Only the period's dates (the server bounds them, inclusive); selAll so a busy
+  // period is never cut off by the 200-row default page
+  var range=prPeriodRange(period,parseInt(yr),slipMonth);
+  var empOT=await Supa.selAll('overtime_logs',{employee_id:empId,date_from:range.from,date_to:range.to});
+  var otLogs=(Array.isArray(empOT)?empOT:[]).filter(function(l){ return l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
+  // The server's b already includes the period's overtime (b = base - absences
+  // + ot_amt) and css/se/isr/net are computed on it: HH.EE. only itemizes it.
+  var otTotal=pr.ot;
+  // Deductions: rows from the API (DS only holds demo data outside demo mode).
+  // The stored quota is the monthly installment; a quincena charges prQuota()
+  // of it. The total is the server's ded_quota, the figure already inside net.
+  var empDed=await Supa.sel('deductions',{employee_id:empId,status:'active'});
+  var dedLogs=(Array.isArray(empDed)?empDed:[]).filter(function(d){ return d.employee_id===empId&&d.status==='active'; }).map(function(d){ return Object.assign({},d,{quota:prQuota(d.quota,period)}); });
+  var dedTotal=pr.dedQuota;
   var showOT = document.getElementById('slip-show-ot') ? document.getElementById('slip-show-ot').checked : false;
   var showPat = document.getElementById('slip-show-pat') ? document.getElementById('slip-show-pat').checked : false;
-  var otAnnual=(e.salary||0)*13; // DGI: 12 meses + Décimo 3er Mes
-  var otIsrAnual=otAnnual<=11000?0:otAnnual<=50000?(otAnnual-11000)*0.15:5850+(otAnnual-50000)*0.25;
-  var otIsrRate=otAnnual>0?otIsrAnual/otAnnual:0;
-  var otCSS=otTotal*0.0975, otSE=otTotal*0.0125, otISR=otTotal*otIsrRate;
-  var otLegal=otCSS+otSE+otISR;
-  // pr.net already includes dedQuota when cachedRow exists — do NOT subtract dedTotal again
-  var netFinal=pr.net+(showOT?otTotal-otLegal:0)-(cachedRow?0:dedTotal);
+  // Itemized, the gross splits into base salary + overtime rows; otherwise it is
+  // shown whole and labelled as the gross, since it includes the overtime
+  var itemOT=showOT&&otTotal>0, baseAmt=itemOT?pr.b-otTotal:pr.b, baseLbl=itemOT?'Salario Base':'Salario Bruto';
+  // The net shown is pr.net: it comes from the server in both branches and
+  // already includes the overtime and the (period-scaled) quota — never add
+  // or subtract them again
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+escHtml(l.type)+' ('+escHtml(l.hours)+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+escHtml(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
@@ -3154,10 +3333,10 @@ async function printPayslip(empId) {
     +'<div class="page"><div class="hdr"><div><h2>'+escHtml(A.companyName)+'</h2><p>COMPROBANTE DE PAGO DE SALARIO</p><p>Período: <strong>'+escHtml(perLbl[period]||period)+' · '+escHtml(mo)+' '+escHtml(yr)+'</strong></p></div><div class="hdr-r"><strong>N° '+Date.now().toString().slice(-8)+'</strong><br>'+new Date().toLocaleDateString('es-PA')+'</div></div>'
     +'<div class="bar"><div class="col"><small>Empleado</small><strong>'+escHtml(e.first_name+' '+e.last_name)+'</strong></div><div class="col"><small>Cédula</small><strong>'+escHtml(e.cedula||'—')+'</strong></div><div class="col"><small>N° SS</small><strong>'+escHtml(e.ss_number||'—')+'</strong></div><div class="col"><small>Cargo</small><strong>'+escHtml(e.position||'—')+'</strong></div><div class="col"><small>Ingreso</small><strong>'+escHtml(e.start_date||'—')+'</strong></div></div>'
     +'<div class="bar" style="background:#fff"><div class="col"><small>Antigüedad</small><strong>'+seniStr(e.start_date)+'</strong></div><div class="col"><small>Tipo Contrato</small><strong>'+escHtml(e.contract_type||'—')+'</strong></div><div class="col"><small>Hrs/Semana</small><strong>'+escHtml(e.weekly_hours||44)+'</strong></div><div class="col"><small>Salario/Hora</small><strong>B/. '+hrRate+'</strong></div><div class="col"><small>Departamento</small><strong>'+escHtml(e.department||'—')+'</strong></div></div>'
-    +'<div class="sec"><div class="sec-t">Devengos</div><table><tr><td>Salario Base</td><td>'+fmt(pr.b)+'</td></tr>'+(showOT&&otTotal>0?otRows+'<tr style="background:#e8f5e9;font-weight:700"><td>Total Horas Extras</td><td style="color:#28a745">'+fmt(otTotal)+'</td></tr>':'')+'<tr style="background:#e3f2fd;font-weight:700"><td>TOTAL DEVENGADO</td><td style="color:#007bff">'+fmt(pr.b+(showOT?otTotal:0))+'</td></tr></table></div>'
-    +'<div class="sec"><div class="sec-t">Deducciones Legales</div><table><tr><td>CSS empleado (9.75%)</td><td style="color:#dc3545">- '+fmt(pr.css+(showOT?otCSS:0))+'</td></tr><tr><td>SE (1.25%)</td><td style="color:#dc3545">- '+fmt(pr.se+(showOT?otSE:0))+'</td></tr><tr><td>ISR — Imp. Sobre la Renta</td><td style="color:#dc3545">- '+fmt(pr.isr+(showOT?otISR:0))+'</td></tr>'+dedRows+'<tr style="background:#fce4ec;font-weight:700"><td>TOTAL DEDUCCIONES</td><td style="color:#dc3545">- '+fmt(pr.ded+(showOT?otLegal:0)+dedTotal)+'</td></tr></table></div>'
-    +(showPat?'<div class="sec"><div class="sec-t">Aportes Patronales (referencial)</div><table><tr><td>CSS Patronal (12.25%)</td><td style="color:#fd7e14">'+fmt(pr.pcss)+'</td></tr><tr><td>SE Patronal (1.5%)</td><td style="color:#fd7e14">'+fmt(pr.pse)+'</td></tr><tr><td>Décimo 3er Mes — Provisión (8.33%)</td><td style="color:#fd7e14">'+fmt(pr.dec)+'</td></tr><tr><td>CSS Patronal sobre Décimo (7.25%)</td><td style="color:#fd7e14">'+fmt(pr.decCSSP)+'</td></tr><tr style="background:#fff3e0;font-weight:700"><td>Costo Total Empresa</td><td style="color:#e65100">'+fmt(pr.tot+(showOT?otTotal:0))+'</td></tr></table></div>':'')
-    +'<div class="tot-bar"><div class="tot-box"><small>Salario Bruto</small><div class="val">'+fmt(pr.b)+'</div></div>'+(showOT&&otTotal>0?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+(showOT?otLegal:0)+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(netFinal)+'</div></div></div>'
+    +'<div class="sec"><div class="sec-t">Devengos</div><table><tr><td>'+baseLbl+'</td><td>'+fmt(baseAmt)+'</td></tr>'+(itemOT?otRows+'<tr style="background:#e8f5e9;font-weight:700"><td>Total Horas Extras</td><td style="color:#28a745">'+fmt(otTotal)+'</td></tr>':'')+'<tr style="background:#e3f2fd;font-weight:700"><td>TOTAL DEVENGADO</td><td style="color:#007bff">'+fmt(pr.b)+'</td></tr></table></div>'
+    +'<div class="sec"><div class="sec-t">Deducciones Legales</div><table><tr><td>CSS empleado (9.75%)</td><td style="color:#dc3545">- '+fmt(pr.css)+'</td></tr><tr><td>SE (1.25%)</td><td style="color:#dc3545">- '+fmt(pr.se)+'</td></tr><tr><td>ISR — Imp. Sobre la Renta</td><td style="color:#dc3545">- '+fmt(pr.isr)+'</td></tr>'+dedRows+'<tr style="background:#fce4ec;font-weight:700"><td>TOTAL DEDUCCIONES</td><td style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</td></tr></table></div>'
+    +(showPat?'<div class="sec"><div class="sec-t">Aportes Patronales (referencial)</div><table><tr><td>CSS Patronal (12.25%)</td><td style="color:#fd7e14">'+fmt(pr.pcss)+'</td></tr><tr><td>SE Patronal (1.5%)</td><td style="color:#fd7e14">'+fmt(pr.pse)+'</td></tr><tr><td>Décimo 3er Mes — Provisión (8.33%)</td><td style="color:#fd7e14">'+fmt(pr.dec)+'</td></tr><tr><td>CSS Patronal sobre Décimo (7.25%)</td><td style="color:#fd7e14">'+fmt(pr.decCSSP)+'</td></tr><tr style="background:#fff3e0;font-weight:700"><td>Costo Total Empresa</td><td style="color:#e65100">'+fmt(pr.tot)+'</td></tr></table></div>':'')
+    +'<div class="tot-bar"><div class="tot-box"><small>'+baseLbl+'</small><div class="val">'+fmt(baseAmt)+'</div></div>'+(itemOT?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(pr.net)+'</div></div></div>'
     +'<div class="sig"><div class="sig-box"><div class="sig-line">Firma del Empleado<br>'+escHtml(e.first_name+' '+e.last_name)+'<br>C.I. '+escHtml(e.cedula||'—')+'</div></div><div class="sig-box"><div class="sig-line">Firma Autorizada<br>'+escHtml(A.companyName)+'<br>Recursos Humanos</div></div><div class="sig-box"><div class="sig-line">Recibido Conforme<br>Fecha: ____/____/________</div></div></div>'
     +'<div class="footer">'+escHtml(A.companyName)+' · HR Admin Panel · '+new Date().toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'})+' · Cálculos según Código de Trabajo y Ley 51/2005 — República de Panamá</div>'
     +'</div><div style="text-align:center;margin:16px"><button onclick="window.print()" style="background:#007bff;color:#fff;border:none;padding:8px 24px;border-radius:6px;font-size:.9rem;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>'
@@ -3165,16 +3344,28 @@ async function printPayslip(empId) {
   w.document.close();
 }
 
+var _prSaving=false;
 async function savePayrollRun() {
+  if(_prSaving) return;
   var mo=parseInt(document.getElementById('pr-month').value)||TD.getMonth()+1, yr=parseInt(document.getElementById('pr-year').value)||TD.getFullYear(), period=document.getElementById('pr-period').value||'mensual';
   if(!_prRows.length){ toast('Calculá primero la planilla','warning'); return; }
   var sums=_prRows.reduce(function(s,r){ return {b:s.b+r.b,isr:s.isr+r.isr,net:s.net+r.net,tot:s.tot+r.tot}; },{b:0,isr:0,net:0,tot:0});
-  // The server ignores every client-computed total and the per-employee
-  // ledger write (design R4e) -- it recomputes the same server-side Calculate
-  // and, in the same transaction, upserts one employee_pay_records row per
-  // active employee (origin='run').
-  await Supa.ins('payroll_history',{period:period,month:mo,year:yr,month_name:MONTHS[mo-1],employee_count:_prRows.length,total_bruto:sums.b,total_isr:sums.isr,total_neto:sums.net,total_empresa:sums.tot});
-  toast('Guardado en historial — también se registraron los períodos de cada empleado en el historial de planilla'); loadPayrollHistory();
+  // One save at a time: a double click must not send two runs. The server also
+  // serializes and replaces by period, this just avoids the second request.
+  _prSaving=true;
+  var btn=document.getElementById('pr-save-btn'); if(btn) btn.disabled=true;
+  try {
+    // The server ignores every client-computed total and the per-employee
+    // ledger write (design R4e) -- it recomputes the same server-side Calculate
+    // and, in the same transaction, upserts one employee_pay_records row per
+    // active employee (origin='run') for this period.
+    var r=await Supa.ins('payroll_history',{period:period,month:mo,year:yr,month_name:MONTHS[mo-1],employee_count:_prRows.length,total_bruto:sums.b,total_isr:sums.isr,total_neto:sums.net,total_empresa:sums.tot});
+    if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la planilla',{conflict:function(){ return 'Este mes ya tiene planilla con otro tipo de período (mensual o quincenas). Eliminá esa corrida y sus registros antes de volver a correrla.'; }}),'danger'); return; }
+    toast('Guardado en historial — también se registraron los períodos de cada empleado en el historial de planilla'); loadPayrollHistory();
+  } finally {
+    _prSaving=false;
+    if(btn) btn.disabled=false;
+  }
 }
 async function loadPayrollHistory() {
   var hist=await Supa.sel('payroll_history');
@@ -3182,7 +3373,7 @@ async function loadPayrollHistory() {
   // The server now orders year DESC, month DESC (design R7) -- the
   // client-side .sort() this used to need is gone.
   var h=Array.isArray(hist)?hist:[];
-  tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+escHtml(r.period)+'</span></td><td><strong>'+escHtml(r.month_name)+' '+escHtml(r.year)+'</strong></td><td>'+escHtml(r.employee_count)+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+escHtml((r.created_at||'').split('T')[0])+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
+  tb.innerHTML=h.length?h.map(function(r){ return '<tr><td><span class="badge badge-secondary">'+escHtml(prPeriodLabel(r.period))+'</span></td><td><strong>'+escHtml(r.month_name)+' '+escHtml(r.year)+'</strong></td><td>'+escHtml(r.employee_count)+'</td><td class="text-success">'+fmt(r.total_bruto)+'</td><td class="text-primary">'+fmt(r.total_neto)+'</td><td class="text-warning">'+fmt(r.total_empresa)+'</td><td><small>'+escHtml((r.created_at||'').split('T')[0])+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delPRRun(\''+r.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="8" class="text-center p-3 text-muted">Sin historial.</td></tr>';
 }
 async function delPRRun(id) {
   // design R5: deleting the run row does NOT delete the per-employee
@@ -3466,19 +3657,33 @@ async function saveOT() {
   if(hrs>3){toast('⚠ Art. 36 num.4: máximo 3 horas extras por día','warning'); return;}
   var sal=parseFloat(sel?sel.getAttribute('data-sal'):0)||0, wh=parseFloat(sel?sel.getAttribute('data-wh'):48)||48;
   var hrRate=sal/(wh*(52/12)), type=gv('ot-type')||'regular', valor=hrRate*(OT_RATES[type]||1.25)*hrs;
-  await Supa.ins('overtime_logs',{employee_id:empId,employee_name:sel?sel.text:'—',date:gv('ot-date')||TS,hours:hrs,type:type,hourly_rate:hrRate,amount:valor,notes:gv('ot-notes')});
+  var r=await Supa.ins('overtime_logs',{employee_id:empId,employee_name:sel?sel.text:'—',date:gv('ot-date')||TS,hours:hrs,type:type,hourly_rate:hrRate,amount:valor,notes:gv('ot-notes')});
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudieron guardar las horas extras'),'danger'); return; }
   toast('✅ Horas extras guardadas'); renderOTTable();
 }
-function renderOTTable() {
-  var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; }).sort(function(a,b){ return b.date.localeCompare(a.date); });
+async function renderOTTable() {
+  // From the API: DS is empty outside demo mode (Supa reads DS itself in demo)
+  var res=await Supa.selAll('overtime_logs');
+  var logs=(Array.isArray(res)?res:[]).slice().sort(function(a,b){ return String(b.date||'').localeCompare(String(a.date||'')); });
   var tb=document.getElementById('ot-tbody'), tl={regular:'Diurna +25%',mixed:'Mixta +50%',night:'Nocturna +75%',sunday:'Descanso +50%',holiday:'Festivo +150%'};
   if(tb) tb.innerHTML=logs.length?logs.map(function(l){ return '<tr><td><strong>'+escHtml(l.employee_name)+'</strong></td><td>'+escHtml(l.date)+'</td><td><strong>'+escHtml(l.hours)+'</strong> hrs</td><td><span class="ot-type ot-'+escHtml(l.type)+'">'+(tl[l.type]||escHtml(l.type))+'</span></td><td class="text-success"><strong>'+fmt(l.amount)+'</strong></td><td><small>'+escHtml(l.notes||'—')+'</small></td><td><button class="btn btn-xs btn-outline-danger" onclick="delOT(\''+l.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="7" class="text-center p-3 text-muted">Sin registros de horas extras.</td></tr>';
-  var tot=logs.reduce(function(s,l){ return s+(l.amount||0); },0);
+  var tot=logs.reduce(function(s,l){ return s+(Number(l.amount)||0); },0);
   var tf=document.getElementById('ot-tfoot');
   if(tf) tf.innerHTML=logs.length?'<td colspan="4" class="text-right pr-total-row"><strong>Total Horas Extras</strong></td><td class="text-success pr-total-row"><strong>'+fmt(tot)+'</strong></td><td colspan="2"></td>':'';
 }
-async function delOT(id) { await Supa.del('overtime_logs',id); toast('Eliminado','info'); renderOTTable(); }
-function exportOTCSV() { var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; }); var csv=[['Empleado','Fecha','Horas','Tipo','Valor','Notas']].concat(logs.map(function(l){ return [l.employee_name,l.date,l.hours,l.type,l.amount,l.notes||'']; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n'); downCSV(csv,'horas_extras.csv'); toast('Exportado 📥'); }
+async function delOT(id) {
+  var r=await Supa.del('overtime_logs',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar el registro'),'danger'); return; }
+  toast('Eliminado','info'); renderOTTable();
+}
+async function exportOTCSV() {
+  // From the API (DS is empty outside demo mode; Supa reads DS itself in demo)
+  var logs=await Supa.selAll('overtime_logs');
+  if(logs&&logs.error){ toast(apiErrMsg(logs.error,'No se pudo exportar'),'danger'); return; }
+  if(!Array.isArray(logs)||!logs.length){ toast('Sin datos','warning'); return; }
+  var csv=csvText([['Empleado','Fecha','Horas','Tipo','Valor','Notas']].concat(logs.map(function(l){ return [l.employee_name,l.date,l.hours,l.type,l.amount,l.notes]; })));
+  downCSV(csv,'horas_extras.csv'); toast('Exportado 📥');
+}
 
 // ════════════════ DEDUCTIONS ═════════════════════════════════
 async function loadDed() {
@@ -3511,7 +3716,7 @@ async function saveDed() {
   var startD=new Date(sd), endD=ed?new Date(ed):null;
   var periodo=startD.getFullYear().toString();
   if(endD&&endD.getFullYear()!==startD.getFullYear()) periodo+='-'+endD.getFullYear();
-  await Supa.ins('deductions',{
+  var r=await Supa.ins('deductions',{
     employee_id:empId,
     employee_name:emp?emp.first_name+' '+emp.last_name:'—',
     cedula:gv('ded-cedula')||'',
@@ -3527,10 +3732,18 @@ async function saveDed() {
     periodo:periodo,
     status:'active'
   });
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la deducción'),'danger'); return; }
   toast('Deducción guardada'); renderDedTable();
 }
-function renderDedTable() {
-  var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId; });
+async function renderDedTable() {
+  // From the API: outside demo mode DS.deductions is emptied at sign-in and
+  // never refilled (Supa reads DS itself in demo mode)
+  var res=await Supa.selAll('deductions');
+  var tb0=document.getElementById('ded-tbody');
+  // A failed read must not look like "no deductions": that would invite re-registering them
+  if(res&&res.error){ if(tb0) tb0.innerHTML='<tr><td colspan="10" class="text-center p-3 text-danger">'+escHtml(apiErrMsg(res.error,'No se pudieron cargar las deducciones'))+'</td></tr>'; return; }
+  // DELETE is a soft delete (status 'cancelled'): those rows are gone for the user
+  var deds=(Array.isArray(res)?res:[]).filter(function(d){ return d.status!=='cancelled'; });
   var tb=document.getElementById('ded-tbody');
   if(tb) tb.innerHTML=deds.length?deds.map(function(d){
     return '<tr>'
@@ -3547,8 +3760,25 @@ function renderDedTable() {
       +'</tr>';
   }).join(''):'<tr><td colspan="10" class="text-center p-3 text-muted">Sin deducciones. Registrá una o importá desde PayDay.</td></tr>';
 }
-async function saldaDed(id) { await Supa.upd('deductions',id,{status:'paid',remaining:0}); toast('Marcada como saldada'); renderDedTable(); }
-async function delDed(id) { if(!confirm('¿Eliminar?')) return; await Supa.del('deductions',id); toast('Eliminada','info'); renderDedTable(); }
+async function saldaDed(id) {
+  // PATCH /api/deductions/{id} replaces every editable column, so the whole
+  // row goes back with only status and remaining changed
+  var rows=await Supa.sel('deductions',{id:id}), d=Array.isArray(rows)?rows[0]:null;
+  if(!d){ toast('No se encontró la deducción','danger'); return; }
+  var body={};
+  ['employee_name','type','description','total_amount','quota','start_date','cedula','acreedor_nombre','acreedor_codigo',
+   'tipo_pago','centro_costo','prioridad','end_date','periodo','numero_planilla'].forEach(function(k){ if(d[k]!==undefined) body[k]=d[k]; });
+  body.status='paid'; body.remaining=0;
+  var r=await Supa.upd('deductions',id,body);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo marcar como saldada'),'danger'); return; }
+  toast('Marcada como saldada'); renderDedTable();
+}
+async function delDed(id) {
+  if(!confirm('¿Eliminar?')) return;
+  var r=await Supa.del('deductions',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la deducción'),'danger'); return; }
+  toast('Eliminada','info'); renderDedTable();
+}
 async function exportDedCSV() {
   var deds=await Supa.sel('deductions');
   if(!Array.isArray(deds)||!deds.length){toast('Sin datos','warning');return;}
@@ -3638,15 +3868,21 @@ async function loadLiqEmp() {
   if(!e){ info.style.display='none'; return; }
   info.style.display='';
   info.innerHTML='<strong>'+escHtml(e.first_name+' '+e.last_name)+'</strong> · '+escHtml(e.position||'—')+' · Ingreso: '+escHtml(e.start_date||'—')+' · Antigüedad: <strong>'+seniStr(e.start_date)+'</strong> · Salario: <strong>'+fmt(e.salary||0)+'</strong>';
-  var bal=DS.leave_balances.find(function(b){ return b.employee_id===empId&&b.company_id===A.companyId; });
-  var vacEl=document.getElementById('liq-vac'); if(vacEl&&bal) vacEl.value=bal.remaining_days||0;
+  // Leave balances come from the API (DS is empty outside demo mode): one row
+  // per year with no carry-over, and every unused day is owed at termination,
+  // so the proposal is the sum over all years (still editable)
+  var balRes=await Supa.sel('leave_balances',{employee_id:empId});
+  var tot=vacTotalsByEmployee((Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===empId; }))[0];
+  var vacEl=document.getElementById('liq-vac');
+  if(vacEl&&tot) vacEl.value=tot.remaining_days;
   // Auto-fill sal30 from employee salary
   var sal30El=document.getElementById('liq-sal30'); if(sal30El&&e.salary) sal30El.value=(e.salary||0).toFixed(2);
-  var deds=DS.deductions.filter(function(d){ return d.company_id===A.companyId&&d.employee_id===empId&&d.status==='active'; });
+  var dedRes=await Supa.sel('deductions',{employee_id:empId,status:'active'});
+  var deds=(Array.isArray(dedRes)?dedRes:[]).filter(function(d){ return d.employee_id===empId&&d.status==='active'; });
   var wrap=document.getElementById('liq-ded-wrap'), list=document.getElementById('liq-ded-list');
   if(wrap&&list){
     if(deds.length){
-      list.innerHTML=deds.map(function(d){ return '<div class="form-check py-1"><input class="form-check-input liq-ded-check" type="checkbox" id="ldc-'+d.id+'" value="'+d.id+'" data-quota="'+escHtml(d.quota)+'" data-desc="'+escHtml(d.description||d.type)+'" onchange="calcLiq()"><label class="form-check-label" for="ldc-'+d.id+'">'+escHtml(d.description||d.type)+' — Cuota: <strong>B/. '+fmt(d.quota)+'</strong></label></div>'; }).join('');
+      list.innerHTML=deds.map(function(d){ return '<div class="form-check py-1"><input class="form-check-input liq-ded-check" type="checkbox" id="ldc-'+d.id+'" value="'+d.id+'" data-quota="'+escHtml(d.quota)+'" data-desc="'+escHtml(d.description||d.type)+'" onchange="calcLiq()"><label class="form-check-label" for="ldc-'+d.id+'">'+escHtml(d.description||d.type)+' — Cuota: <strong>'+fmt(d.quota)+'</strong></label></div>'; }).join('');
       wrap.style.display='';
     } else { wrap.style.display='none'; }
   }
@@ -3746,7 +3982,7 @@ async function calcLiq() {
   // Cached so saveLiqHistory() can resend the exact inputs this breakdown
   // was computed from -- saveLiqHistory's own POST body structurally needs
   // all of them (the server recomputes server-side; it cannot be handed
-  // only the 5 fields the old Supabase-era call site sent).
+  // only the 5 fields an older call site sent).
   A._liqCalc={empId:empId,reason:reason,exitDate:exitDate,salPend:salPend,otros:otros,vacDays:vacDays,decMonths:decMonths,acumVac:acumVac,acumDec:acumDec,acumPrima:acumPrima,acum6m:acum6m,sal30Raw:sal30Raw,deductionIds:deductionIds,deductionQuotaTotal:deductionQuotaTotal};
 
   // ── Show result card ──────────────────────────────────────────
@@ -4002,6 +4238,19 @@ async function renderCalendar() {
 }
 
 // ════════════════ REPORTS ════════════════════════════════════
+// leave_balances holds one row per employee and year with no carry-over; the
+// reports and alerts show one total per employee over every year (the rule the
+// liquidation and the profile use), in first-seen order.
+function vacTotalsByEmployee(rows) {
+  var byEmp={}, order=[];
+  (Array.isArray(rows)?rows:[]).forEach(function(b){
+    var k=b.employee_id||b.employee_name;
+    if(!byEmp[k]){ byEmp[k]={employee_id:b.employee_id,employee_name:b.employee_name,earned_days:0,remaining_days:0}; order.push(k); }
+    byEmp[k].earned_days+=Number(b.earned_days)||0;
+    byEmp[k].remaining_days+=Number(b.remaining_days)||0;
+  });
+  return order.map(function(k){ return byEmp[k]; });
+}
 async function loadReport() {
   var type=document.getElementById('rpt-type').value||'by_dept';
   var emps=await Supa.sel('employees'); A.emps=Array.isArray(emps)?emps:[];
@@ -4027,19 +4276,23 @@ async function loadReport() {
     renderRptChart(Object.keys(byD),Object.values(byD).map(function(v){ return Math.round(v.t/v.n); }),'Salario Promedio');
   } else if(type==='vac'){
     if(rtitle) rtitle.textContent='Vacaciones';
-    var bals=DS.leave_balances.filter(function(b){ return b.company_id===A.companyId; });
+    // From the API: DS is empty outside demo mode (Supa reads DS itself in demo)
+    var bals=vacTotalsByEmployee(await Supa.selAll('leave_balances'));
     if(thead) thead.innerHTML='<th>Empleado</th><th>Ganados</th><th>Saldo</th>';
     if(tbody) tbody.innerHTML=bals.map(function(b){ return '<tr><td>'+escHtml(b.employee_name)+'</td><td>'+escHtml(b.earned_days)+'</td><td><span class="badge badge-'+(b.remaining_days>10?'success':'warning')+'">'+escHtml(b.remaining_days)+'</span></td></tr>'; }).join('');
     if(tfoot) tfoot.innerHTML='';
     renderRptChart(bals.map(function(b){ return b.employee_name; }),bals.map(function(b){ return b.remaining_days; }),'Días Disponibles');
   } else if(type==='ot_summary'){
     if(rtitle) rtitle.textContent='Horas Extras';
-    var logs=DS.overtime_logs.filter(function(l){ return l.company_id===A.companyId; });
+    // From the API: DS is empty outside demo mode (Supa reads DS itself in demo)
+    var otRes=await Supa.selAll('overtime_logs'), logs=Array.isArray(otRes)?otRes:[];
     var byE={};
-    logs.forEach(function(l){ if(!byE[l.employee_name]) byE[l.employee_name]={hrs:0,total:0}; byE[l.employee_name].hrs+=l.hours||0; byE[l.employee_name].total+=l.amount||0; });
+    logs.forEach(function(l){ if(!byE[l.employee_name]) byE[l.employee_name]={hrs:0,total:0}; byE[l.employee_name].hrs+=Number(l.hours)||0; byE[l.employee_name].total+=Number(l.amount)||0; });
+    // hours are stored with one decimal; summing floats can print 7.300000000000001
+    Object.keys(byE).forEach(function(n){ byE[n].hrs=Math.round(byE[n].hrs*10)/10; });
     if(thead) thead.innerHTML='<th>Empleado</th><th>Horas</th><th>Total</th>';
     if(tbody) tbody.innerHTML=Object.keys(byE).map(function(n){ return '<tr><td>'+escHtml(n)+'</td><td>'+escHtml(byE[n].hrs)+'</td><td class="text-success">'+fmt(byE[n].total)+'</td></tr>'; }).join('');
-    var ttot=logs.reduce(function(s,l){ return s+(l.amount||0); },0);
+    var ttot=logs.reduce(function(s,l){ return s+(Number(l.amount)||0); },0);
     if(tfoot) tfoot.innerHTML='<th>Total</th><th></th><th class="text-success">'+fmt(ttot)+'</th>';
     renderRptChart(Object.keys(byE),Object.values(byE).map(function(v){ return Math.round(v.total); }),'HE B/.');
   }
@@ -4069,7 +4322,7 @@ async function calcAlerts(){
   });
   var reqs=await Supa.sel('leave_requests',{status:'pending'});
   (Array.isArray(reqs)?reqs:[]).forEach(function(r){ alerts.push({type:'info',cat:'vacreq',icon:'fa-umbrella-beach',msg:'Solicitud de <em>'+escHtml(r.type)+'</em> de <strong>'+escHtml(r.employee_name)+'</strong> pendiente ('+r.days+' días)',days:999}); });
-  DS.leave_balances.filter(function(b){ return b.company_id===A.companyId&&b.remaining_days>20; }).forEach(function(b){ alerts.push({type:'success',cat:'vacbal',icon:'fa-wallet',msg:'<strong>'+escHtml(b.employee_name)+'</strong> tiene <strong>'+b.remaining_days+' días</strong> de vacaciones sin usar',days:9999}); });
+  vacTotalsByEmployee(await Supa.selAll('leave_balances')).filter(function(b){ return b.remaining_days>20; }).forEach(function(b){ alerts.push({type:'success',cat:'vacbal',icon:'fa-wallet',msg:'<strong>'+escHtml(b.employee_name)+'</strong> tiene <strong>'+b.remaining_days+' días</strong> de vacaciones sin usar',days:9999}); });
   return alerts;
 }
 async function loadNotifications(){
@@ -4090,64 +4343,103 @@ async function loadNotifications(){
 }
 
 // ════════════════ ZKTECO ══════════════════════════════════════
+// Real mode talks to the Go backend (zkteco_devices lives on Go). Demo mode
+// has no server: the screen shows its empty states and makes no request.
 var ZK_POLL_INTERVAL = null;
-var ZK_LAST_POLL = null;
+var ZK_DEV_CACHE = {};
 
+function zkSetServerUrl() {
+  var el = document.getElementById('zk-server-url');
+  if (el) el.value = location.host + '/iclock/';
+}
 
-async function loadZKTeco() {
-  // Load devices
-  var surl=A.url+'/rest/v1/zkteco_devices?select=*&order=last_seen.desc';
-  var res=await fetch(surl,{headers:Supa.hdr()});
-  var devices=await res.json();
-  var tb=document.getElementById('zk-devices-tbody');
-  if(tb){
-    if(Array.isArray(devices)&&devices.length){
-      var now=new Date();
-      tb.innerHTML=devices.map(function(d){
-        var last=d.last_seen?new Date(d.last_seen):null;
-        var diffMin=last?Math.floor((now-last)/60000):null;
-        var online=diffMin!==null&&diffMin<5;
-        var badge='<span class="badge badge-'+(online?'success':'secondary')+'">'+(online?'En línea':'Offline')+'</span>';
-        var ago=last?(diffMin<1?'Ahora':diffMin+'m atrás'):'—';
-        return '<tr id="zkrow-'+d.id+'">'
-          +'<td><code>'+escHtml(d.serial_number)+'</code></td>'
-          +'<td id="zk-name-'+d.id+'">'+(d.name?escHtml(d.name):'<small class="text-muted">Sin nombre</small>')+'</td>'
-          +'<td id="zk-loc-'+d.id+'">'+escHtml(d.location||'—')+'</td>'
-          +'<td><small>'+ago+'</small></td>'
-          +'<td>'+badge+'</td>'
-          +'<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\''+d.id+'\',\''+encodeURIComponent(d.name||'').replace(/'/g,'%27')+'\',\''+encodeURIComponent(d.location||'').replace(/'/g,'%27')+'\')"><i class="fas fa-pencil-alt"></i></button></td>'
-          +'</tr>';
-      }).join('');
-    } else {
-      tb.innerHTML='<tr><td colspan="5" class="text-center text-muted p-3">Sin relojes conectados aún.</td></tr>';
-    }
+function zkIsoShort(v) { return v ? new Date(v).toLocaleString('es-PA') : '—'; }
+
+function zkRenderDevices(devices) {
+  var tb = document.getElementById('zk-devices-tbody'); if (!tb) return;
+  ZK_DEV_CACHE = {};
+  if (!devices.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted p-3">Sin relojes conectados aún.</td></tr>';
+    return;
   }
-  // Load unknown PINs
-  var purl=A.url+'/rest/v1/zkteco_unknown_pins?select=*&resolved=eq.false&order=last_seen.desc&limit=20';
-  var pres=await fetch(purl,{headers:Supa.hdr()});
-  var pins=await pres.json();
-  var ptb=document.getElementById('zk-unknown-tbody');
-  if(ptb){
-    if(Array.isArray(pins)&&pins.length){
-      ptb.innerHTML=pins.map(function(p){
-        return '<tr><td><strong>'+escHtml(p.pin)+'</strong></td><td><small>'+escHtml(p.serial_number||'—')+'</small></td>'
-          +'<td><small>'+(p.last_seen?new Date(p.last_seen).toLocaleString('es-PA'):'—')+'</small></td>'
-          +'<td><span class="badge badge-warning">'+escHtml(p.attempts)+'</span></td></tr>';
-      }).join('');
-    } else {
-      ptb.innerHTML='<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
-    }
+  var now = new Date();
+  tb.innerHTML = devices.map(function(d){
+    ZK_DEV_CACHE[d.id] = d;
+    var last = d.last_seen ? new Date(d.last_seen) : null;
+    var diffMin = last ? Math.floor((now - last) / 60000) : null;
+    var online = diffMin !== null && diffMin < 5;
+    var badge = '<span class="badge badge-' + (online ? 'success' : 'secondary') + '">' + (online ? 'En línea' : 'Offline') + '</span>';
+    var ago = last ? (diffMin < 1 ? 'Ahora' : diffMin + 'm atrás') : '—';
+    var eid = escHtml(d.id);
+    return '<tr id="zkrow-' + eid + '">'
+      + '<td><code>' + escHtml(d.serial_number) + '</code></td>'
+      + '<td id="zk-name-' + eid + '">' + (d.name ? escHtml(d.name) : '<small class="text-muted">Sin nombre</small>') + '</td>'
+      + '<td id="zk-loc-' + eid + '">' + escHtml(d.location || '—') + '</td>'
+      + '<td><small>' + ago + '</small></td>'
+      + '<td>' + badge + '</td>'
+      + '<td><button class="btn btn-xs btn-outline-secondary" onclick="editZKDevice(\'' + eid + '\')"><i class="fas fa-pencil-alt"></i></button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// Admin-only lists: a 403 shows the role message in place of the table.
+function zkRenderPins(pins, err) {
+  var ptb = document.getElementById('zk-unknown-tbody'); if (!ptb) return;
+  if (err) {
+    ptb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">' + escHtml(apiErrMsg(err, 'No se pudieron cargar los PINs', {forbidden:'Solo administradores'})) + '</td></tr>';
+  } else if (pins.length) {
+    ptb.innerHTML = pins.map(function(p){
+      return '<tr><td><strong>' + escHtml(p.pin) + '</strong></td><td><small>' + escHtml(p.serial_number || '—') + '</small></td>'
+        + '<td><small>' + escHtml(zkIsoShort(p.last_seen)) + '</small></td>'
+        + '<td><span class="badge badge-warning">' + escHtml(p.attempts) + '</span></td></tr>';
+    }).join('');
+  } else {
+    ptb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">Sin PINs desconocidos</td></tr>';
   }
 }
 
-function editZKDevice(id, encName, encLoc) {
-  var name = decodeURIComponent(encName);
-  var loc = decodeURIComponent(encLoc);
-  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+escHtml(name)+'" style="min-width:100px">';
-  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+escHtml(loc)+'" style="min-width:100px">';
+function zkRenderUnclaimed(rows, err) {
+  var tb = document.getElementById('zk-unclaimed-tbody'); if (!tb) return;
+  if (err) {
+    tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">' + escHtml(apiErrMsg(err, 'No se pudieron cargar los relojes sin asignar', {forbidden:'Solo administradores'})) + '</td></tr>';
+  } else if (rows.length) {
+    tb.innerHTML = rows.map(function(d){
+      var eid = escHtml(d.id);
+      return '<tr><td><code>' + escHtml(d.serial_number) + '</code></td>'
+        + '<td><small>' + escHtml(zkIsoShort(d.last_seen)) + '</small></td>'
+        + '<td><small>' + escHtml(d.firmware_version || '—') + '</small></td>'
+        + '<td><button class="btn btn-xs btn-success" id="zk-claim-' + eid + '" onclick="claimZKDevice(\'' + eid + '\')"><i class="fas fa-hand-pointer mr-1"></i>Reclamar</button></td></tr>';
+    }).join('');
+  } else {
+    tb.innerHTML = '<tr><td colspan="4" class="text-center text-muted p-3">Sin relojes pendientes de asignar</td></tr>';
+  }
+}
+
+async function loadZKTeco() {
+  zkSetServerUrl();
+  if (A.demo) { zkRenderDevices([]); zkRenderPins([], null); zkRenderUnclaimed([], null); return; }
+  var res = await recRequest('zk:load', null, function(){
+    return Promise.all([
+      Supa.selAll('zkteco_devices'),
+      Supa.goFetch('/api/zkteco_unknown_pins' + Supa.gq({resolved:false, _limit:20})),
+      Supa.goFetch('/api/zkteco_devices/unclaimed' + Supa.gq({_limit:50}))
+    ]);
+  });
+  if (!res) return; // a load is already in flight
+  if (!Array.isArray(res)) { toast(apiErrMsg(res.error, 'No se pudieron cargar los relojes'), 'danger'); return; }
+  if (Array.isArray(res[0])) zkRenderDevices(res[0]);
+  else toast(apiErrMsg(res[0] && res[0].error, 'No se pudieron cargar los relojes'), 'danger');
+  zkRenderPins(Array.isArray(res[1]) ? res[1] : [], Array.isArray(res[1]) ? null : (res[1] && res[1].error) || {});
+  zkRenderUnclaimed(Array.isArray(res[2]) ? res[2] : [], Array.isArray(res[2]) ? null : (res[2] && res[2].error) || {});
+}
+
+function editZKDevice(id) {
+  var d = ZK_DEV_CACHE[id] || {};
+  document.getElementById('zk-name-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-name-input-'+id+'" value="'+escHtml(d.name||'')+'" style="min-width:100px">';
+  document.getElementById('zk-loc-'+id).innerHTML = '<input type="text" class="form-control form-control-sm" id="zk-loc-input-'+id+'" value="'+escHtml(d.location||'')+'" style="min-width:100px">';
   var row = document.getElementById('zkrow-'+id);
   var lastTd = row.querySelector('td:last-child');
-  lastTd.innerHTML = '<button class="btn btn-xs btn-success mr-1" onclick="saveZKDevice(\''+id+'\')"><i class="fas fa-check"></i></button>'
+  lastTd.innerHTML = '<button class="btn btn-xs btn-success mr-1" id="zk-save-'+id+'" onclick="saveZKDevice(\''+id+'\')"><i class="fas fa-check"></i></button>'
     +'<button class="btn btn-xs btn-secondary" onclick="loadZKTeco()"><i class="fas fa-times"></i></button>';
 }
 
@@ -4156,63 +4448,171 @@ async function saveZKDevice(id) {
   var locEl = document.getElementById('zk-loc-input-'+id);
   if (!nameEl) return;
   var body = { name: nameEl.value.trim() || null, location: locEl ? (locEl.value.trim() || null) : null };
-  var res = await fetch(A.url+'/rest/v1/zkteco_devices?id=eq.'+id, {
-    method: 'PATCH',
-    headers: Object.assign({'Prefer': 'return=minimal'}, Supa.hdr()),
-    body: JSON.stringify(body)
+  var r = await recRequest('zk:save:'+id, 'zk-save-'+id, function(){ return Supa.upd('zkteco_devices', id, body); });
+  if (!r) return;
+  if (r.error) { toast(apiErrMsg(r.error, 'No se pudo guardar el reloj', {notFound:'El reloj ya no existe'}), 'danger'); return; }
+  toast('Reloj actualizado'); loadZKTeco();
+}
+
+async function claimZKDevice(id) {
+  if (!confirm('¿Reclamar este reloj para tu empresa?')) return;
+  var r = await recRequest('zk:claim:'+id, 'zk-claim-'+id, function(){
+    return Supa.goFetch('/api/zkteco_devices/'+encodeURIComponent(id)+'/claim', {method:'POST'});
   });
-  if (res.ok) { toast('Reloj actualizado'); loadZKTeco(); }
-  else { toast('Error al guardar', 'danger'); }
+  if (!r) return;
+  if (r.error) {
+    toast(apiErrMsg(r.error, 'No se pudo reclamar el reloj', {forbidden:'Solo administradores', notFound:'El reloj ya fue reclamado o no existe'}), 'danger');
+    if (r.error.code === 'not_found') loadZKTeco();
+    return;
+  }
+  toast('Reloj reclamado'); loadZKTeco();
 }
 
 function copyZKUrl() {
   var el=document.getElementById('zk-server-url');
-  if(el){ navigator.clipboard.writeText(el.value).then(function(){ toast('URL copiada al portapapeles'); }); }
+  if(el){ navigator.clipboard.writeText(el.value).then(function(){ toast('Dirección copiada al portapapeles'); }); }
 }
 
+// Read-only reachability check: one GET to the public health route, no writes.
 async function testZKConnection() {
-  var url='https://swciybuhetkfrtpyjvgb.supabase.co/functions/v1/zkteco-adms';
+  if (A.demo) { toast('La prueba de conexión no está disponible en modo demo', 'info'); return; }
+  var r = await recRequest('zk:test', 'zk-test-btn', function(){ return Supa.goFetch('/api/health'); });
+  if (!r) return;
+  if (r.error) { toast(apiErrMsg(r.error, 'No se pudo conectar con el servidor'), 'danger'); return; }
+  if (r.status === 'ok') toast('El servidor responde correctamente');
+  else toast('Respuesta inesperada del servidor', 'warning');
+}
+
+// ── Live feed ─────────────────────────────────────────────────────────────
+// Cursor over attendance_logs (README "Attendance: created_after and ordering").
+// Each poll asks for created_at > maxSeen - OVERLAP, oldest first, in pages of
+// ZK_FEED_PAGE until a short page. The overlap re-reads rows that committed late
+// with an older created_at; the seen-set (by id) keeps them from showing twice.
+// The pure functions take their dependencies as arguments so a node harness can
+// drive them without a browser.
+var ZK_FEED_OVERLAP_MS = 120000;
+var ZK_FEED_PAGE = 200;
+var ZK_FEED_MAX_PAGES = 50;
+var ZK_FEED_SEEN_CAP = 5000;
+var ZK_FEED_TOAST_MAX = 5;
+
+function zkFeedNew() { return {maxSeen:0, seen:{}, ready:false, busy:false}; }
+var ZK_FEED = zkFeedNew();
+
+function zkFeedCutoff(st) { return new Date(st.maxSeen - ZK_FEED_OVERLAP_MS).toISOString(); }
+
+// Returns the rows not seen before and advances maxSeen from every row.
+function zkFeedAccept(st, rows) {
+  var fresh = [];
+  rows.forEach(function(r){
+    if (!r || !r.id) return;
+    var ms = Date.parse(r.created_at);
+    if (isNaN(ms)) ms = st.maxSeen;
+    if (ms > st.maxSeen) st.maxSeen = ms;
+    if (Object.prototype.hasOwnProperty.call(st.seen, r.id)) return;
+    st.seen[r.id] = ms;
+    fresh.push(r);
+  });
+  return fresh;
+}
+
+// Drops ids the next poll can no longer return (created_at <= its cutoff), then
+// enforces the hard cap by discarding the oldest.
+function zkFeedPrune(st) {
+  var floor = st.maxSeen - ZK_FEED_OVERLAP_MS;
+  var ids = Object.keys(st.seen);
+  ids.forEach(function(id){ if (st.seen[id] <= floor) delete st.seen[id]; });
+  ids = Object.keys(st.seen);
+  if (ids.length > ZK_FEED_SEEN_CAP) {
+    ids.sort(function(a, b){ return st.seen[a] - st.seen[b]; });
+    ids.slice(0, ids.length - ZK_FEED_SEEN_CAP).forEach(function(id){ delete st.seen[id]; });
+  }
+}
+
+// fetchPage(cutoffIso, offset) resolves to an array of rows or an {error}.
+async function zkFeedRun(st, fetchPage) {
+  var cutoff = zkFeedCutoff(st), fresh = [], offset = 0;
+  for (var i = 0; i < ZK_FEED_MAX_PAGES; i++) {
+    var page = await fetchPage(cutoff, offset);
+    if (!Array.isArray(page)) return {error: (page && page.error) || {}, fresh: fresh};
+    fresh = fresh.concat(zkFeedAccept(st, page));
+    if (page.length < ZK_FEED_PAGE) break;
+    offset += ZK_FEED_PAGE;
+  }
+  zkFeedPrune(st);
+  return {fresh: fresh};
+}
+
+// Learns the starting point from the newest row; nothing is shown for it. An
+// empty table starts at the epoch, so the first real row is always newer.
+async function zkFeedSeed(st, fetchNewest) {
+  var rows = await fetchNewest();
+  if (!Array.isArray(rows)) return {error: (rows && rows.error) || {}};
+  st.maxSeen = 0;
+  zkFeedAccept(st, rows.slice(0, 1));
+  return {};
+}
+
+function zkFeedFetchNewest() {
+  return Supa.goFetch('/api/attendance_logs' + Supa.gq({_order:'created_at.desc', _limit:1}));
+}
+function zkFeedFetchPage(cutoff, offset) {
+  return Supa.goFetch('/api/attendance_logs' + Supa.gq({created_after:cutoff, _order:'created_at.asc', _limit:ZK_FEED_PAGE, _offset:offset}));
+}
+
+function zkFeedNotify(rows) {
+  if (!rows.length) return;
+  var shown = rows.slice(-ZK_FEED_TOAST_MAX);
+  if (rows.length > shown.length) toast('+' + (rows.length - shown.length) + ' marcadas anteriores', 'info');
+  shown.forEach(function(r){
+    toast('<i class="fas fa-fingerprint mr-1"></i>'+escHtml(r.employee_name)+' — '+escHtml(r.time_in||'marcó'),'success',true);
+  });
+  loadAttendance(); // refresh today's list
+}
+
+// One tick: seed (and silently read the overlap window, so rows already in it do
+// not toast) until ready, then poll. Failures are silent and retried next tick.
+async function zkFeedTick(visibleOnly) {
+  if (A.demo) return;
+  var st = ZK_FEED;
+  if (st.busy) return;
+  if (st.ready && visibleOnly) {
+    var attPage = document.getElementById('pg-attendance');
+    if (!attPage || !attPage.classList.contains('active')) return;
+  }
+  st.busy = true;
   try {
-    var res=await fetch(url+'?SN=TEST&options=all');
-    if(res.ok){
-      var text=await res.text();
-      if(text.includes('GET OPTION')||text.includes('OK')) toast('Edge Function responde correctamente');
-      else toast('Respuesta inesperada: '+text.slice(0,50),'warning');
-    } else {
-      toast('Error HTTP '+res.status+' — ¿desplegaste la Edge Function?','warning');
+    if (!st.ready) {
+      var seeded = await zkFeedSeed(st, zkFeedFetchNewest);
+      if (seeded.error) return;
+      var primed = await zkFeedRun(st, zkFeedFetchPage);
+      if (primed.error) return;
+      st.ready = true;
+      return;
     }
-  } catch(err) {
-    toast('No se pudo conectar: '+err.message,'danger');
+    var r = await zkFeedRun(st, zkFeedFetchPage);
+    // Rows of the pages read before a failure are already in the seen-set, so
+    // they are shown now; the failed remainder is re-read on the next tick.
+    if (ZK_FEED === st) zkFeedNotify(r.fresh);
+  } catch (e) {
+    /* network error: keep the cursor, retry on the next tick */
+  } finally {
+    st.busy = false;
   }
 }
 
 // Realtime polling for attendance (ZKTeco live updates)
 function startZKPolling() {
   if(ZK_POLL_INTERVAL) return; // already running
-  ZK_LAST_POLL=new Date();
   var badge=document.getElementById('zk-live-badge'); if(badge) badge.style.display='';
-  ZK_POLL_INTERVAL=setInterval(async function(){
-    // Only poll when attendance page is visible
-    var attPage=document.getElementById('pg-attendance');
-    if(!attPage||attPage.style.display==='none') return;
-    // Fetch attendance records created after last poll
-    var since=ZK_LAST_POLL.toISOString();
-    ZK_LAST_POLL=new Date();
-    var url=A.url+'/rest/v1/attendance_logs?select=employee_name,time_in,time_out,status&created_at=gt.'+encodeURIComponent(since)+'&order=created_at.desc&limit=5';
-    var res=await fetch(url,{headers:Supa.hdr()}).catch(function(){return null;});
-    if(!res) return;
-    var rows=await res.json().catch(function(){return [];});
-    if(Array.isArray(rows)&&rows.length){
-      rows.forEach(function(r){
-        toast('<i class="fas fa-fingerprint mr-1"></i>'+escHtml(r.employee_name)+' — '+escHtml(r.time_in||'marcó'),'success',true);
-      });
-      loadAttendance(); // refresh today's list
-    }
-  }, 30000); // every 30 seconds
+  zkFeedTick(false);
+  ZK_POLL_INTERVAL=setInterval(function(){ zkFeedTick(true); }, 30000); // every 30 seconds
 }
 
 function stopZKPolling() {
   if(ZK_POLL_INTERVAL){ clearInterval(ZK_POLL_INTERVAL); ZK_POLL_INTERVAL=null; }
+  ZK_FEED = zkFeedNew(); // a new session starts from a fresh cursor and seen-set
+  var badge=document.getElementById('zk-live-badge'); if(badge) badge.style.display='none';
 }
 
 // ════════════════ SETTINGS ═══════════════════════════════════
@@ -4260,10 +4660,19 @@ var PERM_MODULES=[
   {key:'settings',label:'Configuración',icon:'fa-cogs',color:'text-secondary'}
 ];
 async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el||!Array.isArray(roles)) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+escHtml(r.name)+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
-async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
-async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
+// "admin" is the built-in role every permission check bypasses on; the server
+// refuses it too (a roles row with that name would make its users admins).
+function reservedRoleName(n){ return String(n||'').trim().toLowerCase()==='admin'; }
+function roleErrMsg(err,fallback){
+  if(err&&err.code==='validation_failed'&&err.fields&&err.fields.name==='reserved name') return 'El nombre "admin" está reservado para el administrador';
+  if(err&&err.code==='conflict'&&err.message==='already exists') return 'Ya existe un rol con ese nombre';
+  if(err&&err.code==='conflict') return fallback+': '+err.message; // "N usuario(s) tienen este rol"
+  return apiErrMsg(err,fallback);
+}
+async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} if(reservedRoleName(n)){ toast('El nombre "admin" está reservado para el administrador','warning'); return; } var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo agregar'),'danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
+async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo eliminar'),'danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
 function editRole(id){ editEntity('role',id,'updateRole','loadRoleMgmt'); }
-async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
+async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(reservedRoleName(inp.value)){ toast('El nombre "admin" está reservado para el administrador','warning'); return; } if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo actualizar'),'danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
 async function openRolePermsModal(id){
   var rows=await Supa.sel('roles',{id:id}); var role=Array.isArray(rows)&&rows[0]; if(!role) return;
   document.getElementById('rpm-role-id').value=id;
@@ -4306,7 +4715,11 @@ async function openUserModal(id){
   var nm=document.getElementById('um-name'); if(nm) nm.value=u?((u.first_name||'')+' '+(u.last_name||'')).trim():'';
   var em=document.getElementById('um-email'); if(em) em.value=u?u.email:'';
   var rs=document.getElementById('um-role');
-  if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+escHtml(r.name)+'">'+escHtml(r.name)+'</option>'; }).join(''); rs.value=u&&u.role?u.role:(rs.options[0]?rs.options[0].value:''); }
+  if(rs){ var roles=await Supa.sel('roles'); if(Array.isArray(roles)&&roles.length) rs.innerHTML=roles.map(function(r){ return '<option value="'+escHtml(r.name)+'">'+escHtml(r.name)+'</option>'; }).join('');
+    if(!A.demo){ // the server accepts the system roles and the user's current role even when no roles row exists
+      ['admin','empleado',u&&u.role].forEach(function(n){ if(n&&!Array.prototype.some.call(rs.options,function(o){return o.value===n;})) rs.insertAdjacentHTML('beforeend','<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>'); });
+    }
+    rs.value=u&&u.role?u.role:(rs.options[0]?rs.options[0].value:''); }
   document.querySelector('#userModal .modal-title').innerHTML='<i class="fas fa-'+(u?'user-edit':'user-plus')+' mr-2"></i>'+(u?'Editar Usuario':'Nuevo Usuario');
   $('#userModal').modal('show');
 }
@@ -4315,22 +4728,106 @@ async function saveUser(){
   if(!name||!email){toast('Nombre y email requeridos','warning');return;}
   var parts=name.split(' '), fn=parts[0], ln=parts.slice(1).join(' ')||'';
   var d={first_name:fn,last_name:ln,email:email,role:role,status:'active'};
-  if(id){
-    if(A.demo){ var idx=DS.users.findIndex(function(u){return u.id===id;}); if(idx>-1) DS.users[idx]=Object.assign({},DS.users[idx],d); }
-    else await Supa.upd('users',id,d);
-  } else {
-    if(A.demo) DS.users.push(Object.assign({id:'u-'+Date.now(),company_id:A.companyId},d));
-    else await Supa.ins('users',d);
+  if(A.demo){
+    if(id){ var idx=DS.users.findIndex(function(u){return u.id===id;}); if(idx>-1) DS.users[idx]=Object.assign({},DS.users[idx],d); }
+    else DS.users.push(Object.assign({id:'u-'+Date.now(),company_id:A.companyId},d));
+    $('#userModal').modal('hide'); toast('✅ Usuario guardado'); loadUserMgmt(); return;
   }
-  $('#userModal').modal('hide'); toast('✅ Usuario guardado'); loadUserMgmt();
+  // Real mode (Go): never send status or company_id. Edit leaves the status alone;
+  // create returns the server-generated temporary password exactly once.
+  var body={first_name:fn,last_name:ln,email:email,role:role};
+  var btn=document.getElementById('um-save');
+  if(btn){ if(btn.disabled) return; btn.disabled=true; } // a second click while the request is in flight would send a duplicate POST
+  var r;
+  try{ r=id?await Supa.upd('users',id,body):await Supa.ins('users',body); }
+  catch(e){ r={error:{code:'network',message:String(e&&e.message||e)}}; }
+  finally{ if(btn) btn.disabled=false; }
+  if(r&&r.error){ toast(userErrMsg(r.error,'No se pudo guardar el usuario'),'danger'); return; }
+  var tmp=(!id&&Array.isArray(r)&&r[0])?r[0].temporary_password:'';
+  if(tmp) showTempPassword(email,tmp); // registers the follow-up before the hide transition starts
+  $('#userModal').modal('hide');
+  if(!id&&!tmp){ toast('Usuario creado, pero el servidor no devolvió la contraseña temporal','warning'); loadUserMgmt(); return; }
+  toast('✅ Usuario guardado'); loadUserMgmt();
 }
+// Spanish text for the Go error envelope (real mode only), shared by the users and
+// recruitment screens. Per-screen wording comes in through `o`: o.forbidden (text),
+// o.conflict (fn(serverMessage) -> text, default: the server message), o.notFound (text).
+// Without o.notFound a 404 keeps the generic "fallback: reason" form.
+var API_FIELD_ES={email:'email',first_name:'nombre',last_name:'apellido',role:'rol',status:'estado',
+  title:'puesto',department:'departamento',location:'ubicación',description:'descripción',requirements:'requisitos',
+  salary_min:'salario mínimo',salary_max:'salario máximo',full_name:'nombre',id_number:'cédula',phone:'teléfono',
+  nationality:'nacionalidad',resume_notes:'notas del CV',job_posting_id:'vacante',candidate_id:'candidato',
+  stage:'etapa',notes:'notas',applied_at:'fecha'};
+// The Go API's own conflict texts are English; recruitment conflicts arrive in
+// Spanish already and are shown as they come.
+var API_CONFLICT_ES={
+  'already exists':'Ya existe un registro con esos datos',
+  'leave request already decided':'La solicitud ya fue resuelta',
+  'referenced record missing':'Un registro relacionado ya no existe',
+  'company must keep at least one active admin':'La empresa debe conservar al menos un administrador activo'
+};
+function apiErrMsg(err,fallback,o){
+  o=o||{};
+  var code=err&&err.code, msg=(err&&err.message)||'';
+  if(code==='forbidden') return o.forbidden||'No tienes permiso para esta acción';
+  if(code==='conflict') return o.conflict?o.conflict(msg):(API_CONFLICT_ES[msg]||msg||'La operación entra en conflicto con el estado actual');
+  if(code==='not_found'&&o.notFound) return o.notFound;
+  if(code==='validation_failed'){
+    var f=Object.keys((err&&err.fields)||{}).map(function(k){ return API_FIELD_ES[k]||k; });
+    return f.length?'Datos inválidos: revisa '+f.join(', '):'Datos inválidos';
+  }
+  if(code==='rate_limited') return 'Demasiadas solicitudes, intenta de nuevo en un momento';
+  // The server's texts for these codes are generic English ("not found",
+  // "invalid body", "internal error"), so the user gets a Spanish reason instead.
+  var reason={not_found:'el registro no existe',bad_request:'la solicitud no es válida',internal:'error interno del servidor',unauthorized:'la sesión expiró',network:'no se pudo conectar con el servidor'}[code];
+  if(reason) return fallback+': '+reason;
+  // Unknown codes keep the server reason; toast() escapes it.
+  return msg?fallback+': '+msg:fallback;
+}
+// Users screen wording: the 409 code is shared, so the last-admin guard is told apart by its message.
+function userErrMsg(err,fallback){
+  return apiErrMsg(err,fallback,{forbidden:'Solo administradores',conflict:function(msg){
+    return /active admin/i.test(msg)?'La empresa debe conservar al menos un administrador activo':'Ya existe un usuario con ese email';
+  }});
+}
+// The temporary password lives only in this modal's input; it is wiped on hidden.bs.modal.
+function showTempPassword(email,pw){
+  document.getElementById('utp-email').textContent=email;
+  document.getElementById('utp-pass').value=pw;
+  $('#userModal').one('hidden.bs.modal',function(){ $('#userTempPwModal').modal('show'); });
+}
+function copyTempPassword(){
+  var el=document.getElementById('utp-pass'); if(!el||!el.value) return;
+  var ok=function(){ toast('Contraseña copiada'); };
+  var fallback=function(){ el.select(); try{ if(document.execCommand('copy')) ok(); else toast('Selecciona y copia manualmente','warning'); }catch(e){ toast('Selecciona y copia manualmente','warning'); } };
+  if(navigator.clipboard&&navigator.clipboard.writeText) navigator.clipboard.writeText(el.value).then(ok).catch(fallback); else fallback();
+}
+$(document).on('hidden.bs.modal','#userTempPwModal',function(){
+  document.getElementById('utp-pass').value=''; document.getElementById('utp-email').textContent='';
+});
 async function loadUserMgmt(){
-  var users=A.demo?DS.users.filter(function(u){return u.company_id===A.companyId;}):(await Supa.sel('users')||[]);
+  var users;
+  if(A.demo) users=DS.users.filter(function(u){return u.company_id===A.companyId;});
+  else {
+    var res=await Supa.selAll('users'); // DS.users is the read cache the modal openers use
+    var tbe=document.getElementById('user-list-tbody');
+    if(!Array.isArray(res)){
+      if(tbe) tbe.innerHTML='';
+      toast(userErrMsg(res&&res.error,'No se pudieron cargar los usuarios'),'danger'); return;
+    }
+    DS.users=users=res;
+  }
   var tb=document.getElementById('user-list-tbody'); if(!tb) return;
   var rCls={admin:'badge-danger',rrhh:'badge-primary',supervisor:'badge-success',empleado:'badge-secondary'};
-  tb.innerHTML=users.map(function(u){ return '<tr><td><strong>'+escHtml((u.first_name||'')+' '+(u.last_name||''))+'</strong></td><td>'+escHtml(u.email)+'</td><td><span class="badge '+(rCls[u.role]||'badge-secondary')+' px-2 py-1">'+escHtml((u.role||'—').toUpperCase())+'</span></td><td><span class="badge '+(u.status==='active'?'badge-success':'badge-secondary')+'">'+(u.status==='active'?'Activo':'Inactivo')+'</span></td><td class="text-right"><button class="btn btn-xs btn-outline-secondary mr-1" onclick="openUserModal(\''+u.id+'\')" title="Editar"><i class="fas fa-pencil-alt"></i></button>'+(u.id!=='u1'?'<button class="btn btn-xs btn-outline-danger" onclick="delUser(\''+u.id+'\')" title="Eliminar"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'; }).join('');
+  tb.innerHTML=users.map(function(u){ return '<tr><td><strong>'+escHtml((u.first_name||'')+' '+(u.last_name||''))+'</strong></td><td>'+escHtml(u.email)+'</td><td><span class="badge '+(rCls[u.role]||'badge-secondary')+' px-2 py-1">'+escHtml((u.role||'—').toUpperCase())+'</span></td><td><span class="badge '+(u.status==='active'?'badge-success':'badge-secondary')+'">'+(u.status==='active'?'Activo':'Inactivo')+'</span></td><td class="text-right"><button class="btn btn-xs btn-outline-secondary mr-1" onclick="openUserModal(\''+escHtml(u.id)+'\')" title="Editar"><i class="fas fa-pencil-alt"></i></button>'+(u.id!=='u1'?'<button class="btn btn-xs btn-outline-danger" onclick="delUser(\''+escHtml(u.id)+'\')" title="Eliminar"><i class="fas fa-trash"></i></button>':'')+'</td></tr>'; }).join('');
 }
-function delUser(id){ if(!confirm('¿Eliminar usuario?')) return; DS.users=DS.users.filter(function(u){ return u.id!==id; }); toast('Eliminado','info'); loadUserMgmt(); }
+async function delUser(id){
+  if(A.demo){ if(!confirm('¿Eliminar usuario?')) return; DS.users=DS.users.filter(function(u){ return u.id!==id; }); toast('Eliminado','info'); loadUserMgmt(); return; }
+  if(!confirm('¿Desactivar usuario? Ya no podrá iniciar sesión.')) return;
+  var r=await Supa.del('users',id); // soft delete: the row stays as inactive
+  if(r&&r.error){ toast(userErrMsg(r.error,'No se pudo desactivar el usuario'),'danger'); return; }
+  toast('Usuario desactivado','info'); loadUserMgmt();
+}
 
 // ════════════════ BACKUP & SQL ════════════════════════════════
 function exportBackup(){
@@ -4340,10 +4837,14 @@ function exportBackup(){
   downJSON(backup,'backup_'+A.companyName.replace(/\s+/g,'_')+'_'+TS+'.json');
   toast('✅ Backup exportado');
 }
-function exportAllCSV(){
-  var emps=DS.employees.filter(function(e){ return e.company_id===A.companyId; });
+async function exportAllCSV(){
+  // From the API (DS.employees is never filled outside demo mode; Supa reads DS itself in demo).
+  // Fields the server redacts for the caller's role arrive as null and export empty.
+  var emps=await Supa.selAll('employees');
+  if(emps&&emps.error){ toast(apiErrMsg(emps.error,'No se pudo exportar'),'danger'); return; }
+  if(!Array.isArray(emps)||!emps.length){ toast('Sin datos','warning'); return; }
   var hdr=['Nombre','Apellido','Cédula','Cargo','Departamento','Salario','Ingreso','Estado','Email','Teléfono','Contrato','SS'];
-  var csv=[hdr].concat(emps.map(function(e){ return [e.first_name,e.last_name,e.cedula||'',e.position||'',e.department||'',e.salary||'',e.start_date||'',e.status||'',e.email||'',e.phone||'',e.contract_type||'',e.ss_number||'']; })).map(function(r){ return r.map(function(x){ return '"'+(x||'')+'"'; }).join(','); }).join('\n');
+  var csv=csvText([hdr].concat(emps.map(function(e){ return [e.first_name,e.last_name,e.cedula,e.position,e.department,e.salary,e.start_date,e.status,e.email,e.phone,e.contract_type,e.ss_number]; })));
   downCSV(csv,'empleados_completo_'+TS+'.csv'); toast('✅ CSV exportado');
 }
 function importBackup(evt){
@@ -4361,14 +4862,6 @@ function importBackup(evt){
   };
   reader.readAsText(file,'UTF-8');
 }
-function showSQLSchema(){
-  var sql='-- ============================================================\n-- HR Admin Panel — SQL Schema para Supabase (PostgreSQL)\n-- Generado: '+new Date().toLocaleDateString('es-PA')+'\n-- ============================================================\n\nCREATE EXTENSION IF NOT EXISTS "uuid-ossp";\n\n-- 1. EMPRESAS\nCREATE TABLE IF NOT EXISTS companies (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  name TEXT NOT NULL, ruc TEXT, address TEXT, phone TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 2. DEPARTAMENTOS\nCREATE TABLE IF NOT EXISTS departments (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  name TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 3. CARGOS\nCREATE TABLE IF NOT EXISTS positions (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  name TEXT NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 4. EMPLEADOS\nCREATE TABLE IF NOT EXISTS employees (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  first_name TEXT NOT NULL, last_name TEXT NOT NULL,\n  cedula TEXT, ss_number TEXT, dv TEXT, birth_date DATE, age INT,\n  sex CHAR(1), marital_status TEXT, blood_type TEXT, nationality TEXT,\n  address TEXT, phone TEXT, email TEXT,\n  license_number TEXT, license_type TEXT, license_expiry DATE,\n  position TEXT, department TEXT, branch TEXT,\n  salary NUMERIC(12,2) DEFAULT 0,\n  weekly_hours NUMERIC(5,1) DEFAULT 44,\n  monthly_hours NUMERIC(7,1), hourly_rate NUMERIC(10,4),\n  contract_type TEXT DEFAULT \'indefinido\',\n  start_date DATE, status TEXT DEFAULT \'active\',\n  contract_expiry DATE, work_permit_expiry DATE,\n  emergency_contact TEXT, emergency_phone TEXT, emergency_relation TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()\n);\nCREATE INDEX IF NOT EXISTS idx_emp_co ON employees(company_id);\nCREATE INDEX IF NOT EXISTS idx_emp_st ON employees(status);\n\n-- 5. ASISTENCIA\nCREATE TABLE IF NOT EXISTS attendance_logs (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, department TEXT,\n  date DATE NOT NULL, time_in TIME, time_out TIME,\n  status TEXT DEFAULT \'present\', notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\nCREATE UNIQUE INDEX IF NOT EXISTS idx_att_emp_date ON attendance_logs(employee_id, date);\n\n-- 6. SALDOS DE VACACIONES\nCREATE TABLE IF NOT EXISTS leave_balances (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, year INT NOT NULL,\n  earned_days NUMERIC(6,1) DEFAULT 0,\n  used_days NUMERIC(6,1) DEFAULT 0,\n  remaining_days NUMERIC(6,1) GENERATED ALWAYS AS (earned_days - used_days) STORED,\n  UNIQUE(employee_id, year)\n);\n\n-- 7. SOLICITUDES DE VACACIONES\nCREATE TABLE IF NOT EXISTS leave_requests (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, type TEXT DEFAULT \'vacaciones\',\n  start_date DATE NOT NULL, end_date DATE NOT NULL, days INT,\n  status TEXT DEFAULT \'pending\', notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 8. HORAS EXTRAS\nCREATE TABLE IF NOT EXISTS overtime_logs (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, date DATE NOT NULL,\n  hours NUMERIC(5,1) NOT NULL, type TEXT DEFAULT \'regular\',\n  hourly_rate NUMERIC(10,4), amount NUMERIC(12,2), notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 9. DEDUCCIONES\nCREATE TABLE IF NOT EXISTS deductions (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,\n  employee_name TEXT, type TEXT DEFAULT \'prestamo\', description TEXT,\n  total_amount NUMERIC(12,2) DEFAULT 0, quota NUMERIC(12,2) NOT NULL,\n  remaining NUMERIC(12,2) DEFAULT 0, start_date DATE,\n  status TEXT DEFAULT \'active\', created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 10. HISTORIAL DE PLANILLAS\nCREATE TABLE IF NOT EXISTS payroll_history (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  period TEXT NOT NULL, month INT NOT NULL, year INT NOT NULL,\n  month_name TEXT, employee_count INT DEFAULT 0,\n  total_bruto NUMERIC(14,2) DEFAULT 0,\n  total_neto NUMERIC(14,2) DEFAULT 0,\n  total_empresa NUMERIC(14,2) DEFAULT 0,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 11. HISTORIAL DE LIQUIDACIONES\nCREATE TABLE IF NOT EXISTS liquidation_history (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID REFERENCES employees(id),\n  employee_name TEXT, reason TEXT, exit_date DATE,\n  total_amount NUMERIC(14,2) DEFAULT 0, notes TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 12. PLANTILLAS DE DOCUMENTOS\nCREATE TABLE IF NOT EXISTS document_templates (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  name TEXT NOT NULL, type TEXT DEFAULT \'contract\',\n  content TEXT NOT NULL,\n  created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- 13. DOCUMENTOS GENERADOS\nCREATE TABLE IF NOT EXISTS generated_documents (\n  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),\n  company_id UUID NOT NULL REFERENCES companies(id) ON DELETE CASCADE,\n  employee_id UUID REFERENCES employees(id),\n  employee_name TEXT, template_id UUID REFERENCES document_templates(id),\n  template_name TEXT, document_name TEXT, content TEXT,\n  created_at TIMESTAMPTZ DEFAULT NOW()\n);\n\n-- ROW LEVEL SECURITY (Multiempresa)\nCREATE OR REPLACE FUNCTION get_company_id() RETURNS UUID AS $\n  SELECT (auth.jwt() -> \'user_metadata\' ->> \'company_id\')::UUID;\n$ LANGUAGE SQL STABLE;\n\nDO $ DECLARE t TEXT;\nBEGIN FOR t IN SELECT unnest(ARRAY[\'departments\',\'positions\',\'employees\',\n  \'attendance_logs\',\'leave_balances\',\'leave_requests\',\'overtime_logs\',\n  \'deductions\',\'payroll_history\',\'liquidation_history\',\'document_templates\',\'generated_documents\'\n]) LOOP\n  EXECUTE format(\'ALTER TABLE %I ENABLE ROW LEVEL SECURITY\', t);\n  EXECUTE format(\'CREATE POLICY "tenant_isolation" ON %I FOR ALL USING (company_id = get_company_id())\', t);\nEND LOOP; END $;\n\n-- Función de acumulación de vacaciones (Panamá: 1 día cada 11 trabajados)\nCREATE OR REPLACE FUNCTION accrue_vacation_days() RETURNS void AS $\nDECLARE emp RECORD; days_worked INT; earned NUMERIC;\nBEGIN\n  FOR emp IN SELECT * FROM employees WHERE status = \'active\' LOOP\n    SELECT COUNT(*) INTO days_worked FROM attendance_logs\n    WHERE employee_id = emp.id AND status IN (\'present\',\'late\')\n    AND EXTRACT(YEAR FROM date) = EXTRACT(YEAR FROM NOW());\n    earned := FLOOR(days_worked / 11.0);\n    INSERT INTO leave_balances(company_id,employee_id,employee_name,year,earned_days,used_days)\n    VALUES(emp.company_id,emp.id,emp.first_name||\' \'||emp.last_name,\n      EXTRACT(YEAR FROM NOW())::INT,earned,0)\n    ON CONFLICT (employee_id,year) DO UPDATE SET earned_days = EXCLUDED.earned_days;\n  END LOOP;\nEND;\n$ LANGUAGE plpgsql;\n\n-- Trigger updated_at\nCREATE OR REPLACE FUNCTION update_timestamp() RETURNS TRIGGER AS $\nBEGIN NEW.updated_at = NOW(); RETURN NEW; END;\n$ LANGUAGE plpgsql;\nCREATE TRIGGER trg_employees_updated BEFORE UPDATE ON employees\n  FOR EACH ROW EXECUTE FUNCTION update_timestamp();\n\n-- FIN DEL SCHEMA — HR Admin Panel · '+A.companyName+'\n-- Total tablas: 13 | RLS: Habilitado';
-  var pre=document.getElementById('sql-schema-pre'); if(pre) pre.textContent=sql;
-  window._sqlSchema=sql;
-  $('#sqlModal').modal('show');
-}
-function copySQLSchema(){ if(window._sqlSchema){ navigator.clipboard.writeText(window._sqlSchema).then(function(){ toast('✅ SQL copiado al portapapeles'); }).catch(function(){ toast('Usa el botón Descargar','warning'); }); } }
-function downloadSQLSchema(){ if(window._sqlSchema){ var a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([window._sqlSchema],{type:'text/sql'})); a.download='hr_admin_schema_'+TS+'.sql'; a.click(); toast('Schema SQL descargado 📥'); } }
 
 // ════════════════ CSV IMPORT ══════════════════════════════════
 function triggerImportCSV(){ document.getElementById('csv-input').click(); }
@@ -4793,14 +5286,40 @@ function delSurvey(id){ if(!confirm('¿Eliminar encuesta?')) return; DS.surveys=
 
 // ════════════════ TRAINING ═══════════════════════════════════
 var chTr=null;
+var TR_STATUS_LABEL={programado:'Programado',en_progreso:'En progreso',completado:'Completado'};
+// The course form as the API body: empty fields are null (the server rejects
+// an empty date string), hours a whole number.
+function trainingPayload(){
+  var n=function(id){ var v=gv(id); return v===''?null:v; };
+  var h=gv('tr-hours'), hours=h===''?null:parseInt(h,10);
+  return {name:gv('tr-name'),category:n('tr-cat'),hours:isNaN(hours)?null:hours,start_date:n('tr-start'),end_date:n('tr-end'),mode:n('tr-mode'),instructor:n('tr-instructor'),description:n('tr-desc')};
+}
 async function loadTraining(){
-  var emps=await Supa.sel('employees');
-  var trs=DS.trainings.filter(function(t){ return t.company_id===A.companyId; });
-  var enrs=DS.enrollments.filter(function(e){ return e.company_id===A.companyId; });
+  var trs, enrs, emps;
+  if(A.demo){
+    emps=await Supa.sel('employees');
+    trs=DS.trainings.filter(function(t){ return t.company_id===A.companyId; });
+    enrs=DS.enrollments.filter(function(e){ return e.company_id===A.companyId; });
+  } else {
+    // DS.trainings/DS.enrollments are only the read cache the modals and the
+    // certificate use; the server is the source of truth.
+    var res;
+    try { res=await Promise.all([Supa.selAll('trainings'),Supa.selAll('enrollments'),Supa.selAll('employees')]); }
+    catch(err){ res=[{error:{code:'network',message:String(err&&err.message||err)}}]; }
+    var badAt=res.findIndex(function(x){ return !Array.isArray(x); });
+    if(badAt>=0){
+      ['training-stats','training-cards','enrollment-tbody','certificate-cards','tr-emp-wrap'].forEach(function(id){ var x=document.getElementById(id); if(x) x.innerHTML=''; });
+      toast(apiErrMsg(res[badAt]&&res[badAt].error,'No se pudieron cargar las capacitaciones'),'danger'); return;
+    }
+    DS.trainings=trs=res[0]; DS.enrollments=enrs=res[1]; emps=res[2];
+  }
+  DS.trainingEmployees=Array.isArray(emps)?emps.filter(function(e){ return e.status==='active'; }):[];
+  var byId={}; trs.forEach(function(t){ byId[t.id]=t; });
+  var hasScore=function(e){ return e.score!==null&&e.score!==undefined; };
   // Stats
   var st=document.getElementById('training-stats');
-  var total=trs.length, completed=trs.filter(function(t){ return t.status==='completado'; }).length, totalHrs=enrs.filter(function(e){ return e.status==='completado'; }).reduce(function(s){ return s; },0);
-  var certCount=enrs.filter(function(e){ return e.status==='completado'&&e.score!==null; }).length;
+  var total=trs.length, completed=trs.filter(function(t){ return t.status==='completado'; }).length;
+  var certCount=enrs.filter(function(e){ return e.status==='completado'&&hasScore(e); }).length;
   if(st) st.innerHTML=[{l:'Cursos',v:total,c:'info',i:'fa-graduation-cap'},{l:'Completados',v:completed,c:'success',i:'fa-check-circle'},{l:'En Progreso',v:trs.filter(function(t){ return t.status==='en_progreso'; }).length,c:'warning',i:'fa-spinner'},{l:'Certificados',v:certCount,c:'primary',i:'fa-certificate'}].map(function(s){ return '<div class="col-md-3 col-6"><div class="small-box bg-'+s.c+' stat-card"><div class="inner"><h3>'+s.v+'</h3><p>'+s.l+'</p></div><div class="icon"><i class="fas '+s.i+'"></i></div></div></div>'; }).join('');
   // Courses cards
   var catIcons={tecnico:'fa-laptop-code',seguridad:'fa-hard-hat',habilidades:'fa-heart',legal:'fa-balance-scale',liderazgo:'fa-crown',otro:'fa-book'};
@@ -4808,46 +5327,106 @@ async function loadTraining(){
   var tc=document.getElementById('training-cards');
   if(tc) tc.innerHTML=trs.map(function(t){
     var enrolled=enrs.filter(function(e){ return e.training_id===t.id; }).length;
-    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.88rem"><i class="fas '+(catIcons[t.category]||'fa-book')+' mr-1 text-primary"></i>'+escHtml(t.name)+'</h3><div class="card-tools"><span class="badge badge-'+(stColors[t.status]||'secondary')+'">'+escHtml(t.status.replace(/_/g,' '))+'</span></div></div><div class="card-body"><p class="text-muted small">'+escHtml(t.description)+'</p><small class="text-muted d-block"><i class="fas fa-clock mr-1"></i>'+escHtml(t.hours)+' horas · '+escHtml(t.mode)+'</small><small class="text-muted d-block"><i class="fas fa-calendar mr-1"></i>'+escHtml(t.start_date)+' → '+escHtml(t.end_date)+'</small><small class="text-muted d-block"><i class="fas fa-user-tie mr-1"></i>'+escHtml(t.instructor)+'</small><small class="text-muted d-block"><i class="fas fa-users mr-1"></i>'+enrolled+' inscritos</small></div><div class="card-footer"><button class="btn btn-sm btn-outline-primary mr-1" onclick="openEnrollModal(\''+t.id+'\')"><i class="fas fa-user-plus mr-1"></i>Inscribir</button><button class="btn btn-sm btn-outline-danger" onclick="delTraining(\''+t.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
+    var stSel='<select class="form-control form-control-sm d-inline-block w-auto mr-1" title="Estado del curso" onchange="setTrainingStatus(\''+escHtml(t.id)+'\',this.value)">'+Object.keys(TR_STATUS_LABEL).map(function(k){ return '<option value="'+k+'"'+(t.status===k?' selected':'')+'>'+TR_STATUS_LABEL[k]+'</option>'; }).join('')+'</select>';
+    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.88rem"><i class="fas '+(catIcons[t.category]||'fa-book')+' mr-1 text-primary"></i>'+escHtml(t.name)+'</h3><div class="card-tools"><span class="badge badge-'+(stColors[t.status]||'secondary')+'">'+escHtml(String(t.status||'').replace(/_/g,' '))+'</span></div></div><div class="card-body"><p class="text-muted small">'+escHtml(t.description)+'</p><small class="text-muted d-block"><i class="fas fa-clock mr-1"></i>'+escHtml(t.hours)+' horas · '+escHtml(t.mode)+'</small><small class="text-muted d-block"><i class="fas fa-calendar mr-1"></i>'+escHtml(t.start_date)+' → '+escHtml(t.end_date)+'</small><small class="text-muted d-block"><i class="fas fa-user-tie mr-1"></i>'+escHtml(t.instructor)+'</small><small class="text-muted d-block"><i class="fas fa-users mr-1"></i>'+enrolled+' inscritos</small></div><div class="card-footer">'+stSel+'<button class="btn btn-sm btn-outline-primary mr-1" onclick="openEnrollModal(\''+escHtml(t.id)+'\')"><i class="fas fa-user-plus mr-1"></i>Inscribir</button><button class="btn btn-sm btn-outline-danger" onclick="delTraining(\''+escHtml(t.id)+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
   }).join('');
   // Enrollments table
   var etb=document.getElementById('enrollment-tbody');
-  if(etb) etb.innerHTML=enrs.length?enrs.map(function(e){ return '<tr><td><strong>'+escHtml(e.employee_name)+'</strong></td><td>'+escHtml(e.training_name)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{category:'—'}).category)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{start_date:'—'}).start_date)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{end_date:'—'}).end_date)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{hours:'—'}).hours)+'</td><td><span class="badge badge-'+(e.status==='completado'?'success':e.status==='en_progreso'?'warning':'secondary')+'">'+escHtml(e.status.replace(/_/g,' '))+'</span></td><td>'+(e.score!==null?'<span class="badge badge-'+(e.score>=70?'success':'danger')+'">'+e.score+'%</span>':'—')+'</td><td><button class="btn btn-xs btn-outline-danger" onclick="delEnrollment(\''+e.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin inscripciones registradas.</td></tr>';
-  // Certificates
-  var certs=enrs.filter(function(e){ return e.status==='completado'&&e.score!==null; });
+  if(etb) etb.innerHTML=enrs.length?enrs.map(function(e){
+    var t=byId[e.training_id]||{category:'—',start_date:'—',end_date:'—',hours:'—'};
+    var score=hasScore(e)?Number(e.score):null;
+    return '<tr><td><strong>'+escHtml(e.employee_name)+'</strong></td><td>'+escHtml(e.training_name)+'</td><td>'+escHtml(t.category)+'</td><td>'+escHtml(t.start_date)+'</td><td>'+escHtml(t.end_date)+'</td><td>'+escHtml(t.hours)+'</td><td><span class="badge badge-'+(e.status==='completado'?'success':e.status==='en_progreso'?'warning':'secondary')+'">'+escHtml(String(e.status||'').replace(/_/g,' '))+'</span></td><td>'+(score!==null?'<span class="badge badge-'+(score>=70?'success':'danger')+'">'+escHtml(score)+'%</span>':'—')+'</td><td><button class="btn btn-xs btn-outline-primary mr-1" title="Calificar" onclick="openGradeModal(\''+escHtml(e.id)+'\')"><i class="fas fa-star mr-1"></i>Calificar</button><button class="btn btn-xs btn-outline-danger" onclick="delEnrollment(\''+escHtml(e.id)+'\')"><i class="fas fa-trash"></i></button></td></tr>';
+  }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin inscripciones registradas.</td></tr>';
+  // Certificates: completed enrollments with a score
+  var certs=enrs.filter(function(e){ return e.status==='completado'&&hasScore(e); });
   var cc=document.getElementById('certificate-cards');
-  if(cc) cc.innerHTML=certs.length?certs.map(function(e){ return '<div class="col-md-4 mb-3"><div class="card text-center"><div class="card-body"><div style="font-size:3rem">🎓</div><h6 class="mt-2">'+escHtml(e.employee_name)+'</h6><p class="text-muted small">'+escHtml(e.training_name)+'</p><span class="badge badge-'+(e.score>=90?'success':'primary')+' px-3 py-2 mb-2">'+e.score+'% · '+( e.score>=90?'Distinción':e.score>=70?'Aprobado':'Reprobado')+'</span><br><button class="btn btn-sm btn-outline-primary mt-2" onclick="printCertificate(\''+e.id+'\')"><i class="fas fa-print mr-1"></i>Imprimir Cert.</button></div></div></div>'; }).join(''):'<div class="col-12 text-center text-muted py-4"><i class="fas fa-certificate fa-3x d-block mb-2" style="opacity:.3"></i>Sin certificados aún</div>';
+  if(cc) cc.innerHTML=certs.length?certs.map(function(e){ var sc=Number(e.score); return '<div class="col-md-4 mb-3"><div class="card text-center"><div class="card-body"><div style="font-size:3rem">🎓</div><h6 class="mt-2">'+escHtml(e.employee_name)+'</h6><p class="text-muted small">'+escHtml(e.training_name)+'</p><span class="badge badge-'+(sc>=90?'success':'primary')+' px-3 py-2 mb-2">'+escHtml(sc)+'% · '+(sc>=90?'Distinción':sc>=70?'Aprobado':'Reprobado')+'</span><br><button class="btn btn-sm btn-outline-primary mt-2" onclick="printCertificate(\''+escHtml(e.id)+'\')"><i class="fas fa-print mr-1"></i>Imprimir Cert.</button></div></div></div>'; }).join(''):'<div class="col-12 text-center text-muted py-4"><i class="fas fa-certificate fa-3x d-block mb-2" style="opacity:.3"></i>Sin certificados aún</div>';
   // Populate emp selectors for modal
   var tw=document.getElementById('tr-emp-wrap');
-  if(tw&&Array.isArray(emps)) tw.innerHTML=emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<div class="col-md-6 mb-1"><div class="icheck-primary"><input type="checkbox" id="tr-emp-'+e.id+'" value="'+e.id+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'"><label for="tr-emp-'+e.id+'"> '+escHtml(e.first_name+' '+e.last_name)+'</label></div></div>'; }).join('');
+  if(tw) tw.innerHTML=DS.trainingEmployees.map(function(e){ return '<div class="col-md-6 mb-1"><div class="icheck-primary"><input type="checkbox" id="tr-emp-'+escHtml(e.id)+'" value="'+escHtml(e.id)+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'"><label for="tr-emp-'+escHtml(e.id)+'"> '+escHtml(e.first_name+' '+e.last_name)+'</label></div></div>'; }).join('');
 }
 function openTrainingModal(){ ['tr-id','tr-name','tr-hours','tr-start','tr-end','tr-instructor','tr-desc'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){ cb.checked=false; }); $('#trainingModal').modal('show'); }
 async function saveTraining(){
-  var name=gv('tr-name'); if(!name){toast('Ingresa el nombre del curso','warning');return;}
-  var d={name:name,category:gv('tr-cat')||'tecnico',hours:parseInt(gv('tr-hours'))||0,start_date:gv('tr-start'),end_date:gv('tr-end'),mode:gv('tr-mode')||'presencial',instructor:gv('tr-instructor'),description:gv('tr-desc'),status:'programado'};
-  var trId='tr-'+Date.now();
-  DS.trainings.push(Object.assign({id:trId,company_id:A.companyId,created_at:new Date().toISOString()},d));
-  // Enroll checked employees
-  document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){
-    if(cb.checked) DS.enrollments.push({id:'en-'+Date.now()+'-'+cb.value,company_id:A.companyId,training_id:trId,training_name:name,employee_id:cb.value,employee_name:cb.getAttribute('data-name'),status:'programado',score:null,notes:''});
-  });
-  $('#trainingModal').modal('hide'); toast('✅ Capacitación guardada'); loadTraining();
+  var d=trainingPayload(); if(!d.name){toast('Ingresa el nombre del curso','warning');return;}
+  var checked=[]; document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){ if(cb.checked) checked.push({id:cb.value,name:cb.getAttribute('data-name')}); });
+  if(A.demo){
+    // Demo rows keep the values the demo store always held (0 hours, '' dates)
+    var trId='tr-'+Date.now();
+    DS.trainings.push({id:trId,company_id:A.companyId,created_at:new Date().toISOString(),name:d.name,category:gv('tr-cat')||'tecnico',hours:parseInt(gv('tr-hours'))||0,start_date:gv('tr-start'),end_date:gv('tr-end'),mode:gv('tr-mode')||'presencial',instructor:gv('tr-instructor'),description:gv('tr-desc'),status:'programado'});
+    checked.forEach(function(c){ DS.enrollments.push({id:'en-'+Date.now()+'-'+c.id,company_id:A.companyId,training_id:trId,training_name:d.name,employee_id:c.id,employee_name:c.name,status:'programado',score:null,notes:''}); });
+    $('#trainingModal').modal('hide'); toast('✅ Capacitación guardada'); loadTraining(); return;
+  }
+  var r=await Supa.ins('trainings',d);
+  if(!Array.isArray(r)||!r[0]){ toast(apiErrMsg(r&&r.error,'No se pudo guardar la capacitación'),'danger'); return; }
+  var failed=0;
+  for(var i=0;i<checked.length;i++){
+    var er=await Supa.ins('enrollments',{training_id:r[0].id,employee_id:checked[i].id});
+    if(!Array.isArray(er)) failed++;
+  }
+  $('#trainingModal').modal('hide');
+  if(failed) toast('Capacitación guardada, pero '+failed+(failed===1?' inscripción no se pudo guardar':' inscripciones no se pudieron guardar'),'warning');
+  else toast('✅ Capacitación guardada');
+  await loadTraining();
 }
-function openEnrollModal(trId){
+async function openEnrollModal(trId){
   var trn=DS.trainings.find(function(t){ return t.id===trId; }), trName=trn?trn.name:'';
-  var emps=DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; });
+  // Real mode: the active employees loadTraining read from the API (DS.employees
+  // is only filled in demo mode)
+  var emps=A.demo?DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; }):(DS.trainingEmployees||[]);
   var already=DS.enrollments.filter(function(e){ return e.training_id===trId; }).map(function(e){ return e.employee_id; });
-  var available=emps.filter(function(e){ return !already.includes(e.id); });
+  var available=emps.filter(function(e){ return already.indexOf(e.id)<0; });
   if(!available.length){toast('Todos los empleados activos ya están inscritos','info');return;}
-  available.forEach(function(e){
-    if(confirm('¿Inscribir a '+e.first_name+' '+e.last_name+' en "'+trName+'"?')){
-      DS.enrollments.push({id:'en-'+Date.now(),company_id:A.companyId,training_id:trId,training_name:trName,employee_id:e.id,employee_name:e.first_name+' '+e.last_name,status:'programado',score:null,notes:''});
-    }
-  });
-  toast('✅ Inscripciones actualizadas'); loadTraining();
+  var added=0, failed=0;
+  for(var i=0;i<available.length;i++){
+    var e=available[i];
+    if(!confirm('¿Inscribir a '+e.first_name+' '+e.last_name+' en "'+trName+'"?')) continue;
+    if(A.demo){ DS.enrollments.push({id:'en-'+Date.now()+'-'+e.id,company_id:A.companyId,training_id:trId,training_name:trName,employee_id:e.id,employee_name:e.first_name+' '+e.last_name,status:'programado',score:null,notes:''}); added++; continue; }
+    var r=await Supa.ins('enrollments',{training_id:trId,employee_id:e.id});
+    if(Array.isArray(r)) added++; else failed++;
+  }
+  if(failed) toast(failed+(failed===1?' inscripción no se pudo guardar':' inscripciones no se pudieron guardar'),'warning');
+  else toast('✅ Inscripciones actualizadas');
+  await loadTraining();
 }
-function delTraining(id){ if(!confirm('¿Eliminar capacitación?')) return; DS.trainings=DS.trainings.filter(function(t){ return t.id!==id; }); DS.enrollments=DS.enrollments.filter(function(e){ return e.training_id!==id; }); toast('Eliminada','info'); loadTraining(); }
-function delEnrollment(id){ if(!confirm('¿Eliminar inscripción?')) return; DS.enrollments=DS.enrollments.filter(function(e){ return e.id!==id; }); toast('Eliminada','info'); loadTraining(); }
+async function setTrainingStatus(id,status){
+  if(A.demo){ var t=DS.trainings.find(function(x){ return x.id===id; }); if(t) t.status=status; toast('✅ Estado actualizado'); loadTraining(); return; }
+  var r=await Supa.upd('trainings',id,{status:status});
+  if(r&&r.error) toast(apiErrMsg(r.error,'No se pudo cambiar el estado'),'danger');
+  else toast('✅ Estado actualizado');
+  await loadTraining(); // re-render either way, so the select shows the stored status
+}
+function openGradeModal(id){
+  var en=DS.enrollments.find(function(e){ return e.id===id; }); if(!en) return;
+  document.getElementById('gr-id').value=id;
+  document.getElementById('gr-who').textContent=(en.employee_name||'')+' · '+(en.training_name||'');
+  document.getElementById('gr-status').value=en.status||'programado';
+  document.getElementById('gr-score').value=(en.score===null||en.score===undefined)?'':String(en.score);
+  document.getElementById('gr-notes').value=en.notes||'';
+  $('#gradeModal').modal('show');
+}
+async function saveGrade(){
+  var id=gv('gr-id'), raw=gv('gr-score'), score=raw===''?null:Number(raw);
+  if(score!==null&&(isNaN(score)||score<0||score>100)){ toast('La nota debe estar entre 0 y 100','warning'); return; }
+  var d={status:gv('gr-status')||'programado',score:score,notes:gv('gr-notes')||null};
+  if(A.demo){ var en=DS.enrollments.find(function(e){ return e.id===id; }); if(en) Object.assign(en,d); $('#gradeModal').modal('hide'); toast('✅ Calificación guardada'); loadTraining(); return; }
+  var r=await Supa.upd('enrollments',id,d);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la calificación'),'danger'); return; }
+  $('#gradeModal').modal('hide'); toast('✅ Calificación guardada'); await loadTraining();
+}
+async function delTraining(id){
+  if(!confirm('¿Eliminar capacitación?')) return;
+  if(A.demo){ DS.trainings=DS.trainings.filter(function(t){ return t.id!==id; }); DS.enrollments=DS.enrollments.filter(function(e){ return e.training_id!==id; }); toast('Eliminada','info'); loadTraining(); return; }
+  var r=await Supa.del('trainings',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la capacitación'),'danger'); return; }
+  toast('Eliminada','info'); await loadTraining();
+}
+async function delEnrollment(id){
+  if(!confirm('¿Eliminar inscripción?')) return;
+  if(A.demo){ DS.enrollments=DS.enrollments.filter(function(e){ return e.id!==id; }); toast('Eliminada','info'); loadTraining(); return; }
+  var r=await Supa.del('enrollments',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la inscripción'),'danger'); return; }
+  toast('Eliminada','info'); await loadTraining();
+}
 function printCertificate(enrollId){
   var en=DS.enrollments.find(function(e){ return e.id===enrollId; }); if(!en) return;
   var tr=DS.trainings.find(function(t){ return t.id===en.training_id; })||{};
@@ -4905,21 +5484,28 @@ async function saveAnnouncement(){
 function archiveAnnouncement(id){ var a=DS.announcements.find(function(x){ return x.id===id; }); if(a){ a.status='archivado'; loadAnnouncements(); toast('Archivado','info'); } }
 function delAnnouncement(id){ if(!confirm('¿Eliminar comunicado?')) return; DS.announcements=DS.announcements.filter(function(a){ return a.id!==id; }); loadAnnouncements(); toast('Eliminado','info'); }
 async function init(){
-  var DEFAULT_URL='https://swciybuhetkfrtpyjvgb.supabase.co';
-  var DEFAULT_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3Y2l5YnVoZXRrZnJ0cHlqdmdiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNTAxOTIsImV4cCI6MjA5NTgyNjE5Mn0.5uJ70QPSTkTjVE5_tqTHwVPPhnYyzqdI2RFsYHTHC74';
-  A.theme='light'; A.url=DEFAULT_URL; A.key=DEFAULT_KEY; A.demo=false;
-  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.url=localStorage.getItem('hr_url')||DEFAULT_URL; A.key=localStorage.getItem('hr_key')||DEFAULT_KEY; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
+  A.theme='light'; A.demo=false;
+  try{ A.theme=localStorage.getItem('hr_th')||'light'; A.demo=localStorage.getItem('hr_demo')==='1'; }catch(e){}
   if(A.theme==='dark') document.body.classList.add('dark-mode');
+  syncDemoUI();
+  var sess=null, meta=null;
   try{
     var ss=localStorage.getItem('hr_sess'), sm=localStorage.getItem('hr_meta');
     if(ss&&sm){
-      A.session=JSON.parse(ss); var meta=JSON.parse(sm);
-      A.role=meta.role; A.companyId=meta.companyId; A.companyName=meta.companyName;
-      loadUI(meta); showV('app'); go('dashboard'); loadRolePerms(); setTimeout(loadNotifications,1500); return;
+      sess=JSON.parse(ss); meta=JSON.parse(sm);
+      if(!sess||typeof sess!=='object'||!meta||typeof meta!=='object') throw new Error('unreadable session');
     }
-  }catch(e){}
-  if(A.demo||A.url) showV('login'); else showV('setup');
-  if(A.url){ document.getElementById('s-url').value=A.url; document.getElementById('s-key').value=A.key; }
+  }catch(e){ clearSession(); sess=null; }
+  if(sess&&meta){
+    // An expired or malformed token never reaches the API: straight to login.
+    // Demo sessions carry a fake token, so they skip the check.
+    if(!A.demo&&tokenExpired(sess.access_token)){ clearSession(); showV('login'); return; }
+    try{
+      A.session=sess; A.role=meta.role; A.companyId=meta.companyId; A.companyName=meta.companyName;
+      loadUI(meta); showV('app'); enterApp(); return;
+    }catch(e){}
+  }
+  showV('login');
 }
 
 // ════════════════ RECRUITMENT ════════════════════════════════
@@ -4927,10 +5513,40 @@ var REC_STAGE_BADGE = {applied:'badge-info',screening:'badge-warning',interview:
 var REC_STAGE_LABEL = {applied:'Postulado',screening:'Revisión',interview:'Entrevista',offer:'Oferta',hired:'Contratado',rejected:'Rechazado'};
 var REC_JOB_STATUS  = {open:{cls:'badge-success',label:'Abierta'},paused:{cls:'badge-warning',label:'Pausada'},closed:{cls:'badge-danger',label:'Cerrada'}};
 
-function loadRecruitment() {
-  var jobs  = DS.job_postings.filter(function(j){ return j.company_id===A.companyId; });
-  var cands = DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
-  var apps  = DS.applications.filter(function(a){ return a.company_id===A.companyId; });
+// Real mode (Go): requests run through recRequest, which drops a repeated call while the same
+// key is in flight (double click) and turns a thrown network error into an error envelope.
+var REC_INFLIGHT = {};
+async function recRequest(key, btnId, call) {
+  if (REC_INFLIGHT[key]) return null;
+  REC_INFLIGHT[key] = true;
+  var btn = btnId ? document.getElementById(btnId) : null;
+  if (btn) btn.disabled = true;
+  try { return await call(); }
+  catch (e) { return {error:{code:'network', message:String(e&&e.message||e)}}; }
+  finally { delete REC_INFLIGHT[key]; if (btn) btn.disabled = false; }
+}
+function recErrMsg(err, fallback, notFound) { return apiErrMsg(err, fallback, {notFound:notFound}); }
+
+async function loadRecruitment() {
+  var jobs, cands, apps;
+  if (A.demo) {
+    jobs  = DS.job_postings.filter(function(j){ return j.company_id===A.companyId; });
+    cands = DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
+    apps  = DS.applications.filter(function(a){ return a.company_id===A.companyId; });
+  } else {
+    // DS.* is only the read cache the modal openers use; the server is the source of truth.
+    var res;
+    try { res = await Promise.all([Supa.selAll('job_postings'), Supa.selAll('candidates'), Supa.selAll('applications')]); }
+    catch (e) { res = [{error:{code:'network', message:String(e&&e.message||e)}}]; }
+    // findIndex, not find: a null result is itself falsy and would slip through
+    var badAt = res.findIndex(function(x){ return !Array.isArray(x); });
+    if (badAt >= 0) {
+      var bad = res[badAt];
+      ['rec-jobs-tbody','rec-candidates-tbody','rec-pipeline-tbody'].forEach(function(id){ var e=document.getElementById(id); if(e) e.innerHTML=''; });
+      toast(recErrMsg(bad&&bad.error, 'No se pudo cargar reclutamiento'), 'danger'); return;
+    }
+    DS.job_postings = jobs = res[0]; DS.candidates = cands = res[1]; DS.applications = apps = res[2];
+  }
 
   // Vacantes tab
   var jTb = document.getElementById('rec-jobs-tbody');
@@ -4942,8 +5558,8 @@ function loadRecruitment() {
       +'<td><span class="badge '+st.cls+'">'+st.label+'</span></td>'
       +'<td>'+escHtml((j.created_at||'').substring(0,10))+'</td>'
       +'<td>'
-        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editJob(\''+j.id+'\')"><i class="fas fa-edit"></i></button>'
-        +'<button class="btn btn-xs btn-outline-danger" onclick="delJob(\''+j.id+'\')"><i class="fas fa-trash"></i></button>'
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editJob(\''+escHtml(j.id)+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delJob(\''+escHtml(j.id)+'\')"><i class="fas fa-trash"></i></button>'
       +'</td></tr>';
   }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin vacantes registradas.</td></tr>';
 
@@ -4964,8 +5580,8 @@ function loadRecruitment() {
       +'<td>'+escHtml(c.nationality)+'</td><td>'+escHtml(c.id_number||'—')+'</td>'
       +'<td><small class="text-muted">'+escHtml((c.resume_notes||'').substring(0,60)||'—')+'</small></td>'
       +'<td>'
-        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editCandidate(\''+c.id+'\')"><i class="fas fa-edit"></i></button>'
-        +'<button class="btn btn-xs btn-outline-danger" onclick="delCandidate(\''+c.id+'\')"><i class="fas fa-trash"></i></button>'
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editCandidate(\''+escHtml(c.id)+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delCandidate(\''+escHtml(c.id)+'\')"><i class="fas fa-trash"></i></button>'
       +'</td></tr>';
   }).join('') : '<tr><td colspan="7" class="text-center p-3 text-muted">Sin candidatos registrados.</td></tr>';
 
@@ -4979,9 +5595,9 @@ function loadRecruitment() {
       +'<td><small>'+escHtml(a.notes||'—')+'</small></td>'
       +'<td>'+escHtml((a.applied_at||'').substring(0,10))+'</td>'
       +'<td>'
-        +(a.stage==='offer'?'<button class="btn btn-xs btn-success mr-1" onclick="hireCandidate(\''+a.id+'\')"><i class="fas fa-check mr-1"></i>Contratar</button>':'')
-        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editApplication(\''+a.id+'\')"><i class="fas fa-edit"></i></button>'
-        +'<button class="btn btn-xs btn-outline-danger" onclick="delApplication(\''+a.id+'\')"><i class="fas fa-trash"></i></button>'
+        +(a.stage==='offer'?'<button class="btn btn-xs btn-success mr-1" onclick="hireCandidate(\''+escHtml(a.id)+'\')"><i class="fas fa-check mr-1"></i>Contratar</button>':'')
+        +'<button class="btn btn-xs btn-outline-primary mr-1" onclick="editApplication(\''+escHtml(a.id)+'\')"><i class="fas fa-edit"></i></button>'
+        +'<button class="btn btn-xs btn-outline-danger" onclick="delApplication(\''+escHtml(a.id)+'\')"><i class="fas fa-trash"></i></button>'
       +'</td></tr>';
   }).join('') : '<tr><td colspan="6" class="text-center p-3 text-muted">Sin postulaciones registradas.</td></tr>';
 }
@@ -5011,20 +5627,29 @@ async function saveJob(){
   var title=gv('rj-title'); if(!title){ toast('Ingresa el puesto','warning'); return; }
   var d={title:title,department:gv('rj-dept'),location:gv('rj-location'),description:gv('rj-desc'),requirements:gv('rj-req'),salary_min:parseFloat(document.getElementById('rj-sal-min').value)||null,salary_max:parseFloat(document.getElementById('rj-sal-max').value)||null,status:gv('rj-status')};
   var id=gv('rj-id');
-  if(id){
-    var j=DS.job_postings.find(function(x){ return x.id===id; }); if(j) Object.assign(j,d);
-    if(!A.demo) await Supa.upd('job_postings',id,d);
-  } else {
-    var rec=Object.assign({id:'jp-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d);
-    DS.job_postings.push(rec);
-    if(!A.demo) await Supa.ins('job_postings',d);
+  if(A.demo){
+    if(id){ var j=DS.job_postings.find(function(x){ return x.id===id; }); if(j) Object.assign(j,d); }
+    else DS.job_postings.push(Object.assign({id:'jp-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+    $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); loadRecruitment(); return;
   }
-  $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); loadRecruitment();
+  // Real mode: the server assigns ids and company; the list is reloaded from it on success.
+  var r=await recRequest('save:job','rj-save',function(){ return id?Supa.upd('job_postings',id,d):Supa.ins('job_postings',d); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo guardar la vacante','La vacante ya no existe'),'danger'); return; }
+  $('#recruitJobModal').modal('hide'); toast('✅ Vacante guardada'); await loadRecruitment();
 }
-function delJob(id){ if(!confirm('¿Eliminar esta vacante?')) return; DS.job_postings=DS.job_postings.filter(function(j){ return j.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
+async function delJob(id){
+  if(A.demo){ if(!confirm('¿Eliminar esta vacante?')) return; DS.job_postings=DS.job_postings.filter(function(j){ return j.id!==id; }); toast('Eliminada','info'); loadRecruitment(); return; }
+  if(!confirm('¿Eliminar esta vacante?')) return;
+  var r=await recRequest('del:'+id,null,function(){ return Supa.del('job_postings',id); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo eliminar la vacante','La vacante ya no existe'),'danger'); return; }
+  toast('Eliminada','info'); await loadRecruitment();
+}
 
 function openCandidateModal(id){
   ['rc-id','rc-name','rc-idnum','rc-email','rc-phone','rc-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
+  Array.prototype.slice.call(document.querySelectorAll('#rc-nationality option[data-dyn]')).forEach(function(o){ o.remove(); });
   document.getElementById('rc-nationality').value='Panameña';
   if(id){
     var c=DS.candidates.find(function(x){ return x.id===id; });
@@ -5034,7 +5659,14 @@ function openCandidateModal(id){
     document.getElementById('rc-idnum').value=c.id_number||'';
     document.getElementById('rc-email').value=c.email||'';
     document.getElementById('rc-phone').value=c.phone||'';
-    document.getElementById('rc-nationality').value=c.nationality||'Panameña';
+    // Imported values outside the fixed list must survive an edit, so add the current one as an option.
+    var natSel=document.getElementById('rc-nationality');
+    if(c.nationality && !Array.prototype.some.call(natSel.options,function(o){ return o.value===c.nationality; })){
+      var natOpt=document.createElement('option');
+      natOpt.value=c.nationality; natOpt.textContent=c.nationality; natOpt.setAttribute('data-dyn','1');
+      natSel.appendChild(natOpt);
+    }
+    natSel.value=c.nationality||'Panameña';
     document.getElementById('rc-notes').value=c.resume_notes||'';
   }
   $('#recruitCandidateModal').modal('show');
@@ -5044,22 +5676,32 @@ async function saveCandidate(){
   var name=gv('rc-name'); if(!name){ toast('Ingresa el nombre','warning'); return; }
   var d={full_name:name,id_number:gv('rc-idnum'),email:gv('rc-email'),phone:gv('rc-phone'),nationality:gv('rc-nationality'),resume_notes:gv('rc-notes')};
   var id=gv('rc-id');
-  if(id){
-    var c=DS.candidates.find(function(x){ return x.id===id; }); if(c) Object.assign(c,d);
-    if(!A.demo) await Supa.upd('candidates',id,d);
-  } else {
-    DS.candidates.push(Object.assign({id:'ca-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
-    if(!A.demo) await Supa.ins('candidates',d);
+  if(A.demo){
+    if(id){ var c=DS.candidates.find(function(x){ return x.id===id; }); if(c) Object.assign(c,d); }
+    else DS.candidates.push(Object.assign({id:'ca-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
+    $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); loadRecruitment(); return;
   }
-  $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); loadRecruitment();
+  var r=await recRequest('save:candidate','rc-save',function(){ return id?Supa.upd('candidates',id,d):Supa.ins('candidates',d); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo guardar el candidato','El candidato ya no existe'),'danger'); return; }
+  $('#recruitCandidateModal').modal('hide'); toast('✅ Candidato guardado'); await loadRecruitment();
 }
-function delCandidate(id){ if(!confirm('¿Eliminar este candidato?')) return; DS.candidates=DS.candidates.filter(function(c){ return c.id!==id; }); toast('Eliminado','info'); loadRecruitment(); }
+async function delCandidate(id){
+  if(A.demo){ if(!confirm('¿Eliminar este candidato?')) return; DS.candidates=DS.candidates.filter(function(c){ return c.id!==id; }); toast('Eliminado','info'); loadRecruitment(); return; }
+  if(!confirm('¿Eliminar este candidato?')) return;
+  var r=await recRequest('del:'+id,null,function(){ return Supa.del('candidates',id); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo eliminar el candidato','El candidato ya no existe'),'danger'); return; }
+  toast('Eliminado','info'); await loadRecruitment();
+}
 
 function openApplicationModal(id){
   var cands=DS.candidates.filter(function(c){ return c.company_id===A.companyId; });
-  var jobs=DS.job_postings.filter(function(j){ return j.company_id===A.companyId&&j.status==='open'; });
-  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+c.id+'">'+escHtml(c.full_name)+'</option>'; }).join('');
-  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+j.id+'">'+escHtml(j.title)+'</option>'; }).join('');
+  var cur=id?DS.applications.find(function(x){ return x.id===id; }):null;
+  // Real mode: keep the application's current vacante selectable even when it is no longer open.
+  var jobs=DS.job_postings.filter(function(j){ return j.company_id===A.companyId&&(j.status==='open'||(!A.demo&&cur&&j.id===cur.job_posting_id)); });
+  document.getElementById('ra-candidate').innerHTML='<option value="">— Candidato —</option>'+cands.map(function(c){ return '<option value="'+escHtml(c.id)+'">'+escHtml(c.full_name)+'</option>'; }).join('');
+  document.getElementById('ra-job').innerHTML='<option value="">— Vacante —</option>'+jobs.map(function(j){ return '<option value="'+escHtml(j.id)+'">'+escHtml(j.title)+'</option>'; }).join('');
   ['ra-id','ra-notes'].forEach(function(x){ var e=document.getElementById(x); if(e) e.value=''; });
   document.getElementById('ra-stage').value='applied';
   document.getElementById('ra-date').value=TS;
@@ -5067,10 +5709,10 @@ function openApplicationModal(id){
     var a=DS.applications.find(function(x){ return x.id===id; });
     if(!a) return;
     document.getElementById('ra-id').value=a.id;
-    document.getElementById('ra-candidate').value=a.candidate_id;
-    document.getElementById('ra-job').value=a.job_posting_id;
+    document.getElementById('ra-candidate').value=a.candidate_id||'';
+    document.getElementById('ra-job').value=a.job_posting_id||'';
     document.getElementById('ra-stage').value=a.stage;
-    document.getElementById('ra-date').value=a.applied_at||TS;
+    document.getElementById('ra-date').value=String(a.applied_at||TS).substring(0,10);
     document.getElementById('ra-notes').value=a.notes||'';
   }
   $('#recruitApplicationModal').modal('show');
@@ -5079,21 +5721,45 @@ function editApplication(id){ openApplicationModal(id); }
 async function saveApplication(){
   var cid=gv('ra-candidate'), jid=gv('ra-job');
   if(!cid||!jid){ toast('Selecciona candidato y vacante','warning'); return; }
-  var cand=DS.candidates.find(function(x){ return x.id===cid; });
-  var job=DS.job_postings.find(function(x){ return x.id===jid; });
-  var d={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
   var id=gv('ra-id');
-  if(id){
-    var a=DS.applications.find(function(x){ return x.id===id; }); if(a) Object.assign(a,d);
-    if(!A.demo) await Supa.upd('applications',id,d);
-  } else {
-    DS.applications.push(Object.assign({id:'ap-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},d));
-    if(!A.demo) await Supa.ins('applications',d);
+  if(A.demo){
+    // Same rule as the server (one application per candidate and posting)
+    if(DS.applications.some(function(x){ return x.id!==id&&x.company_id===A.companyId&&x.candidate_id===cid&&x.job_posting_id===jid; })){
+      toast('El candidato ya tiene una postulación para esta vacante','danger'); return;
+    }
+    var cand=DS.candidates.find(function(x){ return x.id===cid; });
+    var job=DS.job_postings.find(function(x){ return x.id===jid; });
+    var dd={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
+    if(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(a) Object.assign(a,dd); }
+    else DS.applications.push(Object.assign({id:'ap-'+Date.now(),company_id:A.companyId,created_at:new Date().toISOString()},dd));
+    $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); loadRecruitment(); return;
   }
-  $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); loadRecruitment();
+  // Real mode: job_title and candidate_name are derived by the server from the two ids.
+  var d={job_posting_id:jid,candidate_id:cid,stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};
+  var r=await recRequest('save:application','ra-save',function(){ return id?Supa.upd('applications',id,d):Supa.ins('applications',d); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo guardar la postulación','La vacante, el candidato o la postulación ya no existe'),'danger'); return; }
+  $('#recruitApplicationModal').modal('hide'); toast('✅ Postulación guardada'); await loadRecruitment();
 }
-function delApplication(id){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); }
-function hireCandidate(id){ var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return; if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); }
+async function delApplication(id){
+  if(A.demo){ if(!confirm('¿Eliminar esta postulación?')) return; DS.applications=DS.applications.filter(function(a){ return a.id!==id; }); toast('Eliminada','info'); loadRecruitment(); return; }
+  if(!confirm('¿Eliminar esta postulación?')) return;
+  var r=await recRequest('del:'+id,null,function(){ return Supa.del('applications',id); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo eliminar la postulación','La postulación ya no existe'),'danger'); return; }
+  toast('Eliminada','info'); await loadRecruitment();
+}
+async function hireCandidate(id){
+  var a=DS.applications.find(function(x){ return x.id===id; }); if(!a) return;
+  if(A.demo){ if(!confirm('¿Marcar a '+a.candidate_name+' como Contratado?')) return; a.stage='hired'; toast('🎉 '+a.candidate_name+' contratado/a'); loadRecruitment(); return; }
+  var who=a.candidate_name||'este candidato';
+  if(!confirm('¿Marcar a '+who+' como Contratado?')) return;
+  // Hiring is a stage change only; the server creates no employee.
+  var r=await recRequest('hire:'+id,null,function(){ return Supa.upd('applications',id,{stage:'hired'}); });
+  if(r===null) return;
+  if(r&&r.error){ toast(recErrMsg(r.error,'No se pudo marcar como contratado','La postulación ya no existe'),'danger'); return; }
+  toast('🎉 '+who+' contratado/a'); await loadRecruitment();
+}
 
 document.head.insertAdjacentHTML('beforeend','<style>:root{--corp-navy:#1e3a5f;--corp-teal:#0d7490;--corp-slate:#2563a8;--corp-burgandy:#8b1c1c;--corp-steel:#334155;--corp-green:#15803d;--corp-primary:#1e40af}.stat-card.bg-info{background-color:var(--corp-navy)!important}.stat-card.bg-info .small-box-footer{background:rgba(0,0,0,.2)!important}.stat-card.bg-success{background-color:var(--corp-teal)!important}.stat-card.bg-success .small-box-footer{background:rgba(0,0,0,.15)!important}.stat-card.bg-warning{background-color:var(--corp-slate)!important;color:#fff!important}.stat-card.bg-warning .inner,.stat-card.bg-warning p,.stat-card.bg-warning h3{color:#fff!important}.stat-card.bg-warning .small-box-footer{background:rgba(0,0,0,.15)!important;color:#fff!important}.stat-card.bg-danger{background-color:var(--corp-burgandy)!important}.stat-card.bg-danger .small-box-footer{background:rgba(0,0,0,.2)!important}.card-header.bg-gradient-warning{background:var(--corp-steel)!important;background-image:none!important;color:#fff!important}.card-header.bg-gradient-warning *{color:#fff!important}.card-header.bg-success{background-color:var(--corp-teal)!important}.card-header.bg-warning:not(.sidebar *){background-color:var(--corp-slate)!important;color:#fff!important}.card-header.bg-warning:not(.sidebar *) *{color:#fff!important}.card-header.bg-danger:not(.sidebar *){background-color:var(--corp-burgandy)!important}.card-header.bg-info{background-color:var(--corp-navy)!important}.card-header.bg-primary{background-color:var(--corp-primary)!important}.btn-primary{background-color:var(--corp-primary)!important;border-color:var(--corp-primary)!important}.btn-primary:hover{background-color:#1a35a8!important;border-color:#1a35a8!important}.content-wrapper .badge-success{background-color:var(--corp-green)!important}.content-wrapper .badge-info{background-color:var(--corp-navy)!important}.content-wrapper .badge-warning{background-color:var(--corp-slate)!important;color:#fff!important}.content-wrapper .badge-danger{background-color:var(--corp-burgandy)!important}</style>');
 document.head.insertAdjacentHTML('beforeend','<style>/* ── Tailwind-look global ── */.content-wrapper{background:#f8fafc!important;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}.content-wrapper .card{border:1px solid #e2e8f0!important;border-radius:12px!important;box-shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04)!important;overflow:hidden}.content-wrapper .card-header{background:#fff!important;border-bottom:1px solid #e2e8f0!important;padding:14px 18px!important;font-weight:600}.content-wrapper .card-header h3.card-title{font-size:.9rem!important;font-weight:600!important;color:#1e293b!important}.content-wrapper .card-body{padding:16px 18px!important}.content-wrapper .card-footer{background:#f8fafc!important;border-top:1px solid #e2e8f0!important}.content-wrapper .table{border-collapse:separate!important;border-spacing:0!important}.content-wrapper .table thead th{background:#f8fafc!important;color:#64748b!important;font-size:.72rem!important;font-weight:600!important;text-transform:uppercase!important;letter-spacing:.05em!important;padding:10px 14px!important;border-bottom:1px solid #e2e8f0!important;border-top:none!important}.content-wrapper .table td{padding:10px 14px!important;border-top:1px solid #f1f5f9!important;color:#334155!important;font-size:.83rem!important;vertical-align:middle!important}.content-wrapper .table-hover tbody tr:hover td{background:#f8fafc!important}.content-wrapper .table-sm td,.content-wrapper .table-sm th{padding:8px 12px!important}.content-wrapper .badge{border-radius:9999px!important;padding:3px 10px!important;font-size:.68rem!important;font-weight:600!important;letter-spacing:.02em!important}.content-wrapper .form-control{border:1px solid #d1d5db!important;border-radius:8px!important;font-size:.85rem!important;padding:7px 12px!important;transition:border-color .15s,box-shadow .15s!important}.content-wrapper .form-control:focus{border-color:#2563a8!important;box-shadow:0 0 0 3px rgba(37,99,168,.12)!important;outline:none!important}.content-wrapper select.form-control{background-image:url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\'%3E%3Cpath fill=\'%2364748b\' d=\'M7 10l5 5 5-5z\'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center}.content-wrapper .btn{border-radius:8px!important;font-size:.82rem!important;font-weight:500!important;padding:6px 14px!important;transition:all .15s!important}.content-wrapper .btn-xs{padding:3px 8px!important;font-size:.72rem!important;border-radius:6px!important}.content-wrapper .nav-tabs{border-bottom:1px solid #e2e8f0!important}.content-wrapper .nav-tabs .nav-link{border:none!important;border-bottom:2px solid transparent!important;color:#64748b!important;font-size:.82rem!important;font-weight:500!important;padding:8px 14px!important;margin-bottom:-1px!important;border-radius:0!important}.content-wrapper .nav-tabs .nav-link.active{color:#1e40af!important;border-bottom-color:#1e40af!important;background:transparent!important}.content-wrapper .input-group-text{border:1px solid #d1d5db!important;border-radius:8px!important;background:#f8fafc!important}.content-wrapper .input-group .form-control{border-radius:8px 0 0 8px!important}.content-wrapper .input-group .btn{border-radius:0 8px 8px 0!important}.content-wrapper h1{font-size:1.5rem!important;font-weight:700!important;color:#0f172a!important}.content-wrapper .alert{border-radius:10px!important;border:none!important;font-size:.83rem!important}.content-wrapper .page-link{border-radius:6px!important;margin:0 2px!important;font-size:.78rem!important}.content-wrapper .modal-content{border-radius:14px!important;border:none!important;box-shadow:0 20px 60px rgba(0,0,0,.15)!important}.content-wrapper .modal-header{border-bottom:1px solid #e2e8f0!important;padding:16px 20px!important}.content-wrapper .modal-footer{border-top:1px solid #e2e8f0!important;padding:12px 20px!important}.content-wrapper .liq-section{border-radius:8px!important;background:#f8fafc!important;padding:10px 14px!important;margin-bottom:8px!important}</style>');
