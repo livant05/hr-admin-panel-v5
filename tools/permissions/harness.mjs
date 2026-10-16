@@ -8,7 +8,7 @@
 //
 // Covers the server-permissions fix (frontend half): role 'admin' is never
 // restricted; every other role is fail-closed (undefined key, missing roles
-// row, failed roles fetch => denied); sub-key semantics; unmapped pages stay
+// row, failed or rejected roles fetch => denied); sub-key semantics; unmapped pages stay
 // allowed; a non-admin lands on the first allowed page after its permissions
 // load (or gets one toast when it has none); logout + login does not leave a
 // stale menu behind.
@@ -21,29 +21,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.PERMISSIONS_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 function between(startMarker, endMarker) {
   const s = html.indexOf(startMarker);
   assert.ok(s >= 0, `${startMarker} not found`);
@@ -69,8 +51,8 @@ const GROUPS = [
   ['h-sys', ['m-settings', 'm-notifications']],
 ];
 
-function makeEnv({ role = 'admin', roles = [], rolesFail = false } = {}) {
-  const log = { go: [], toasts: [], rolesCalls: 0 };
+function makeEnv({ role = 'admin', roles = [], rolesFail = false, rolesReject = false } = {}) {
+  const log = { go: [], toasts: [], rolesCalls: 0, timers: 0 };
   const siblings = [];
   const byId = {};
   const node = (cls) => {
@@ -83,13 +65,17 @@ function makeEnv({ role = 'admin', roles = [], rolesFail = false } = {}) {
     byId[h] = node('nav-header');
     items.forEach((id) => { const li = node('nav-item'); byId[id] = { id, parentElement: li }; });
   });
-  const state = { roles, rolesFail };
+  const state = { roles, rolesFail, rolesReject };
   const sandbox = {
     A: { session: null, role, perms: null, demo: false },
     DS: {}, Object, Array, JSON, Promise,
     Supa: {
       sessionExpired: false,
-      sel: async (t) => { assert.equal(t, 'roles'); log.rolesCalls++; return state.rolesFail ? { error: { code: 'x' } } : state.roles; },
+      sel: async (t) => {
+        assert.equal(t, 'roles'); log.rolesCalls++;
+        if (state.rolesReject) throw new TypeError('Failed to fetch'); // fetch rejects when the network is down
+        return state.rolesFail ? { error: { code: 'x' } } : state.roles;
+      },
     },
     document: {
       getElementById: (id) => byId[id] || null,
@@ -100,7 +86,7 @@ function makeEnv({ role = 'admin', roles = [], rolesFail = false } = {}) {
     toast: (msg, type) => { log.toasts.push({ msg, type }); },
     showV() {}, loadUI() {}, stopZKPolling() {}, loadNotifications() {},
     go: (p) => log.go.push(p),
-    setTimeout: () => 0,
+    setTimeout: () => { log.timers++; return 0; },
   };
   vm.createContext(sandbox);
   vm.runInContext([permSrc, startSessionSrc, enterAppSrc, clearSessionSrc].join('\n'), sandbox);
@@ -219,6 +205,33 @@ test('entry flow: admin goes to the dashboard immediately and keeps the full men
   await e.settle();
   assert.deepEqual(e.visible(), ALL_MENU);
   assert.deepEqual(e.log.toasts, []);
+});
+
+test('entry flow: a roles request that rejects (network down) still ends in the fail-closed toast, not a blank app', async () => {
+  const e = makeEnv({ role: 'staff', rolesReject: true });
+  await e.login('staff');
+  await e.settle();
+  assert.deepEqual(e.log.go, []);
+  assert.deepEqual(e.log.toasts.map((t) => t.msg), ['Tu rol no tiene módulos asignados. Contactá al administrador.']);
+  assert.equal(e.log.timers, 1, 'notifications are still scheduled');
+  assert.deepEqual(e.visible(), ['m-notifications'], 'every mapped module stays hidden');
+});
+
+test('entry flow: admin with a rejected roles request keeps the dashboard and leaves no unhandled rejection', async () => {
+  const unhandled = [];
+  const onRej = (r) => unhandled.push(r);
+  process.on('unhandledRejection', onRej);
+  try {
+    const e = makeEnv({ role: 'admin', rolesReject: true });
+    await e.login('admin');
+    await e.settle(); await e.settle();
+    assert.deepEqual(e.log.go, ['dashboard']);
+    assert.deepEqual(e.visible(), ALL_MENU);
+  } finally {
+    await new Promise((r) => setImmediate(r));
+    process.off('unhandledRejection', onRej);
+  }
+  assert.equal(unhandled.length, 0, 'loadRolePerms must not reject: ' + unhandled.map(String).join(', '));
 });
 
 test('logout then login as admin shows the whole menu again (no stale perms)', async () => {
