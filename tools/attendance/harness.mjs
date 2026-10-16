@@ -17,37 +17,12 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction, extractMaybeAsync } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.ATTENDANCE_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-// Only used on functions without regex literals.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 
-// The function may or may not be declared async; keep the keyword if present.
-function extractMaybeAsync(src, header) {
-  const fn = extractFunction(src, header);
-  const at = src.indexOf(header);
-  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
-}
 
 const srcs = [
   extractFunction(html, 'async function saveAttendance('),
@@ -55,6 +30,8 @@ const srcs = [
   extractFunction(html, 'function apiErrMsg('),
   extractMaybeAsync(html, 'function loadAttReport('),
   extractMaybeAsync(html, 'function exportAttReport('),
+  extractFunction(html, 'function csvCell('),
+  extractFunction(html, 'function csvText('),
   extractFunction(html, 'function hwCalc('),
   html.includes('async function attMonthLogs(') ? extractFunction(html, 'async function attMonthLogs(') : '',
 ].join('\n');
@@ -71,7 +48,7 @@ function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updRe
   el('att-date').value = '2026-10-14';
   el('att-in').value = '08:00'; el('att-out').value = '17:00'; el('att-st').value = 'present';
   // date_from/date_to behave like the API (inclusive range); every other key is an exact match
-  const pick = (rows, flt) => rows.filter((r) => Object.entries(flt || {}).every(([k, v]) =>
+  const pick = (rows, flt) => !Array.isArray(rows) ? rows : rows.filter((r) => Object.entries(flt || {}).every(([k, v]) =>
     k === 'date_from' ? r.date >= v : k === 'date_to' ? r.date <= v : r[k] === v));
   const sandbox = {
     A: { companyId: 'c1', demo },
@@ -215,6 +192,18 @@ test('monthly export with no logs that month warns and downloads nothing', async
   await e.run('exportAttReport()');
   assert.equal(e.downloads.length, 0);
   assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+test('monthly report and export show a failed read as an error, not as an empty month', async () => {
+  const fail = { error: { code: 'internal', message: 'internal error' } };
+  const e = makeEnv({ logs: fail, emps: EMPS });
+  e.el('att-r-month').value = '10'; e.el('att-r-year').value = '2026';
+  await e.run('exportAttReport()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts.map((t) => t.type), ['danger']);
+  assert.match(e.toasts[0].msg, /error interno del servidor/);
+  await e.run('loadAttReport()');
+  assert.match(e.el('att-rep-content').innerHTML, /No se pudo cargar la asistencia del mes: error interno del servidor/);
 });
 
 let failed = 0;
