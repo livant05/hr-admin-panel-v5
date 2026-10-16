@@ -654,6 +654,7 @@ func TestJobPostings_PatchValidation(t *testing.T) {
 		{"null status", `{"status":null}`, "validation_failed", "status"},
 		{"empty status", `{"status":""}`, "validation_failed", "status"},
 		{"unknown field", `{"bogus":1}`, "bad_request", ""},
+		{"known key in another case", `{"Title":"Renamed"}`, "bad_request", ""},
 		{"company_id in body", `{"company_id":"` + uuid.NewString() + `"}`, "bad_request", ""},
 		{"id in body", `{"id":"` + uuid.NewString() + `"}`, "bad_request", ""},
 		{"created_at in body", `{"created_at":"2020-01-01T00:00:00Z"}`, "bad_request", ""},
@@ -882,7 +883,7 @@ func TestJobPostings_DeleteWaitsForAnInFlightApplication(t *testing.T) {
 }
 
 // TestJobPostings_BodyIsCappedAtOneMiB pins the 1 MiB cap of
-// decodeRecruitmentBody and decodeRecruitmentPatch (CO-S2a-2): a body over the
+// decodeStrictBody and decodeStrictPatch (CO-S2a-2): a body over the
 // cap is a 400 bad_request and writes nothing, while one just under it passes.
 func TestJobPostings_BodyIsCappedAtOneMiB(t *testing.T) {
 	pool := testutil.Pool(t)

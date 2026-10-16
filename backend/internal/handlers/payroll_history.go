@@ -115,12 +115,13 @@ type employeeRunResult struct {
 // plain a.Queries (preview, no transaction) or a.Queries.WithTx(tx) (the
 // committing run), so the committed write path calculates against the exact
 // same transactional snapshot it then writes from.
-func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UUID, year, month int32, period payrollPeriod) ([]employeeRunResult, error) {
+func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UUID, year, month int32, period payrollPeriod, employeeID pgtype.UUID) ([]employeeRunResult, error) {
 	start, end := period.dateRange(year, month)
 	rows, err := q.ListPayrollRunInputs(ctx, db.ListPayrollRunInputsParams{
-		CompanyID: companyID,
-		StartDate: start,
-		EndDate:   end,
+		CompanyID:  companyID,
+		StartDate:  start,
+		EndDate:    end,
+		EmployeeID: employeeID, // invalid (NULL) = every active employee
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list payroll run inputs: %w", err)
@@ -171,7 +172,7 @@ func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UU
 	return out, nil
 }
 
-// GET /api/payroll_history/calculate?month=&year=&period= -- pure preview
+// GET /api/payroll_history/calculate?month=&year=&period=[&employee_id=] -- pure preview
 // (design R4e, task 5.9). Writes nothing; the committing run is slice 3f's
 // CreatePayrollRun. The literal "/calculate" segment ranks above
 // payroll_history's future "/{id}" under Go 1.22 ServeMux (Q5c).
@@ -196,12 +197,17 @@ func (a *API) CalculatePayroll(w http.ResponseWriter, r *http.Request) {
 	if !okPeriod {
 		fields["period"] = payrollPeriodError
 	}
+	// Optional: the payslip previews one employee instead of the whole company.
+	employeeID, err := optionalUUIDFilter(q.Get("employee_id"))
+	if err != nil {
+		fields["employee_id"] = "must be a uuid"
+	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
 	}
 
-	results, err := calculatePayrollRun(r.Context(), a.Queries, companyID, int32(year), int32(month), period)
+	results, err := calculatePayrollRun(r.Context(), a.Queries, companyID, int32(year), int32(month), period, employeeID)
 	if err != nil {
 		a.Log.Error("calculate payroll", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -325,7 +331,7 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	results, err := calculatePayrollRun(r.Context(), q, companyID, req.Year, req.Month, period)
+	results, err := calculatePayrollRun(r.Context(), q, companyID, req.Year, req.Month, period, pgtype.UUID{})
 	if err != nil {
 		a.Log.Error("create payroll run: calculate", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
