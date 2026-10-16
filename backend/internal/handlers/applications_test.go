@@ -51,6 +51,13 @@ func createApplication(t *testing.T, h http.Handler, token string, body map[stri
 	return rows[0]
 }
 
+// newCandidateID creates a fresh candidate, for a test that needs another
+// application on the same posting (one application per candidate and posting).
+func newCandidateID(t *testing.T, h http.Handler, token string) string {
+	t.Helper()
+	return createCandidate(t, h, token, map[string]any{"full_name": "Cand " + uuid.NewString()[:8]}).ID
+}
+
 func getApplication(t *testing.T, h http.Handler, token, id string) (applicationRow, int) {
 	t.Helper()
 	rec := testutil.Do(t, h, http.MethodGet, applicationsPath+"/"+id, token, nil)
@@ -245,6 +252,65 @@ func TestApplications_CrossTenantLeak(t *testing.T) {
 	})
 }
 
+// A candidate has at most one application per posting, so a retried POST
+// (timeout after the commit) or a re-point onto an existing pair is a 409 with
+// a Spanish message, never a second row.
+func TestApplications_OnePerCandidateAndPosting(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "AppUniqueCo")
+	tok := c.Token(t, signer)
+	job := createJobPosting(t, h, tok, map[string]any{"title": "Cajero"})
+	ana := createCandidate(t, h, tok, map[string]any{"full_name": "Ana Torres"})
+	luis := createCandidate(t, h, tok, map[string]any{"full_name": "Luis Pinto"})
+	const dupMsg = "El candidato ya tiene una postulación para esta vacante"
+	countPair := func(candID string) int {
+		var n int
+		if err := pool.QueryRow(context.Background(),
+			`SELECT count(*) FROM applications WHERE job_posting_id = $1 AND candidate_id = $2`, job.ID, candID).Scan(&n); err != nil {
+			t.Fatalf("count: %v", err)
+		}
+		return n
+	}
+
+	first := createApplication(t, h, tok, appBody(job.ID, ana.ID, nil))
+
+	t.Run("a second create for the same pair is 409 and writes nothing", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPost, applicationsPath, tok, appBody(job.ID, ana.ID, map[string]any{"notes": "retry"}))
+		if rec.Code != http.StatusConflict || testutil.ErrCode(t, rec) != "conflict" {
+			t.Fatalf("got %d %s, want 409 conflict", rec.Code, rec.Body.String())
+		}
+		if msg := errMessage(t, rec); msg != dupMsg {
+			t.Fatalf("message = %q, want %q", msg, dupMsg)
+		}
+		if n := countPair(ana.ID); n != 1 {
+			t.Fatalf("rows for the pair = %d, want 1", n)
+		}
+	})
+
+	second := createApplication(t, h, tok, appBody(job.ID, luis.ID, nil))
+
+	t.Run("re-pointing onto an existing pair is 409 and leaves the row unchanged", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+second.ID, tok, map[string]any{"candidate_id": ana.ID})
+		if rec.Code != http.StatusConflict || testutil.ErrCode(t, rec) != "conflict" || errMessage(t, rec) != dupMsg {
+			t.Fatalf("got %d %s, want 409 conflict %q", rec.Code, rec.Body.String(), dupMsg)
+		}
+		if got, _ := getApplication(t, h, tok, second.ID); textOrNull(got.CandidateID) != luis.ID {
+			t.Fatalf("candidate_id = %s, want it unchanged (%s)", textOrNull(got.CandidateID), luis.ID)
+		}
+	})
+
+	t.Run("re-sending the stored pair on a patch is not a conflict", func(t *testing.T) {
+		rec := testutil.Do(t, h, http.MethodPatch, applicationsPath+"/"+first.ID, tok, appBody(job.ID, ana.ID, map[string]any{"stage": "interview"}))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got %d %s, want 200", rec.Code, rec.Body.String())
+		}
+		if got, _ := getApplication(t, h, tok, first.ID); textOrNull(got.Stage) != "interview" {
+			t.Fatalf("stage = %q, want interview", textOrNull(got.Stage))
+		}
+	})
+}
+
 func TestApplications_CreateReturnsArrayWithDefaults(t *testing.T) {
 	pool := testutil.Pool(t)
 	h, signer := testutil.Server(t, pool)
@@ -283,7 +349,7 @@ func TestApplications_CreateReturnsArrayWithDefaults(t *testing.T) {
 	})
 
 	t.Run("full body round trips through GET", func(t *testing.T) {
-		row := createApplication(t, h, tok, appBody(job.ID, cand.ID, map[string]any{
+		row := createApplication(t, h, tok, appBody(job.ID, newCandidateID(t, h, tok), map[string]any{
 			"stage": "interview", "notes": "  Entrevista técnica  ", "applied_at": "2025-05-03",
 		}))
 		got, code := getApplication(t, h, tok, row.ID)
@@ -299,10 +365,11 @@ func TestApplications_CreateReturnsArrayWithDefaults(t *testing.T) {
 	})
 
 	t.Run("job_title and candidate_name are accepted but ignored", func(t *testing.T) {
-		row := createApplication(t, h, tok, appBody(job.ID, cand.ID, map[string]any{
+		other := createCandidate(t, h, tok, map[string]any{"full_name": "Rosa Mena Vega"})
+		row := createApplication(t, h, tok, appBody(job.ID, other.ID, map[string]any{
 			"job_title": "Forged title", "candidate_name": "Forged name",
 		}))
-		if textOrNull(row.JobTitle) != "Analista Contable" || textOrNull(row.CandidateName) != "Ana Torres Ramos" {
+		if textOrNull(row.JobTitle) != "Analista Contable" || textOrNull(row.CandidateName) != "Rosa Mena Vega" {
 			t.Fatalf("names = %q/%q, want them derived from the posting and the candidate", textOrNull(row.JobTitle), textOrNull(row.CandidateName))
 		}
 		var title, name string
@@ -310,13 +377,13 @@ func TestApplications_CreateReturnsArrayWithDefaults(t *testing.T) {
 			`SELECT job_title, candidate_name FROM applications WHERE id = $1`, row.ID).Scan(&title, &name); err != nil {
 			t.Fatalf("read back: %v", err)
 		}
-		if title != "Analista Contable" || name != "Ana Torres Ramos" {
+		if title != "Analista Contable" || name != "Rosa Mena Vega" {
 			t.Fatalf("stored names = %q/%q", title, name)
 		}
 	})
 
 	t.Run("null stage, notes and applied_at fall back to the defaults", func(t *testing.T) {
-		row := createApplication(t, h, tok, appBody(job.ID, cand.ID, map[string]any{"stage": nil, "notes": nil, "applied_at": nil}))
+		row := createApplication(t, h, tok, appBody(job.ID, newCandidateID(t, h, tok), map[string]any{"stage": nil, "notes": nil, "applied_at": nil}))
 		if textOrNull(row.Stage) != "applied" || row.Notes != nil || row.AppliedAt == nil {
 			t.Fatalf("got stage=%q notes=%v applied_at=%v", textOrNull(row.Stage), row.Notes, row.AppliedAt)
 		}
@@ -395,7 +462,7 @@ func TestApplications_CreateValidation(t *testing.T) {
 
 	t.Run("every stage in the enum is accepted", func(t *testing.T) {
 		for _, stage := range []string{"applied", "screening", "interview", "offer", "hired", "rejected"} {
-			row := createApplication(t, h, tok, appBody(job.ID, cand.ID, map[string]any{"stage": stage}))
+			row := createApplication(t, h, tok, appBody(job.ID, newCandidateID(t, h, tok), map[string]any{"stage": stage}))
 			if textOrNull(row.Stage) != stage {
 				t.Fatalf("stage = %q, want %q", textOrNull(row.Stage), stage)
 			}
@@ -571,12 +638,13 @@ func TestApplications_ListGetFilters(t *testing.T) {
 		}
 	})
 
-	t.Run("any authenticated role may read and create", func(t *testing.T) {
-		emp := c.TokenAs(t, signer, "empleado")
+	t.Run("a role with the recruitment permission may read and create", func(t *testing.T) {
+		seedMedRole(t, pool, c, "empleado", `{"recruitment": true}`)
+		emp := c.TokenAs(t, pool, signer, "empleado")
 		if rec := testutil.Do(t, h, http.MethodGet, applicationsPath, emp, nil); rec.Code != http.StatusOK {
 			t.Fatalf("empleado list: got %d", rec.Code)
 		}
-		if row := createApplication(t, h, emp, appBody(job1.ID, cand1.ID, nil)); row.CompanyID != c.CompanyID {
+		if row := createApplication(t, h, emp, appBody(job1.ID, newCandidateID(t, h, emp), nil)); row.CompanyID != c.CompanyID {
 			t.Fatalf("empleado create landed in company %s", row.CompanyID)
 		}
 	})
@@ -920,15 +988,16 @@ func TestApplications_PatchValidation(t *testing.T) {
 
 	t.Run("malformed bodies, unknown fields and oversize bodies are 400 bad_request", func(t *testing.T) {
 		for name, body := range map[string]string{
-			"not json":      `nope`,
-			"array":         `[]`,
-			"null":          `null`,
-			"unknown field": `{"salary":1}`,
-			"company_id":    `{"company_id":"` + uuid.NewString() + `"}`,
-			"id":            `{"id":"` + uuid.NewString() + `"}`,
-			"created_at":    `{"created_at":"2020-01-01T00:00:00Z"}`,
-			"notes number":  `{"notes":5}`,
-			"over 1 MiB":    `{"notes":"` + strings.Repeat("a", 1<<20) + `"}`,
+			"not json":              `nope`,
+			"array":                 `[]`,
+			"null":                  `null`,
+			"unknown field":         `{"salary":1}`,
+			"stage in another case": `{"Stage":"hired"}`,
+			"company_id":            `{"company_id":"` + uuid.NewString() + `"}`,
+			"id":                    `{"id":"` + uuid.NewString() + `"}`,
+			"created_at":            `{"created_at":"2020-01-01T00:00:00Z"}`,
+			"notes number":          `{"notes":5}`,
+			"over 1 MiB":            `{"notes":"` + strings.Repeat("a", 1<<20) + `"}`,
 		} {
 			rec := doRawBody(t, h, http.MethodPatch, path, tok, body)
 			if rec.Code != http.StatusBadRequest {

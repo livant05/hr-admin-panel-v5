@@ -6,183 +6,279 @@ import (
 	"github.com/livant05/rrhh-go/internal/auth"
 )
 
+// gateKind classifies how a protected route is authorized. Every route in
+// protectedRoutes MUST carry one: TestRoutes_EveryProtectedRouteIsClassified
+// (routes_permissions_test.go) pins the full classification table, so a route
+// added without a deliberate decision fails that test.
+type gateKind int
+
+const (
+	// gateUnset is the zero value; a spec carrying it is a classification bug.
+	gateUnset gateKind = iota
+	// gateOpen: any authenticated user (the JWT middleware is the only gate).
+	// Handlers behind it may still shape the response (employees redaction).
+	gateOpen
+	// gateHandler: authorization is enforced inside the handler
+	// (requireAdmin, or requirePermission for medical records).
+	gateHandler
+	// gatePermission: the route wrapper requires one of gate.keys via
+	// requirePermission (admin bypass, fail-closed).
+	gatePermission
+)
+
+// routeGate is a route's authorization classification.
+type routeGate struct {
+	kind gateKind
+	keys []string // gatePermission only; any-of
+}
+
+var (
+	open       = routeGate{kind: gateOpen}
+	viaHandler = routeGate{kind: gateHandler}
+)
+
+// need gates a route on one module permission.
+func need(key string) routeGate { return routeGate{kind: gatePermission, keys: []string{key}} }
+
+// anyOf gates a route on at least one of the given module permissions.
+func anyOf(keys ...string) routeGate { return routeGate{kind: gatePermission, keys: keys} }
+
+// routeSpec is one protected route: its ServeMux pattern, its authorization
+// classification and its handler.
+type routeSpec struct {
+	pattern string
+	gate    routeGate
+	handler http.HandlerFunc
+}
+
+// perm wraps h so it runs only when the caller holds at least one of keys.
+// The tenant is resolved first (401 on a bad token), then the check, so a
+// denied caller learns nothing from validation errors.
+func (a *API) perm(keys []string, h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		companyID, ok := a.tenant(w, r)
+		if !ok {
+			return
+		}
+		for _, key := range keys {
+			if a.permissionAllows(r, companyID, key) {
+				h(w, r)
+				return
+			}
+		}
+		writeErrCode(w, http.StatusForbidden, codeForbidden, "insufficient permissions")
+	}
+}
+
+// protectedRoutes is the single registry of tenant-scoped routes. Routes
+// registers exactly this list, so nothing is reachable without a
+// classification.
+func (a *API) protectedRoutes() []routeSpec {
+	return []routeSpec{
+		{"GET /api/me", open, a.Me},
+		{"POST /api/auth/logout", open, a.Logout}, // authenticated; behind the middleware, unlike login/register
+
+		{"GET /api/departments", open, a.ListDepartments},
+		{"POST /api/departments", need("settings"), a.CreateDepartment},
+		{"GET /api/departments/{id}", open, a.GetDepartment},
+		{"PATCH /api/departments/{id}", need("settings"), a.UpdateDepartment},
+		{"DELETE /api/departments/{id}", need("settings"), a.DeleteDepartment},
+
+		{"GET /api/positions", open, a.ListPositions},
+		{"POST /api/positions", need("settings"), a.CreatePosition},
+		{"GET /api/positions/{id}", open, a.GetPosition},
+		{"PATCH /api/positions/{id}", need("settings"), a.UpdatePosition},
+		{"DELETE /api/positions/{id}", need("settings"), a.DeletePosition},
+
+		{"GET /api/branches", open, a.ListBranches},
+		{"POST /api/branches", need("settings"), a.CreateBranch},
+		{"GET /api/branches/{id}", open, a.GetBranch},
+		{"PATCH /api/branches/{id}", need("settings"), a.UpdateBranch},
+		{"DELETE /api/branches/{id}", need("settings"), a.DeleteBranch},
+
+		{"GET /api/roles", open, a.ListRoles},
+		{"POST /api/roles", viaHandler, a.CreateRole},
+		{"GET /api/roles/{id}", open, a.GetRole},
+		{"PATCH /api/roles/{id}", viaHandler, a.UpdateRole},
+		{"DELETE /api/roles/{id}", viaHandler, a.DeleteRole},
+
+		// users: admin-only (requireAdmin).
+		{"GET /api/users", viaHandler, a.ListUsers},
+		{"POST /api/users", viaHandler, a.CreateUser}, // 201 array with one-time temporary_password
+		{"GET /api/users/{id}", viaHandler, a.GetUser},
+		{"PATCH /api/users/{id}", viaHandler, a.UpdateUser},  // last-active-admin guard (409)
+		{"DELETE /api/users/{id}", viaHandler, a.DeleteUser}, // soft delete, idempotent 204
+
+		// trainings: the panel's Capacitaciones page is gated by employees.
+		{"GET /api/trainings", need("employees"), a.ListTrainings},
+		{"POST /api/trainings", need("employees"), a.CreateTraining},
+		{"GET /api/trainings/{id}", need("employees"), a.GetTraining},
+		{"PATCH /api/trainings/{id}", need("employees"), a.UpdateTraining},
+		{"DELETE /api/trainings/{id}", need("employees"), a.DeleteTraining}, // cascades its enrollments
+
+		// enrollments: same gate as trainings (Capacitaciones page).
+		{"GET /api/enrollments", need("employees"), a.ListEnrollments},
+		{"POST /api/enrollments", need("employees"), a.CreateEnrollment}, // 409 if already enrolled
+		{"GET /api/enrollments/{id}", need("employees"), a.GetEnrollment},
+		{"PATCH /api/enrollments/{id}", need("employees"), a.UpdateEnrollment}, // grading
+		{"DELETE /api/enrollments/{id}", need("employees"), a.DeleteEnrollment},
+
+		// job_postings: recruitment.
+		{"GET /api/job_postings", need("recruitment"), a.ListJobPostings},
+		{"POST /api/job_postings", need("recruitment"), a.CreateJobPosting},
+		{"GET /api/job_postings/{id}", need("recruitment"), a.GetJobPosting},
+		{"PATCH /api/job_postings/{id}", need("recruitment"), a.UpdateJobPosting},
+		{"DELETE /api/job_postings/{id}", need("recruitment"), a.DeleteJobPosting}, // 409 while applications exist
+
+		// candidates: recruitment.
+		{"GET /api/candidates", need("recruitment"), a.ListCandidates},
+		{"POST /api/candidates", need("recruitment"), a.CreateCandidate},
+		{"GET /api/candidates/{id}", need("recruitment"), a.GetCandidate},
+		{"PATCH /api/candidates/{id}", need("recruitment"), a.UpdateCandidate},
+		{"DELETE /api/candidates/{id}", need("recruitment"), a.DeleteCandidate}, // 409 while applications exist
+
+		// applications: recruitment. The posting and the candidate must
+		// belong to the caller's company (404 otherwise).
+		{"GET /api/applications", need("recruitment"), a.ListApplications},
+		{"POST /api/applications", need("recruitment"), a.CreateApplication},
+		{"GET /api/applications/{id}", need("recruitment"), a.GetApplication},
+		{"PATCH /api/applications/{id}", need("recruitment"), a.UpdateApplication},
+		{"DELETE /api/applications/{id}", need("recruitment"), a.DeleteApplication}, // hard delete
+
+		// companies: read-only, the caller's own company (no write routes; the
+		// mux answers PATCH/POST/DELETE with 404 or 405).
+		{"GET /api/companies", open, a.ListCompanies},
+		{"GET /api/companies/{id}", open, a.GetCompany},
+
+		// zkteco_devices: the caller's devices only (unclaimed NULL-company rows are
+		// invisible). Any authenticated role; PATCH takes name and location ONLY.
+		{"GET /api/zkteco_devices", open, a.ListZktecoDevices},
+		{"PATCH /api/zkteco_devices/{id}", open, a.UpdateZktecoDevice},
+		// Admin only. The literal "/unclaimed" ranks above "/{id}" under Go 1.22
+		// ServeMux, like "/accrue" and "/bases" above.
+		{"GET /api/zkteco_devices/unclaimed", viaHandler, a.ListUnclaimedZktecoDevices},
+		{"POST /api/zkteco_devices/{id}/claim", viaHandler, a.ClaimZktecoDevice}, // atomic: only while company_id IS NULL
+
+		// zkteco_unknown_pins: admin only (requireAdmin); the table has no company_id.
+		{"GET /api/zkteco_unknown_pins", viaHandler, a.ListZktecoUnknownPins},
+
+		{"GET /api/employees", open, a.ListEmployees},
+		{"POST /api/employees", need("employees"), a.CreateEmployee},
+		{"GET /api/employees/{id}", open, a.GetEmployee},
+		{"PATCH /api/employees/{id}", need("employees"), a.UpdateEmployee},
+		{"DELETE /api/employees/{id}", need("employees"), a.DeleteEmployee}, // soft delete (P6.2)
+
+		{"GET /api/attendance_logs", need("attendance"), a.ListAttendanceLogs},
+		{"POST /api/attendance_logs", need("attendance"), a.CreateAttendanceLog}, // upsert on (employee_id,date)
+		{"GET /api/attendance_logs/{id}", need("attendance"), a.GetAttendanceLog},
+		{"PATCH /api/attendance_logs/{id}", need("attendance"), a.UpdateAttendanceLog},
+		{"DELETE /api/attendance_logs/{id}", need("attendance"), a.DeleteAttendanceLog}, // hard delete (Q3)
+
+		// leave_balances: no generic POST, no DELETE (design Q3) — rows are owned
+		// by the accrual scheduler. The one exception is the manual accrual
+		// trigger below, gated like the rest of the module by `vacations` (the
+		// handler checks the same permission again); Go 1.22 ServeMux ranks the literal
+		// "/accrue" path above the "/{id}" pattern, so there is no registration
+		// conflict (design Q5c).
+		{"GET /api/leave_balances", need("vacations"), a.ListLeaveBalances},
+		{"GET /api/leave_balances/{id}", need("vacations"), a.GetLeaveBalance},
+		{"PATCH /api/leave_balances/{id}", need("vacations"), a.UpdateLeaveBalance},   // {used_days} ONLY
+		{"POST /api/leave_balances/accrue", need("vacations"), a.AccrueLeaveBalances}, // requirePermission("vacations")
+
+		{"GET /api/leave_requests", need("vacations"), a.ListLeaveRequests},
+		{"POST /api/leave_requests", need("vacations"), a.CreateLeaveRequest},
+		{"GET /api/leave_requests/{id}", need("vacations"), a.GetLeaveRequest},
+		{"PATCH /api/leave_requests/{id}", need("vacations"), a.UpdateLeaveRequest},  // approve/reject, requirePermission("vacations")
+		{"DELETE /api/leave_requests/{id}", need("vacations"), a.DeleteLeaveRequest}, // hard delete while pending only, 409 once decided (design Q3 addendum)
+
+		{"GET /api/overtime_logs", need("overtime"), a.ListOvertimeLogs},
+		{"POST /api/overtime_logs", need("overtime"), a.CreateOvertimeLog}, // amount server-recomputed (Q6)
+		{"GET /api/overtime_logs/{id}", need("overtime"), a.GetOvertimeLog},
+		{"PATCH /api/overtime_logs/{id}", need("overtime"), a.UpdateOvertimeLog},
+		{"DELETE /api/overtime_logs/{id}", need("overtime"), a.DeleteOvertimeLog}, // hard delete (Q3)
+
+		{"GET /api/deductions", need("deductions"), a.ListDeductions},
+		{"POST /api/deductions", need("deductions"), a.CreateDeduction}, // employee_id MAY be null (CSV import)
+		{"GET /api/deductions/{id}", need("deductions"), a.GetDeduction},
+		{"PATCH /api/deductions/{id}", need("deductions"), a.UpdateDeduction},
+		{"DELETE /api/deductions/{id}", need("deductions"), a.DeleteDeduction}, // soft delete: status='cancelled' (Q3)
+
+		{"GET /api/employee_pay_records", anyOf("payroll", "liquidation"), a.ListEmployeePayRecords},
+		{"POST /api/employee_pay_records", need("liquidation"), a.CreateEmployeePayRecord},              // employee_id MAY be null (CSV import)
+		{"GET /api/employee_pay_records/bases", anyOf("payroll", "liquidation"), a.GetEmployeePayBases}, // literal > /{id} (Q5c)
+		{"GET /api/employee_pay_records/{id}", anyOf("payroll", "liquidation"), a.GetEmployeePayRecord},
+		{"PATCH /api/employee_pay_records/{id}", need("liquidation"), a.UpdateEmployeePayRecord},
+		{"DELETE /api/employee_pay_records/{id}", need("liquidation"), a.DeleteEmployeePayRecord}, // hard delete
+
+		// payroll_history: the committing run (slice 3f). No PATCH -- immutable
+		// historical record (design R7). No ledger cascade on delete (design
+		// R5). Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
+		// (Q5c).
+		{"GET /api/payroll_history", need("payroll"), a.ListPayrollHistory},
+		{"GET /api/payroll_history/calculate", need("payroll"), a.CalculatePayroll}, // preview, writes nothing
+		{"POST /api/payroll_history", need("payroll"), a.CreatePayrollRun},          // tx: 1 aggregate + N ledger rows
+		{"GET /api/payroll_history/{id}", need("payroll"), a.GetPayrollHistory},
+		{"DELETE /api/payroll_history/{id}", need("payroll"), a.DeletePayrollHistory}, // hard; no ledger cascade
+
+		// liquidation_history: no PATCH -- immutable historical record (design
+		// R7). No cascade on delete -- no FK to employee_pay_records exists at
+		// all. Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
+		// (Q5c).
+		{"GET /api/liquidation_history", need("liquidation"), a.ListLiquidationHistory},
+		{"GET /api/liquidation_history/calculate", need("liquidation"), a.CalculateLiquidation}, // preview, writes nothing
+		{"POST /api/liquidation_history", need("liquidation"), a.CreateLiquidation},             // recomputes server-side
+		{"GET /api/liquidation_history/{id}", need("liquidation"), a.GetLiquidationHistory},
+		{"DELETE /api/liquidation_history/{id}", need("liquidation"), a.DeleteLiquidationHistory}, // hard
+
+		// document_templates: opaque CRUD, full-replace PATCH. DELETE answers 409
+		// while generated_documents still reference the template (slice 4b).
+		{"GET /api/document_templates", need("documents"), a.ListDocumentTemplates},
+		{"POST /api/document_templates", need("documents"), a.CreateDocumentTemplate},
+		{"GET /api/document_templates/{id}", need("documents"), a.GetDocumentTemplate},
+		{"PATCH /api/document_templates/{id}", need("documents"), a.UpdateDocumentTemplate},
+		{"DELETE /api/document_templates/{id}", need("documents"), a.DeleteDocumentTemplate}, // hard; 409 when referenced
+
+		// generated_documents: issued records. Create/list/get only; no PATCH or
+		// DELETE (design H1). Both nullable FKs are tenant-checked inside the INSERT.
+		{"GET /api/generated_documents", need("documents"), a.ListGeneratedDocuments},
+		{"POST /api/generated_documents", need("documents"), a.CreateGeneratedDocument},
+		{"GET /api/generated_documents/{id}", need("documents"), a.GetGeneratedDocument},
+
+		// evaluations: avg and category are recomputed server-side from scores
+		// (D1). No PATCH route: PATCH answers 405 (slice 4d).
+		{"GET /api/evaluations", need("employees"), a.ListEvaluations},
+		{"POST /api/evaluations", need("employees"), a.CreateEvaluation},
+		{"GET /api/evaluations/{id}", need("employees"), a.GetEvaluation},
+		{"DELETE /api/evaluations/{id}", need("employees"), a.DeleteEvaluation}, // hard delete
+
+		{"GET /api/medical_records", viaHandler, a.ListMedicalRecords},          // requirePermission("medical")
+		{"POST /api/medical_records", viaHandler, a.CreateMedicalRecord},        // requirePermission("medical"); days split + cost computed server-side
+		{"GET /api/medical_records/{id}", viaHandler, a.GetMedicalRecord},       // requirePermission("medical")
+		{"PATCH /api/medical_records/{id}", viaHandler, a.UpdateMedicalRecord},  // requirePermission("medical"); partial, tx, always recomputes
+		{"DELETE /api/medical_records/{id}", viaHandler, a.DeleteMedicalRecord}, // requirePermission("medical"); hard delete
+
+		{"GET /api/uniforms", need("employees"), a.ListUniforms},
+		{"POST /api/uniforms", need("employees"), a.CreateUniform},
+		{"GET /api/uniforms/{id}", need("employees"), a.GetUniform},
+		{"PATCH /api/uniforms/{id}", need("employees"), a.UpdateUniform},  // partial (returnUniform)
+		{"DELETE /api/uniforms/{id}", need("employees"), a.DeleteUniform}, // hard delete
+	}
+}
+
 // Routes builds the full API mux. Every tenant-scoped route lives on one
 // `protected` sub-mux mounted once behind signer.Middleware: omitting a
 // route from `protected` yields a 404 (fail-closed), instead of the
 // fail-open risk of forgetting to wrap an individual route in middleware.
+// Module permissions are applied per protectedRoutes classification.
 func (a *API) Routes(signer *auth.Signer) http.Handler {
 	protected := http.NewServeMux()
-	protected.HandleFunc("GET /api/me", a.Me)
-
-	protected.HandleFunc("GET /api/departments", a.ListDepartments)
-	protected.HandleFunc("POST /api/departments", a.CreateDepartment)
-	protected.HandleFunc("GET /api/departments/{id}", a.GetDepartment)
-	protected.HandleFunc("PATCH /api/departments/{id}", a.UpdateDepartment)
-	protected.HandleFunc("DELETE /api/departments/{id}", a.DeleteDepartment)
-
-	protected.HandleFunc("GET /api/positions", a.ListPositions)
-	protected.HandleFunc("POST /api/positions", a.CreatePosition)
-	protected.HandleFunc("GET /api/positions/{id}", a.GetPosition)
-	protected.HandleFunc("PATCH /api/positions/{id}", a.UpdatePosition)
-	protected.HandleFunc("DELETE /api/positions/{id}", a.DeletePosition)
-
-	protected.HandleFunc("GET /api/branches", a.ListBranches)
-	protected.HandleFunc("POST /api/branches", a.CreateBranch)
-	protected.HandleFunc("GET /api/branches/{id}", a.GetBranch)
-	protected.HandleFunc("PATCH /api/branches/{id}", a.UpdateBranch)
-	protected.HandleFunc("DELETE /api/branches/{id}", a.DeleteBranch)
-
-	protected.HandleFunc("GET /api/roles", a.ListRoles)
-	protected.HandleFunc("POST /api/roles", a.CreateRole)
-	protected.HandleFunc("GET /api/roles/{id}", a.GetRole)
-	protected.HandleFunc("PATCH /api/roles/{id}", a.UpdateRole)
-	protected.HandleFunc("DELETE /api/roles/{id}", a.DeleteRole)
-
-	// users: admin-only (requireAdmin).
-	protected.HandleFunc("GET /api/users", a.ListUsers)
-	protected.HandleFunc("POST /api/users", a.CreateUser) // 201 array with one-time temporary_password
-	protected.HandleFunc("GET /api/users/{id}", a.GetUser)
-	protected.HandleFunc("PATCH /api/users/{id}", a.UpdateUser)  // last-active-admin guard (409)
-	protected.HandleFunc("DELETE /api/users/{id}", a.DeleteUser) // soft delete, idempotent 204
-
-	// job_postings: any authenticated role.
-	protected.HandleFunc("GET /api/job_postings", a.ListJobPostings)
-	protected.HandleFunc("POST /api/job_postings", a.CreateJobPosting)
-	protected.HandleFunc("GET /api/job_postings/{id}", a.GetJobPosting)
-	protected.HandleFunc("PATCH /api/job_postings/{id}", a.UpdateJobPosting)
-	protected.HandleFunc("DELETE /api/job_postings/{id}", a.DeleteJobPosting) // 409 while applications exist
-
-	// candidates: any authenticated role.
-	protected.HandleFunc("GET /api/candidates", a.ListCandidates)
-	protected.HandleFunc("POST /api/candidates", a.CreateCandidate)
-	protected.HandleFunc("GET /api/candidates/{id}", a.GetCandidate)
-	protected.HandleFunc("PATCH /api/candidates/{id}", a.UpdateCandidate)
-	protected.HandleFunc("DELETE /api/candidates/{id}", a.DeleteCandidate) // 409 while applications exist
-
-	// applications: any authenticated role. The posting and the candidate must
-	// belong to the caller's company (404 otherwise).
-	protected.HandleFunc("GET /api/applications", a.ListApplications)
-	protected.HandleFunc("POST /api/applications", a.CreateApplication)
-	protected.HandleFunc("GET /api/applications/{id}", a.GetApplication)
-	protected.HandleFunc("PATCH /api/applications/{id}", a.UpdateApplication)
-	protected.HandleFunc("DELETE /api/applications/{id}", a.DeleteApplication) // hard delete
-
-	// companies: read-only, the caller's own company (no write routes; the
-	// mux answers PATCH/POST/DELETE with 404 or 405).
-	protected.HandleFunc("GET /api/companies", a.ListCompanies)
-	protected.HandleFunc("GET /api/companies/{id}", a.GetCompany)
-
-	// zkteco_devices: the caller's devices only (unclaimed NULL-company rows are
-	// invisible). Any authenticated role; PATCH takes name and location ONLY.
-	protected.HandleFunc("GET /api/zkteco_devices", a.ListZktecoDevices)
-	protected.HandleFunc("PATCH /api/zkteco_devices/{id}", a.UpdateZktecoDevice)
-	// Admin only. The literal "/unclaimed" ranks above "/{id}" under Go 1.22
-	// ServeMux, like "/accrue" and "/bases" above.
-	protected.HandleFunc("GET /api/zkteco_devices/unclaimed", a.ListUnclaimedZktecoDevices)
-	protected.HandleFunc("POST /api/zkteco_devices/{id}/claim", a.ClaimZktecoDevice) // atomic: only while company_id IS NULL
-
-	// zkteco_unknown_pins: admin only (requireAdmin); the table has no company_id.
-	protected.HandleFunc("GET /api/zkteco_unknown_pins", a.ListZktecoUnknownPins)
-
-	protected.HandleFunc("GET /api/employees", a.ListEmployees)
-	protected.HandleFunc("POST /api/employees", a.CreateEmployee)
-	protected.HandleFunc("GET /api/employees/{id}", a.GetEmployee)
-	protected.HandleFunc("PATCH /api/employees/{id}", a.UpdateEmployee)
-	protected.HandleFunc("DELETE /api/employees/{id}", a.DeleteEmployee) // soft delete (P6.2)
-
-	protected.HandleFunc("GET /api/attendance_logs", a.ListAttendanceLogs)
-	protected.HandleFunc("POST /api/attendance_logs", a.CreateAttendanceLog) // upsert on (employee_id,date)
-	protected.HandleFunc("GET /api/attendance_logs/{id}", a.GetAttendanceLog)
-	protected.HandleFunc("PATCH /api/attendance_logs/{id}", a.UpdateAttendanceLog)
-	protected.HandleFunc("DELETE /api/attendance_logs/{id}", a.DeleteAttendanceLog) // hard delete (Q3)
-
-	// leave_balances: no generic POST, no DELETE (design Q3) — rows are owned
-	// by the accrual scheduler. The one exception is the admin-gated manual
-	// accrual trigger below; Go 1.22 ServeMux ranks the literal
-	// "/accrue" path above the "/{id}" pattern, so there is no registration
-	// conflict (design Q5c).
-	protected.HandleFunc("GET /api/leave_balances", a.ListLeaveBalances)
-	protected.HandleFunc("GET /api/leave_balances/{id}", a.GetLeaveBalance)
-	protected.HandleFunc("PATCH /api/leave_balances/{id}", a.UpdateLeaveBalance)   // {used_days} ONLY
-	protected.HandleFunc("POST /api/leave_balances/accrue", a.AccrueLeaveBalances) // requirePermission("vacations")
-
-	protected.HandleFunc("GET /api/leave_requests", a.ListLeaveRequests)
-	protected.HandleFunc("POST /api/leave_requests", a.CreateLeaveRequest)
-	protected.HandleFunc("GET /api/leave_requests/{id}", a.GetLeaveRequest)
-	protected.HandleFunc("PATCH /api/leave_requests/{id}", a.UpdateLeaveRequest)  // approve/reject, requirePermission("vacations")
-	protected.HandleFunc("DELETE /api/leave_requests/{id}", a.DeleteLeaveRequest) // hard delete while pending only, 409 once decided (design Q3 addendum)
-
-	protected.HandleFunc("GET /api/overtime_logs", a.ListOvertimeLogs)
-	protected.HandleFunc("POST /api/overtime_logs", a.CreateOvertimeLog) // amount server-recomputed (Q6)
-	protected.HandleFunc("GET /api/overtime_logs/{id}", a.GetOvertimeLog)
-	protected.HandleFunc("PATCH /api/overtime_logs/{id}", a.UpdateOvertimeLog)
-	protected.HandleFunc("DELETE /api/overtime_logs/{id}", a.DeleteOvertimeLog) // hard delete (Q3)
-
-	protected.HandleFunc("GET /api/deductions", a.ListDeductions)
-	protected.HandleFunc("POST /api/deductions", a.CreateDeduction) // employee_id MAY be null (CSV import)
-	protected.HandleFunc("GET /api/deductions/{id}", a.GetDeduction)
-	protected.HandleFunc("PATCH /api/deductions/{id}", a.UpdateDeduction)
-	protected.HandleFunc("DELETE /api/deductions/{id}", a.DeleteDeduction) // soft delete: status='cancelled' (Q3)
-
-	protected.HandleFunc("GET /api/employee_pay_records", a.ListEmployeePayRecords)
-	protected.HandleFunc("POST /api/employee_pay_records", a.CreateEmployeePayRecord)  // employee_id MAY be null (CSV import)
-	protected.HandleFunc("GET /api/employee_pay_records/bases", a.GetEmployeePayBases) // literal > /{id} (Q5c)
-	protected.HandleFunc("GET /api/employee_pay_records/{id}", a.GetEmployeePayRecord)
-	protected.HandleFunc("PATCH /api/employee_pay_records/{id}", a.UpdateEmployeePayRecord)
-	protected.HandleFunc("DELETE /api/employee_pay_records/{id}", a.DeleteEmployeePayRecord) // hard delete
-
-	// payroll_history: the committing run (slice 3f). No PATCH -- immutable
-	// historical record (design R7). No ledger cascade on delete (design
-	// R5). Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
-	// (Q5c).
-	protected.HandleFunc("GET /api/payroll_history", a.ListPayrollHistory)
-	protected.HandleFunc("GET /api/payroll_history/calculate", a.CalculatePayroll) // preview, writes nothing
-	protected.HandleFunc("POST /api/payroll_history", a.CreatePayrollRun)          // tx: 1 aggregate + N ledger rows
-	protected.HandleFunc("GET /api/payroll_history/{id}", a.GetPayrollHistory)
-	protected.HandleFunc("DELETE /api/payroll_history/{id}", a.DeletePayrollHistory) // hard; no ledger cascade
-
-	// liquidation_history: no PATCH -- immutable historical record (design
-	// R7). No cascade on delete -- no FK to employee_pay_records exists at
-	// all. Literal "/calculate" ranks above "/{id}" under Go 1.22 ServeMux
-	// (Q5c).
-	protected.HandleFunc("GET /api/liquidation_history", a.ListLiquidationHistory)
-	protected.HandleFunc("GET /api/liquidation_history/calculate", a.CalculateLiquidation) // preview, writes nothing
-	protected.HandleFunc("POST /api/liquidation_history", a.CreateLiquidation)             // recomputes server-side
-	protected.HandleFunc("GET /api/liquidation_history/{id}", a.GetLiquidationHistory)
-	protected.HandleFunc("DELETE /api/liquidation_history/{id}", a.DeleteLiquidationHistory) // hard
-
-	// document_templates: opaque CRUD, full-replace PATCH. DELETE answers 409
-	// while generated_documents still reference the template (slice 4b).
-	protected.HandleFunc("GET /api/document_templates", a.ListDocumentTemplates)
-	protected.HandleFunc("POST /api/document_templates", a.CreateDocumentTemplate)
-	protected.HandleFunc("GET /api/document_templates/{id}", a.GetDocumentTemplate)
-	protected.HandleFunc("PATCH /api/document_templates/{id}", a.UpdateDocumentTemplate)
-	protected.HandleFunc("DELETE /api/document_templates/{id}", a.DeleteDocumentTemplate) // hard; 409 when referenced
-
-	// generated_documents: issued records. Create/list/get only; no PATCH or
-	// DELETE (design H1). Both nullable FKs are tenant-checked inside the INSERT.
-	protected.HandleFunc("GET /api/generated_documents", a.ListGeneratedDocuments)
-	protected.HandleFunc("POST /api/generated_documents", a.CreateGeneratedDocument)
-	protected.HandleFunc("GET /api/generated_documents/{id}", a.GetGeneratedDocument)
-
-	// evaluations: avg and category are recomputed server-side from scores
-	// (D1). No PATCH route: PATCH answers 405 (slice 4d).
-	protected.HandleFunc("GET /api/evaluations", a.ListEvaluations)
-	protected.HandleFunc("POST /api/evaluations", a.CreateEvaluation)
-	protected.HandleFunc("GET /api/evaluations/{id}", a.GetEvaluation)
-	protected.HandleFunc("DELETE /api/evaluations/{id}", a.DeleteEvaluation) // hard delete
-
-	protected.HandleFunc("GET /api/medical_records", a.ListMedicalRecords)          // requirePermission("medical")
-	protected.HandleFunc("POST /api/medical_records", a.CreateMedicalRecord)        // requirePermission("medical"); days split + cost computed server-side
-	protected.HandleFunc("GET /api/medical_records/{id}", a.GetMedicalRecord)       // requirePermission("medical")
-	protected.HandleFunc("PATCH /api/medical_records/{id}", a.UpdateMedicalRecord)  // requirePermission("medical"); partial, tx, always recomputes
-	protected.HandleFunc("DELETE /api/medical_records/{id}", a.DeleteMedicalRecord) // requirePermission("medical"); hard delete
-
-	protected.HandleFunc("GET /api/uniforms", a.ListUniforms)
-	protected.HandleFunc("POST /api/uniforms", a.CreateUniform)
-	protected.HandleFunc("GET /api/uniforms/{id}", a.GetUniform)
-	protected.HandleFunc("PATCH /api/uniforms/{id}", a.UpdateUniform)  // partial (returnUniform)
-	protected.HandleFunc("DELETE /api/uniforms/{id}", a.DeleteUniform) // hard delete
+	for _, rt := range a.protectedRoutes() {
+		h := rt.handler
+		if rt.gate.kind == gatePermission {
+			h = a.perm(rt.gate.keys, h)
+		}
+		protected.HandleFunc(rt.pattern, h)
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.Health) // public — more specific than /api/
@@ -196,6 +292,6 @@ func (a *API) Routes(signer *auth.Signer) http.Handler {
 	// ZKTeco ADMS device endpoints: public (devices carry no JWT), outside /api/
 	// and behind ADMSLimiter. PROVISIONAL wire format, see adms.go.
 	a.admsRoutes(mux)
-	mux.Handle("/api/", signer.Middleware(protected))
+	mux.Handle("/api/", signer.Middleware(protected, a.SessionLookup))
 	return mux
 }

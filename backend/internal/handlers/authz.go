@@ -2,8 +2,10 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
@@ -39,20 +41,50 @@ func requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 // Writes nothing and returns true without touching a.Queries when the JWT
 // role is "admin".
 func (a *API) requirePermission(w http.ResponseWriter, r *http.Request, companyID pgtype.UUID, key string) bool {
+	if a.permissionAllows(r, companyID, key) {
+		return true
+	}
+	writeErrCode(w, http.StatusForbidden, codeForbidden, "insufficient permissions")
+	return false
+}
+
+// permissionAllows is the decision behind requirePermission without the
+// response write, so callers can combine several keys (any-of) before
+// answering. Same semantics: admin bypass, fail-closed otherwise (a lookup
+// error is a deny).
+func (a *API) permissionAllows(r *http.Request, companyID pgtype.UUID, key string) bool {
+	allowed, err := a.permissionLookup(r, companyID, key)
+	return err == nil && allowed
+}
+
+// permissionLookup is the one role-permission decision every caller shares:
+// admin always passes; otherwise the caller's role row must grant at least
+// one of keys. A role with no row is a plain deny (false, nil). Any other
+// lookup failure is returned, for callers that must not mistake an outage for
+// a deny (employee reads answer 500 instead of a redacted record).
+func (a *API) permissionLookup(r *http.Request, companyID pgtype.UUID, keys ...string) (bool, error) {
 	role := auth.RoleFromContext(r.Context())
 	if role == "admin" {
-		return true
+		return true, nil
 	}
 
 	row, err := a.Queries.GetRoleByName(r.Context(), db.GetRoleByNameParams{
 		CompanyID: companyID,
 		Name:      role,
 	})
-	if !permissionGranted(row, err, key) {
-		writeErrCode(w, http.StatusForbidden, codeForbidden, "insufficient permissions")
-		return false
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
 	}
-	return true
+	if err != nil {
+		return false, err
+	}
+	for _, key := range keys {
+		// nil: the lookup already succeeded, only the permissions JSON decides
+		if permissionGranted(row, nil, key) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // permissionGranted is the pure decision at the heart of requirePermission,

@@ -154,6 +154,20 @@ func authzSeedCompany(t *testing.T, pool *pgxpool.Pool, name string) pgtype.UUID
 	return cid
 }
 
+// lookupFromToken is a SessionLookup that reports exactly what the token
+// claims (active, same role/company/version), so the pure authorization tests
+// below exercise requirePermission/requireAdmin without a users table.
+func lookupFromToken(t *testing.T, signer *auth.Signer, token string) auth.SessionLookup {
+	t.Helper()
+	claims, err := signer.Parse(token)
+	if err != nil {
+		t.Fatalf("parse token: %v", err)
+	}
+	return func(context.Context, string) (auth.Session, error) {
+		return auth.Session{Status: "active", Role: claims.Role, CompanyID: claims.CompanyID, TokenVersion: claims.TokenVersion}, nil
+	}
+}
+
 // requirePermissionResult drives a.requirePermission through a real
 // signer.Middleware-wrapped mux, exactly as a production route would, and
 // returns the recorded response.
@@ -165,7 +179,7 @@ func requirePermissionResult(t *testing.T, a *API, signer *auth.Signer, token st
 			w.WriteHeader(http.StatusOK)
 		}
 	})
-	h := signer.Middleware(mux)
+	h := signer.Middleware(mux, lookupFromToken(t, signer, token))
 
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -183,7 +197,7 @@ func TestAuthz_AdminBypass(t *testing.T) {
 	signer := auth.NewSigner(authzTestSecret, time.Hour)
 	a := &API{Queries: nil, Log: authzTestLog()}
 
-	tok, err := signer.Sign("user-1", "11111111-1111-1111-1111-111111111111", "admin")
+	tok, err := signer.Sign("user-1", "11111111-1111-1111-1111-111111111111", "admin", 0)
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
@@ -219,7 +233,7 @@ func TestAuthz_MissingRoleFailsClosed(t *testing.T) {
 	// Deliberately no roles row for "empleado" -- this is the case a fresh
 	// tenant is in before any custom role is created.
 
-	tok, err := signer.Sign("user-3", uuidToString(companyID), "empleado")
+	tok, err := signer.Sign("user-3", uuidToString(companyID), "empleado", 0)
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
@@ -311,14 +325,14 @@ func requireAdminResult(t *testing.T, signer *auth.Signer, role string) *httptes
 			w.WriteHeader(http.StatusOK)
 		}
 	})
-	tok, err := signer.Sign("user-1", "11111111-1111-1111-1111-111111111111", role)
+	tok, err := signer.Sign("user-1", "11111111-1111-1111-1111-111111111111", role, 0)
 	if err != nil {
 		t.Fatalf("sign token: %v", err)
 	}
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
 	req.Header.Set("Authorization", "Bearer "+tok)
 	rec := httptest.NewRecorder()
-	signer.Middleware(mux).ServeHTTP(rec, req)
+	signer.Middleware(mux, lookupFromToken(t, signer, tok)).ServeHTTP(rec, req)
 	return rec
 }
 
