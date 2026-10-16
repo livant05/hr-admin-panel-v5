@@ -156,6 +156,7 @@ func (a *API) protectedRoutes() []routeSpec {
 		{"PATCH /api/zkteco_devices/{id}", open, a.UpdateZktecoDevice},
 		// Admin only. The literal "/unclaimed" ranks above "/{id}" under Go 1.22
 		// ServeMux, like "/accrue" and "/bases" above.
+		{"POST /api/zkteco_devices", viaHandler, a.RegisterZktecoDevice}, // pre-registration: ADMS refuses unknown serials
 		{"GET /api/zkteco_devices/unclaimed", viaHandler, a.ListUnclaimedZktecoDevices},
 		{"POST /api/zkteco_devices/{id}/claim", viaHandler, a.ClaimZktecoDevice}, // atomic: only while company_id IS NULL
 

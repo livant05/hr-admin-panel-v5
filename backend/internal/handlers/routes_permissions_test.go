@@ -58,6 +58,7 @@ var wantRouteClasses = map[string]string{
 
 	"GET /api/zkteco_devices":             "open",
 	"PATCH /api/zkteco_devices/{id}":      "open",
+	"POST /api/zkteco_devices":            "handler",
 	"GET /api/zkteco_devices/unclaimed":   "handler",
 	"POST /api/zkteco_devices/{id}/claim": "handler",
 	"GET /api/zkteco_unknown_pins":        "handler",

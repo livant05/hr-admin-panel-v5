@@ -208,7 +208,7 @@ from validation errors. Every protected route carries a classification and
 |---|---|---|
 | `me`, `companies`, `roles` | any authenticated | `roles` writes: admin (in handler) |
 | `departments`, `positions`, `branches` | any authenticated | `settings` |
-| `users`, `zkteco_devices` claim/unclaimed, `zkteco_unknown_pins` | admin (in handler) | admin (in handler) |
+| `users`, `zkteco_devices` register/claim/unclaimed, `zkteco_unknown_pins` | admin (in handler) | admin (in handler) |
 | `zkteco_devices` list / rename | any authenticated | any authenticated |
 | `employees` | any authenticated, sensitive fields redacted (below) | `employees` |
 | `evaluations`, `uniforms`, `trainings`, `enrollments` | `employees` | `employees` |
@@ -370,8 +370,19 @@ and must be 1 to 200 characters (`400 validation_failed` with `fields`). Any oth
 company, an unclaimed device and a missing id are all `404`. There is no `GET /{id}`; read one device
 with the `id` filter.
 
-`GET /api/zkteco_devices/unclaimed` (admin only, `403` otherwise) lists the pool of devices that
-heartbeated without a company, so an admin can recognize the serial number before claiming. It takes
+`POST /api/zkteco_devices` (admin only, `403` otherwise) registers a device for the caller's company
+**before** it is pointed at the server: the ADMS endpoints refuse any serial that has no row (see below).
+Body: `serial_number` (required, `^[A-Za-z0-9_-]{1,64}$`, the rule ADMS applies to `SN`), `name` and
+`location` (optional, 1 to 200 characters after trimming, or `null`); `400 validation_failed` with
+`fields` otherwise. Any other key, such as `company_id` or `status`, is `400 bad_request`: the company
+always comes from the token. It returns `201` with a one-element array. A serial that already has a row,
+registered by any company or imported without one, is `409 conflict` with "Ese número de serie ya está
+registrado" (an unclaimed one is taken with the claim below). Registering also deletes, in the same
+transaction, any rejection counters and unknown PINs left under that serial.
+
+`GET /api/zkteco_devices/unclaimed` (admin only, `403` otherwise) lists the devices that have no
+company: the ones the importer loaded unclaimed, or that self-registered before pre-registration
+existed. An admin recognizes the serial number before claiming. New devices never land here. It takes
 `_limit`/`_offset` only. `POST /api/zkteco_devices/{id}/claim` (admin only) assigns an unclaimed device
 to the caller's company and returns a one-element array. The company always comes from the token: the
 body is optional and must be an empty object, so a `company_id` (or any key), `null` or a non-object is `400 bad_request`; the body is capped at 1 KiB (a larger one is also `400 bad_request`). The
@@ -409,9 +420,12 @@ so they do not change the auth of any `/api/*` route. nginx routes `/iclock/` to
 | `POST /iclock/cdata?SN=<serial>&table=<anything else>` | `200 OK`, nothing processed |
 | `POST /iclock/devicecmd?SN=<serial>` | `200 OK`, nothing written |
 
-- `SN` (or `sn`) must match `^[A-Za-z0-9_-]{1,64}$`, otherwise `400` and nothing is written. An unknown
-  serial self-registers as an unclaimed device (`company_id` NULL, online); a heartbeat never changes
-  `company_id`. An admin claims the device (`POST /api/zkteco_devices/{id}/claim`).
+- `SN` (or `sn`) must match `^[A-Za-z0-9_-]{1,64}$`, otherwise `400` and nothing is written.
+- Devices are **pre-registered** (runbook B2/B3): a serial with no row in `zkteco_devices` is answered
+  `403 forbidden` ("unknown device") on every endpoint above and nothing is written: no device row, no
+  counter, no unknown PIN. These refusals are not logged per request. An admin registers the device first
+  (`POST /api/zkteco_devices`). For a known serial, `cdata` and `getrequest` refresh the heartbeat
+  (online, `last_seen`) and `devicecmd` writes nothing; a heartbeat never changes `company_id`.
 - Attendance is written only for **claimed** devices, and the PIN is resolved against the employees of the
   device's company only. A punch from an unclaimed device is counted `device_unclaimed` and answered
   `OK: 0`, so the device does not retry it forever.

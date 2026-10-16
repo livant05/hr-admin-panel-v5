@@ -58,7 +58,8 @@ type ListUnclaimedZktecoDevicesParams struct {
 	Limit  int32 `json:"limit"`
 }
 
-// The unclaimed pool: devices that heartbeated but belong to no company. The
+// The unclaimed pool: devices with no company (loaded by the importer, or
+// self-registered before devices were pre-registered). The
 // caller must be gated by requireAdmin; the rows carry the serial number an
 // admin needs to recognize the physical device before claiming it.
 func (q *Queries) ListUnclaimedZktecoDevices(ctx context.Context, arg ListUnclaimedZktecoDevicesParams) ([]ZktecoDevice, error) {
@@ -199,6 +200,45 @@ func (q *Queries) ListZktecoUnknownPins(ctx context.Context, arg ListZktecoUnkno
 		return nil, err
 	}
 	return items, nil
+}
+
+const registerZktecoDevice = `-- name: RegisterZktecoDevice :one
+INSERT INTO zkteco_devices (company_id, serial_number, name, location)
+VALUES ($1, $2, $3, $4)
+RETURNING id, company_id, serial_number, name, location, status, last_seen,
+  firmware_version, created_at
+`
+
+type RegisterZktecoDeviceParams struct {
+	CompanyID    pgtype.UUID `json:"company_id"`
+	SerialNumber string      `json:"serial_number"`
+	Name         pgtype.Text `json:"name"`
+	Location     pgtype.Text `json:"location"`
+}
+
+// An admin registers a device for their company before pointing it at the
+// server; ADMS only accepts serials that have a row. serial_number is UNIQUE:
+// a serial already registered (by any company) or imported is a 23505.
+func (q *Queries) RegisterZktecoDevice(ctx context.Context, arg RegisterZktecoDeviceParams) (ZktecoDevice, error) {
+	row := q.db.QueryRow(ctx, registerZktecoDevice,
+		arg.CompanyID,
+		arg.SerialNumber,
+		arg.Name,
+		arg.Location,
+	)
+	var i ZktecoDevice
+	err := row.Scan(
+		&i.ID,
+		&i.CompanyID,
+		&i.SerialNumber,
+		&i.Name,
+		&i.Location,
+		&i.Status,
+		&i.LastSeen,
+		&i.FirmwareVersion,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const updateZktecoDevice = `-- name: UpdateZktecoDevice :one

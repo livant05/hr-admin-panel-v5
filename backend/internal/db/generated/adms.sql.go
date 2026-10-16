@@ -84,6 +84,19 @@ func (q *Queries) DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pg
 	return err
 }
 
+const deviceSerialKnown = `-- name: DeviceSerialKnown :one
+SELECT EXISTS (SELECT 1 FROM zkteco_devices WHERE serial_number = $1)
+`
+
+// Read-only check for endpoints that must not refresh the heartbeat
+// (devicecmd): true when the serial has a row, registered or imported.
+func (q *Queries) DeviceSerialKnown(ctx context.Context, serialNumber string) (bool, error) {
+	row := q.db.QueryRow(ctx, deviceSerialKnown, serialNumber)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const ingestCheckIn = `-- name: IngestCheckIn :execrows
 INSERT INTO attendance_logs (company_id, employee_id, employee_name, department, date, time_in, status)
 SELECT $1, e.id, e.first_name || ' ' || e.last_name, e.department,
@@ -185,15 +198,13 @@ func (q *Queries) ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmplo
 	return items, nil
 }
 
-const upsertDeviceHeartbeat = `-- name: UpsertDeviceHeartbeat :one
-INSERT INTO zkteco_devices (serial_number, status, last_seen)
-VALUES ($1, 'online', now())
-ON CONFLICT (serial_number) DO UPDATE
-SET status = 'online', last_seen = now()
+const touchDeviceHeartbeat = `-- name: TouchDeviceHeartbeat :one
+UPDATE zkteco_devices SET status = 'online', last_seen = now()
+WHERE serial_number = $1
 RETURNING id, company_id
 `
 
-type UpsertDeviceHeartbeatRow struct {
+type TouchDeviceHeartbeatRow struct {
 	ID        pgtype.UUID `json:"id"`
 	CompanyID pgtype.UUID `json:"company_id"`
 }
@@ -202,12 +213,14 @@ type UpsertDeviceHeartbeatRow struct {
 // idempotency guarantees of this file are binding). These queries are
 // deliberately separate from UpsertAttendanceLog, which overwrites time_out.
 //
-// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
-// and refreshes a known one. company_id is NEVER part of the SET list, so a
-// heartbeat can not change ownership.
-func (q *Queries) UpsertDeviceHeartbeat(ctx context.Context, serialNumber string) (UpsertDeviceHeartbeatRow, error) {
-	row := q.db.QueryRow(ctx, upsertDeviceHeartbeat, serialNumber)
-	var i UpsertDeviceHeartbeatRow
+// Refreshes a device an admin registered (or the importer loaded). An unknown
+// serial matches no row (pgx.ErrNoRows, answered 403) and is never inserted:
+// devices are pre-registered, there is no self-registration (runbook B2/B3).
+// company_id is NEVER part of the SET list, so a heartbeat can not change
+// ownership.
+func (q *Queries) TouchDeviceHeartbeat(ctx context.Context, serialNumber string) (TouchDeviceHeartbeatRow, error) {
+	row := q.db.QueryRow(ctx, touchDeviceHeartbeat, serialNumber)
+	var i TouchDeviceHeartbeatRow
 	err := row.Scan(&i.ID, &i.CompanyID)
 	return i, err
 }

@@ -283,6 +283,9 @@ type Querier interface {
 	// owner starts with a clean unknown-PIN list instead of inheriting someone
 	// else's punches.
 	DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error
+	// Read-only check for endpoints that must not refresh the heartbeat
+	// (devicecmd): true when the serial has a row, registered or imported.
+	DeviceSerialKnown(ctx context.Context, serialNumber string) (bool, error)
 	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
 	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
 	// against DELETE, and keeps a concurrent committed write from being overwritten
@@ -449,7 +452,8 @@ type Querier interface {
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
 	ListTrainings(ctx context.Context, arg ListTrainingsParams) ([]Training, error)
-	// The unclaimed pool: devices that heartbeated but belong to no company. The
+	// The unclaimed pool: devices with no company (loaded by the importer, or
+	// self-registered before devices were pre-registered). The
 	// caller must be gated by requireAdmin; the rows carry the serial number an
 	// admin needs to recognize the physical device before claiming it.
 	ListUnclaimedZktecoDevices(ctx context.Context, arg ListUnclaimedZktecoDevicesParams) ([]ZktecoDevice, error)
@@ -491,6 +495,10 @@ type Querier interface {
 	// was renamed or deleted meanwhile. Same order everywhere (role, then users),
 	// so the two never deadlock.
 	LockRoleForShare(ctx context.Context, arg LockRoleForShareParams) (pgtype.UUID, error)
+	// An admin registers a device for their company before pointing it at the
+	// server; ADMS only accepts serials that have a row. serial_number is UNIQUE:
+	// a serial already registered (by any company) or imported is a 23505.
+	RegisterZktecoDevice(ctx context.Context, arg RegisterZktecoDeviceParams) (ZktecoDevice, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
@@ -500,6 +508,16 @@ type Querier interface {
 	// Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
 	// "ambiguous" without scanning every duplicate.
 	ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmployeesByCedulaParams) ([]pgtype.UUID, error)
+	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
+	// idempotency guarantees of this file are binding). These queries are
+	// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
+	//
+	// Refreshes a device an admin registered (or the importer loaded). An unknown
+	// serial matches no row (pgx.ErrNoRows, answered 403) and is never inserted:
+	// devices are pre-registered, there is no self-registration (runbook B2/B3).
+	// company_id is NEVER part of the SET list, so a heartbeat can not change
+	// ownership.
+	TouchDeviceHeartbeat(ctx context.Context, serialNumber string) (TouchDeviceHeartbeatRow, error)
 	UpdateApplication(ctx context.Context, arg UpdateApplicationParams) (Application, error)
 	// PATCH keeps employee_id and date immutable (the upsert's own unique key)
 	// -- changing which employee or day a punch belongs to is a new record, not
@@ -577,14 +595,6 @@ type Querier interface {
 	// existing-row lookup, generateTestData's on_conflict=employee_id,date raw
 	// fetch, and Phase 6's ZKTeco ingestion all rely on this being idempotent.
 	UpsertAttendanceLog(ctx context.Context, arg UpsertAttendanceLogParams) (UpsertAttendanceLogRow, error)
-	// ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
-	// idempotency guarantees of this file are binding). These queries are
-	// deliberately separate from UpsertAttendanceLog, which overwrites time_out.
-	//
-	// Self-registers an unknown serial into the unclaimed pool (company_id NULL)
-	// and refreshes a known one. company_id is NEVER part of the SET list, so a
-	// heartbeat can not change ownership.
-	UpsertDeviceHeartbeat(ctx context.Context, serialNumber string) (UpsertDeviceHeartbeatRow, error)
 	// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
 	// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
 	// (the P6.1 department-rename-propagation tx shape) -- a failure in any

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
@@ -95,16 +96,15 @@ func admsOptionText(now time.Time) string {
 	}, "\n") + "\n"
 }
 
-// GET /iclock/cdata — device registration / heartbeat. An unknown serial is
-// added to the unclaimed pool; a known one is refreshed. company_id is never
-// touched (ING-2).
+// GET /iclock/cdata — the device's handshake and heartbeat. A known serial is
+// refreshed; an unknown one is refused (403) and nothing is written.
+// company_id is never touched (ING-2).
 func (a *API) ADMSOptions(w http.ResponseWriter, r *http.Request) {
 	sn, ok := admsSerial(w, r)
 	if !ok {
 		return
 	}
-	if _, err := a.Queries.UpsertDeviceHeartbeat(r.Context(), sn); err != nil {
-		a.admsFail(w, "adms heartbeat", sn, err)
+	if _, ok := a.admsTouch(r.Context(), w, a.Queries, sn); !ok {
 		return
 	}
 	writeText(w, http.StatusOK, admsOptionText(time.Now()))
@@ -117,24 +117,59 @@ func (a *API) ADMSGetRequest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := a.Queries.UpsertDeviceHeartbeat(r.Context(), sn); err != nil {
-		a.admsFail(w, "adms heartbeat", sn, err)
+	if _, ok := a.admsTouch(r.Context(), w, a.Queries, sn); !ok {
 		return
 	}
 	writeText(w, http.StatusOK, "OK")
 }
 
 // POST /iclock/devicecmd — the device's reply to a command. PROVISIONAL: no
-// command is ever issued, so the reply is validated, drained within the body
-// cap and acknowledged without any write.
+// command is ever issued, so the reply of a known device is validated, drained
+// within the body cap and acknowledged without any write (not even the
+// heartbeat). An unknown serial is refused (403).
 func (a *API) ADMSDeviceCmd(w http.ResponseWriter, r *http.Request) {
-	if _, ok := admsSerial(w, r); !ok {
+	sn, ok := admsSerial(w, r)
+	if !ok {
+		return
+	}
+	known, err := a.Queries.DeviceSerialKnown(r.Context(), sn)
+	if err != nil {
+		a.admsFail(w, "adms devicecmd", sn, err)
+		return
+	}
+	if !known {
+		writeUnknownDevice(w)
 		return
 	}
 	if _, ok := readADMSBody(w, r); !ok {
 		return
 	}
 	writeText(w, http.StatusOK, "OK")
+}
+
+// admsTouch refreshes the heartbeat of a registered device and returns its
+// row. An unknown serial matches no row: it is answered 403 and nothing is
+// written, so a stranger can not fill the device list (runbook B2/B3). It is
+// not logged per request, so the refusals can not flood the log either.
+func (a *API) admsTouch(ctx context.Context, w http.ResponseWriter, q *db.Queries, sn string) (db.TouchDeviceHeartbeatRow, bool) {
+	device, err := q.TouchDeviceHeartbeat(ctx, sn)
+	if errors.Is(err, pgx.ErrNoRows) {
+		writeUnknownDevice(w)
+		return device, false
+	}
+	if err != nil {
+		a.admsFail(w, "adms heartbeat", sn, err)
+		return device, false
+	}
+	return device, true
+}
+
+// writeUnknownDevice refuses a serial that has no row in zkteco_devices.
+// Devices are pre-registered by an admin (runbook B2/B3), so the 403 says only
+// that this serial is not registered; the serial is unique across companies,
+// so that much is unavoidable and nothing else (no owner) is disclosed.
+func writeUnknownDevice(w http.ResponseWriter) {
+	writeErrCode(w, http.StatusForbidden, codeForbidden, "unknown device")
 }
 
 // admsFail logs a server-side failure and answers 500 in the A2 envelope. The
@@ -199,9 +234,8 @@ func (a *API) ADMSData(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback(ctx) // no-op after Commit
 	q := a.Queries.WithTx(tx)
 
-	device, err := q.UpsertDeviceHeartbeat(ctx, sn)
-	if err != nil {
-		a.admsFail(w, "adms heartbeat", sn, err)
+	device, ok := a.admsTouch(ctx, w, q, sn)
+	if !ok {
 		return
 	}
 	if !isATTLOG {

@@ -1379,10 +1379,10 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                   <strong>¿Cómo configurar el reloj ZKTeco?</strong><br>
                   En el dispositivo → <em>Menú → Configuración → Comunicación → Servidor ADMS</em> (o similar según modelo):
                   <ol class="mb-0 mt-1">
+                    <li>Primero registrar el número de serie del reloj en <em>Relojes Registrados</em> (solo administradores): el servidor rechaza los relojes que no estén registrados</li>
                     <li>Activar <strong>Push Protocol / ADMS</strong></li>
                     <li>Copiar la dirección del servidor (abajo)</li>
                     <li>Puerto y HTTPS (<strong>provisional</strong>, confirmar con el modelo del reloj): por defecto el servidor atiende HTTP en el puerto indicado en la dirección (80 si no aparece) y HTTPS: <strong>No</strong>; si se publica con TLS, usar 443 y HTTPS: <strong>Sí</strong></li>
-                    <li>El reloj aparecerá en <em>Relojes sin asignar</em> hasta que un administrador lo reclame</li>
                   </ol>
                 </div>
                 <div class="form-group">
@@ -1424,10 +1424,19 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                 <h3 class="card-title"><i class="fas fa-clock mr-1"></i>Relojes Registrados</h3>
                 <div class="card-tools"><button class="btn btn-sm btn-outline-secondary" onclick="loadZKTeco()"><i class="fas fa-sync mr-1"></i>Actualizar</button></div>
               </div>
+              <div class="card-body border-bottom py-2">
+                <div class="form-row align-items-end">
+                  <div class="col-sm-4 mb-1"><label class="small mb-0" for="zk-new-serial">Número de serie</label><input type="text" class="form-control form-control-sm" id="zk-new-serial" maxlength="64" placeholder="Ej. CJDE193560100"></div>
+                  <div class="col-sm-3 mb-1"><label class="small mb-0" for="zk-new-name">Nombre</label><input type="text" class="form-control form-control-sm" id="zk-new-name" maxlength="200" placeholder="Opcional"></div>
+                  <div class="col-sm-3 mb-1"><label class="small mb-0" for="zk-new-location">Ubicación</label><input type="text" class="form-control form-control-sm" id="zk-new-location" maxlength="200" placeholder="Opcional"></div>
+                  <div class="col-sm-2 mb-1"><button class="btn btn-sm btn-primary btn-block" id="zk-register-btn" onclick="registerZKDevice()"><i class="fas fa-plus mr-1"></i>Registrar</button></div>
+                </div>
+                <small class="text-muted">Registrá el reloj antes de configurarlo: el servidor rechaza los números de serie que no estén registrados. Solo administradores.</small>
+              </div>
               <div class="card-body p-0">
                 <table class="table table-sm mb-0">
                   <thead class="thead-light"><tr><th>Número de Serie</th><th>Nombre</th><th>Ubicación</th><th>Último contacto</th><th>Estado</th><th></th></tr></thead>
-                  <tbody id="zk-devices-tbody"><tr><td colspan="6" class="text-center text-muted p-3">Sin relojes conectados aún. Configurá el servidor ADMS en el dispositivo.</td></tr></tbody>
+                  <tbody id="zk-devices-tbody"><tr><td colspan="6" class="text-center text-muted p-3">Sin relojes registrados aún. Registrá el número de serie y después configurá el servidor ADMS en el dispositivo.</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -1440,7 +1449,7 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
                   <tbody id="zk-unclaimed-tbody"><tr><td colspan="4" class="text-center text-muted p-3">Sin relojes pendientes de asignar</td></tr></tbody>
                 </table>
               </div>
-              <div class="card-footer small text-muted">Un reloj nuevo se registra solo al contactar el servidor. Reclamarlo lo asigna a tu empresa.</div>
+              <div class="card-footer small text-muted">Relojes importados que todavía no tienen empresa. Reclamarlo lo asigna a tu empresa. Un reloj nuevo se registra arriba.</div>
             </div>
 
             <div class="card mt-3">
@@ -4359,7 +4368,7 @@ function zkRenderDevices(devices) {
   var tb = document.getElementById('zk-devices-tbody'); if (!tb) return;
   ZK_DEV_CACHE = {};
   if (!devices.length) {
-    tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted p-3">Sin relojes conectados aún.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="6" class="text-center text-muted p-3">Sin relojes registrados aún.</td></tr>';
     return;
   }
   var now = new Date();
@@ -4452,6 +4461,24 @@ async function saveZKDevice(id) {
   if (!r) return;
   if (r.error) { toast(apiErrMsg(r.error, 'No se pudo guardar el reloj', {notFound:'El reloj ya no existe'}), 'danger'); return; }
   toast('Reloj actualizado'); loadZKTeco();
+}
+
+// Devices are pre-registered: ADMS refuses a serial that has no row, so the
+// admin registers the exact serial the device reports before configuring it.
+async function registerZKDevice() {
+  if (A.demo) { toast('Registro de relojes no disponible en modo demo', 'info'); return; }
+  var serialEl = document.getElementById('zk-new-serial');
+  var nameEl = document.getElementById('zk-new-name');
+  var locEl = document.getElementById('zk-new-location');
+  var serial = serialEl.value.trim();
+  // The server's rule for SN: a serial it would refuse is never sent.
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(serial)) { toast('Número de serie inválido: usa letras, números, guion o guion bajo (máximo 64)', 'warning'); return; }
+  var body = { serial_number: serial, name: nameEl.value.trim() || null, location: locEl.value.trim() || null };
+  var r = await recRequest('zk:register', 'zk-register-btn', function(){ return Supa.ins('zkteco_devices', body); });
+  if (!r) return;
+  if (r.error) { toast(apiErrMsg(r.error, 'No se pudo registrar el reloj', {forbidden:'Solo administradores'}), 'danger'); return; }
+  serialEl.value = ''; nameEl.value = ''; locEl.value = '';
+  toast('Reloj registrado'); loadZKTeco();
 }
 
 async function claimZKDevice(id) {

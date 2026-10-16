@@ -1,16 +1,21 @@
--- name: UpsertDeviceHeartbeat :one
+-- name: TouchDeviceHeartbeat :one
 -- ZKTeco ADMS ingestion (PROVISIONAL wire protocol; the tenancy and
 -- idempotency guarantees of this file are binding). These queries are
 -- deliberately separate from UpsertAttendanceLog, which overwrites time_out.
 --
--- Self-registers an unknown serial into the unclaimed pool (company_id NULL)
--- and refreshes a known one. company_id is NEVER part of the SET list, so a
--- heartbeat can not change ownership.
-INSERT INTO zkteco_devices (serial_number, status, last_seen)
-VALUES ($1, 'online', now())
-ON CONFLICT (serial_number) DO UPDATE
-SET status = 'online', last_seen = now()
+-- Refreshes a device an admin registered (or the importer loaded). An unknown
+-- serial matches no row (pgx.ErrNoRows, answered 403) and is never inserted:
+-- devices are pre-registered, there is no self-registration (runbook B2/B3).
+-- company_id is NEVER part of the SET list, so a heartbeat can not change
+-- ownership.
+UPDATE zkteco_devices SET status = 'online', last_seen = now()
+WHERE serial_number = $1
 RETURNING id, company_id;
+
+-- name: DeviceSerialKnown :one
+-- Read-only check for endpoints that must not refresh the heartbeat
+-- (devicecmd): true when the serial has a row, registered or imported.
+SELECT EXISTS (SELECT 1 FROM zkteco_devices WHERE serial_number = $1);
 
 -- name: ResolveEmployeesByCedula :many
 -- Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
