@@ -51,6 +51,12 @@ type Querier interface {
 	// Counts by posting only: any referencing row, whoever owns it, blocks the delete.
 	CountApplicationsForJobPosting(ctx context.Context, jobPostingID pgtype.UUID) (int64, error)
 	CountBranches(ctx context.Context, arg CountBranchesParams) (int64, error)
+	// A month is paid either as ONE 'mensual' run or as quincenas, never both.
+	// Counts history rows AND run-origin ledger rows of the same month whose kind
+	// clashes with the requested period (history can be deleted while its ledger
+	// rows survive, settled decision #2, so both sources are checked). The legacy
+	// 'quincenal' history value counts as a quincena.
+	CountConflictingPayrollPeriods(ctx context.Context, arg CountConflictingPayrollPeriodsParams) (int32, error)
 	CountDepartments(ctx context.Context, arg CountDepartmentsParams) (int64, error)
 	CountDocumentTemplates(ctx context.Context, arg CountDocumentTemplatesParams) (int64, error)
 	CountEmployeePayRecords(ctx context.Context, arg CountEmployeePayRecordsParams) (int64, error)
@@ -66,6 +72,7 @@ type Querier interface {
 	CountPositions(ctx context.Context, arg CountPositionsParams) (int64, error)
 	CountRoles(ctx context.Context, arg CountRolesParams) (int64, error)
 	CountUniforms(ctx context.Context, arg CountUniformsParams) (int64, error)
+	CountUsersWithRole(ctx context.Context, arg CountUsersWithRoleParams) (int64, error)
 	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
 	// The tenant check of both foreign keys IS the insert: the row is built from the
 	// posting and the candidate of the caller's company, so another company's id (or
@@ -131,6 +138,13 @@ type Querier interface {
 	// net_salary is still trusted as sent (design R4f: CSV import's net_salary
 	// is authoritative historical data from the PayDay "Salario Neto" column).
 	CreateEmployeePayRecordWithoutEmployee(ctx context.Context, arg CreateEmployeePayRecordWithoutEmployeeParams) (CreateEmployeePayRecordWithoutEmployeeRow, error)
+	// The tenant check of both foreign keys IS the insert: the row is built from
+	// the course and the employee of the caller's company, so another company's id
+	// (or a nonexistent one) yields zero rows (pgx.ErrNoRows -> 404) and nothing
+	// is written. training_name and employee_name are derived here, never taken
+	// from input. FOR KEY SHARE takes the foreign key locks up front, so a course
+	// deleted meanwhile gives 404 instead of a 23503.
+	CreateEnrollment(ctx context.Context, arg CreateEnrollmentParams) (Enrollment, error)
 	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
 	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
 	// employee_name is DERIVED from the employees row. scores/avg/category are
@@ -195,13 +209,9 @@ type Querier interface {
 	// itself stays client-supplied in Phase 2 -- design Q6 explicitly defers
 	// deriving it server-side from salary/weekly_hours to Phase 3's prCalc port.
 	CreateOvertimeLog(ctx context.Context, arg CreateOvertimeLogParams) (OvertimeLog, error)
-	// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
-	// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
-	// (the P6.1 department-rename-propagation tx shape) -- a failure in any
-	// later upsert rolls this back too (TestPayrollRun_IsAtomic).
-	CreatePayrollHistory(ctx context.Context, arg CreatePayrollHistoryParams) (PayrollHistory, error)
 	CreatePosition(ctx context.Context, arg CreatePositionParams) (Position, error)
 	CreateRole(ctx context.Context, arg CreateRoleParams) (Role, error)
+	CreateTraining(ctx context.Context, arg CreateTrainingParams) (Training, error)
 	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
 	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
 	// employee_name is DERIVED from the employees row. date defaults to the
@@ -228,6 +238,7 @@ type Querier interface {
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
 	// existing behavior; no soft-delete semantics apply to this table).
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
+	DeleteEnrollment(ctx context.Context, arg DeleteEnrollmentParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
 	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
 	// Run in the claim transaction: counters collected while a device was
@@ -262,6 +273,9 @@ type Querier interface {
 	DeletePayrollHistory(ctx context.Context, arg DeletePayrollHistoryParams) (int64, error)
 	DeletePosition(ctx context.Context, arg DeletePositionParams) (int64, error)
 	DeleteRole(ctx context.Context, arg DeleteRoleParams) (int64, error)
+	// The course's enrollments go with it (ON DELETE CASCADE): the panel removes
+	// them together, and an enrollment means nothing without its course.
+	DeleteTraining(ctx context.Context, arg DeleteTrainingParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): uniforms is not an FK target.
 	DeleteUniform(ctx context.Context, arg DeleteUniformParams) (int64, error)
 	// Run in the claim transaction: PINs that were rejected on this serial before
@@ -302,7 +316,9 @@ type Querier interface {
 	// design R9 / settled decision (obs #841): de-duplicated to ONE row per
 	// period, run-origin preferred, because the live run (slice 3f) makes two
 	// rows for one period a normal outcome and the JS "last N records" window
-	// would double-count them.
+	// would double-count them. Migration 0014 adds quincenal periods: the
+	// periods of one month are then SUMMED into a single month before ranking,
+	// so the 60/12/11/6-month windows, `months` and `sal30` keep meaning months.
 	// COALESCE per column: the JS sums with `||0`, and these columns are
 	// DEFAULT 0 but still nullable.
 	// acum_vac / acum_6m sum FIVE income columns and deliberately EXCLUDE
@@ -316,6 +332,9 @@ type Querier interface {
 	// Narrow tenant-scoped read for the medical_records incapacity cost (design
 	// D2): the salary is read INSIDE the write path, never taken from the client.
 	GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error)
+	GetEnrollment(ctx context.Context, arg GetEnrollmentParams) (Enrollment, error)
+	// PATCH's merge read; FOR NO KEY UPDATE serializes concurrent grades.
+	GetEnrollmentForMerge(ctx context.Context, arg GetEnrollmentForMergeParams) (Enrollment, error)
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error)
@@ -345,9 +364,18 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
+	// Locks the role row for a rename or delete. User writes that assign this
+	// role take LockRoleForShare first, so they wait for this transaction and
+	// never leave a user on a name renamed or deleted meanwhile.
+	GetRoleForUpdate(ctx context.Context, arg GetRoleForUpdateParams) (Role, error)
 	// Per-request session check (auth middleware): primary-key lookup of only the
 	// columns that decide whether a token is still honoured.
 	GetSessionUser(ctx context.Context, id pgtype.UUID) (GetSessionUserRow, error)
+	GetTraining(ctx context.Context, arg GetTrainingParams) (Training, error)
+	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes (and a
+	// PATCH against DELETE) without blocking an enrollment insert, which only takes
+	// FOR KEY SHARE on the course.
+	GetTrainingForMerge(ctx context.Context, arg GetTrainingForMergeParams) (Training, error)
 	GetUniform(ctx context.Context, arg GetUniformParams) (Uniform, error)
 	GetUser(ctx context.Context, arg GetUserParams) (GetUserRow, error)
 	GetUserByID(ctx context.Context, id pgtype.UUID) (GetUserByIDRow, error)
@@ -382,6 +410,7 @@ type Querier interface {
 	// (design R7) -- newest period first, ties broken by insertion order.
 	ListEmployeePayRecords(ctx context.Context, arg ListEmployeePayRecordsParams) ([]ListEmployeePayRecordsRow, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
+	ListEnrollments(ctx context.Context, arg ListEnrollmentsParams) ([]Enrollment, error)
 	ListEvaluations(ctx context.Context, arg ListEvaluationsParams) ([]Evaluation, error)
 	ListGeneratedDocuments(ctx context.Context, arg ListGeneratedDocumentsParams) ([]GeneratedDocument, error)
 	ListJobPostings(ctx context.Context, arg ListJobPostingsParams) ([]JobPosting, error)
@@ -408,13 +437,18 @@ type Querier interface {
 	// work_type=0 as FALSY, so 0 must fall back to the legacy status check. A
 	// plain COALESCE(work_type, ...) port would handle NULL but silently drop
 	// those rows.
+	// Date-based inputs (attendance, overtime) are bounded by the half-open range
+	// [start_date, end_date): the whole month for 'mensual', days 1-15 or 16-end
+	// for a quincena. The handler computes the range from the period.
 	// Deductions carry NO date filter, matching
-	// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941).
+	// Supa.sel('deductions',{status:'active'}) (loadPayroll:2941); the caller
+	// scales the returned quota by the period factor.
 	// No LIMIT/OFFSET, deliberately departing from the P2.1 rule-7 pagination
 	// convention -- a partial payroll run is far worse than a slow one.
 	ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error)
 	ListPositions(ctx context.Context, arg ListPositionsParams) ([]Position, error)
 	ListRoles(ctx context.Context, arg ListRolesParams) ([]Role, error)
+	ListTrainings(ctx context.Context, arg ListTrainingsParams) ([]Training, error)
 	// The unclaimed pool: devices that heartbeated but belong to no company. The
 	// caller must be gated by requireAdmin; the rows carry the serial number an
 	// admin needs to recognize the physical device before claiming it.
@@ -446,9 +480,23 @@ type Querier interface {
 	// posting (FOR UPDATE) waits and then counts the re-pointed application; a posting
 	// deleted first leaves no row here (404) instead of a 23503.
 	LockJobPostingForShare(ctx context.Context, arg LockJobPostingForShareParams) (LockJobPostingForShareRow, error)
+	// Serializes payroll runs for one (company, year, month): a transaction-scoped
+	// advisory lock taken first inside the run's transaction, so a double submit
+	// (or a mensual racing a quincena) waits for the other run to commit and then
+	// sees its rows. The unique indexes remain the backstop.
+	LockPayrollRun(ctx context.Context, dollar_1 string) error
+	// A user write that assigns a custom role takes this shared lock first, before
+	// any user row: it then waits for a rename or delete of the role in flight
+	// (GetRoleForUpdate) and re-reads it, so a user never ends up on a name that
+	// was renamed or deleted meanwhile. Same order everywhere (role, then users),
+	// so the two never deadlock.
+	LockRoleForShare(ctx context.Context, arg LockRoleForShareParams) (pgtype.UUID, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
+	// users.role holds the role NAME (permissions are looked up by it), so a
+	// role rename carries the company's users along in the same transaction.
+	RenameUsersRole(ctx context.Context, arg RenameUsersRoleParams) (int64, error)
 	// Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
 	// "ambiguous" without scanning every duplicate.
 	ResolveEmployeesByCedula(ctx context.Context, arg ResolveEmployeesByCedulaParams) ([]pgtype.UUID, error)
@@ -481,6 +529,9 @@ type Querier interface {
 	// create -- it is a derived column regardless of which verb wrote it);
 	// net_salary is NOT recomputed, matching create.
 	UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmployeePayRecordParams) (UpdateEmployeePayRecordRow, error)
+	// Grading only: status, score and notes. The course and the employee are fixed
+	// at creation (delete and enroll again to change them).
+	UpdateEnrollment(ctx context.Context, arg UpdateEnrollmentParams) (Enrollment, error)
 	UpdateJobPosting(ctx context.Context, arg UpdateJobPostingParams) (JobPosting, error)
 	// PATCH restricted to used_days only (design Q3): earned_days is owned by
 	// the accrual job (AccrueVacationDays below) and would be silently reverted
@@ -506,6 +557,7 @@ type Querier interface {
 	UpdateOvertimeLog(ctx context.Context, arg UpdateOvertimeLogParams) (OvertimeLog, error)
 	UpdatePosition(ctx context.Context, arg UpdatePositionParams) (Position, error)
 	UpdateRole(ctx context.Context, arg UpdateRoleParams) (Role, error)
+	UpdateTraining(ctx context.Context, arg UpdateTrainingParams) (Training, error)
 	// Partial PATCH (design H1): absent/null keeps the stored value, so
 	// returnUniform's {status:'devuelto'} touches only status. Every parameter
 	// is explicitly cast (obs #849). employee_id/company_id/created_at immutable.
@@ -533,6 +585,13 @@ type Querier interface {
 	// and refreshes a known one. company_id is NEVER part of the SET list, so a
 	// heartbeat can not change ownership.
 	UpsertDeviceHeartbeat(ctx context.Context, serialNumber string) (UpsertDeviceHeartbeatRow, error)
+	// The committing run's one aggregate row (design R4e, task 6.3/6.4). Written
+	// FIRST inside the same transaction as the N UpsertPayrollRunPayRecord calls
+	// (the P6.1 department-rename-propagation tx shape) -- a failure in any
+	// later upsert rolls this back too (TestPayrollRun_IsAtomic).
+	// Re-running a period REPLACES its row (unique key company, year, month,
+	// period), the same replace semantics the ledger upsert already has.
+	UpsertPayrollHistory(ctx context.Context, arg UpsertPayrollHistoryParams) (PayrollHistory, error)
 	// Settled decision #1 (design R4/R4a/R4c, task 6.2). The ONLY writer of
 	// origin='run'. A1 rule 6 shape is kept STRUCTURALLY even though the caller
 	// (CreatePayrollRun) enumerates the employees itself via
@@ -541,7 +600,8 @@ type Querier interface {
 	// Upsert, not append: re-running a period REPLACES that period's run row
 	// (ON CONFLICT ... WHERE origin='run' DO UPDATE), while every manual/CSV row
 	// for the same period is left untouched -- the partial index
-	// uq_epr_run_period (migration 0007) is what makes that true
+	// uq_epr_run_period_v2 (migration 0014; widened with `period` so the two
+	// quincenas of a month keep separate rows) is what makes that true
 	// (TestPayrollRun_RerunUpsertsNotDuplicates, TestPayrollRun_PreservesManualAndCSVRows).
 	// commissions/bonuses/vacations_paid/other_income are hard 0 -- Calculate
 	// has no corresponding input; only manual entry and CSV import populate

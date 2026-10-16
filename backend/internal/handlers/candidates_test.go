@@ -583,6 +583,7 @@ func TestCandidates_PatchValidation(t *testing.T) {
 		{"null full_name", `{"full_name":null}`, "validation_failed", "full_name"},
 		{"full_name over 200 runes", `{"full_name":"` + strings.Repeat("ñ", 201) + `"}`, "validation_failed", "full_name"},
 		{"unknown field", `{"bogus":1}`, "bad_request", ""},
+		{"known key in another case", `{"FULL_NAME":"Renamed"}`, "bad_request", ""},
 		{"company_id in body", `{"company_id":"` + uuid.NewString() + `"}`, "bad_request", ""},
 		{"id in body", `{"id":"` + uuid.NewString() + `"}`, "bad_request", ""},
 		{"created_at in body", `{"created_at":"2020-01-01T00:00:00Z"}`, "bad_request", ""},
