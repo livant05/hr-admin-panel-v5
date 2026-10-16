@@ -56,7 +56,7 @@ var tables = []tableSpec{
 	{Name: "medical_records", Transform: transformMedicalRecord},
 	{Name: "evaluations", Transform: transformEvaluation},
 	{Name: "uniforms"},
-	{Name: "enrollments"},
+	{Name: "enrollments", Unique: [][]string{{"training_id", "employee_id"}}},
 	{Name: "survey_responses"},
-	{Name: "applications"},
+	{Name: "applications", Unique: [][]string{{"job_posting_id", "candidate_id"}}},
 }

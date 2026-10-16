@@ -81,14 +81,14 @@ func validateOvertimeHours(hours pgtype.Numeric) (ok bool, fieldMsg string) {
 	return true, ""
 }
 
-// GET /api/overtime_logs?id=&employee_id=&date=&_limit=&_offset=
+// GET /api/overtime_logs?id=&employee_id=&date=&date_from=&date_to=&_limit=&_offset=
 func (a *API) ListOvertimeLogs(w http.ResponseWriter, r *http.Request) {
 	companyID, ok := a.tenant(w, r)
 	if !ok {
 		return
 	}
 
-	p, ok := parseList(w, r, "id", "employee_id", "date")
+	p, ok := parseList(w, r, "id", "employee_id", "date", "date_from", "date_to")
 	if !ok {
 		return
 	}
@@ -108,12 +108,24 @@ func (a *API) ListOvertimeLogs(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid date")
 		return
 	}
+	dateFrom, err := optionalDateFilter(p.Filters["date_from"])
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid date_from")
+		return
+	}
+	dateTo, err := optionalDateFilter(p.Filters["date_to"])
+	if err != nil {
+		writeErrCode(w, http.StatusBadRequest, codeValidation, "invalid date_to")
+		return
+	}
 
 	rows, err := a.Queries.ListOvertimeLogs(r.Context(), db.ListOvertimeLogsParams{
 		CompanyID:  companyID, // $1 -- from ctx, never from a query param
 		Column2:    id,
 		EmployeeID: employeeID,
 		Date:       date,
+		DateFrom:   dateFrom,
+		DateTo:     dateTo,
 		Limit:      p.Limit,
 		Offset:     p.Offset,
 	})
