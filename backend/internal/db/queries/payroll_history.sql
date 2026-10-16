@@ -52,6 +52,7 @@ LEFT JOIN (
   GROUP BY d.employee_id
 ) ded ON ded.employee_id = e.id
 WHERE e.company_id = $1 AND e.status = 'active'
+  AND (sqlc.narg('employee_id')::uuid IS NULL OR e.id = sqlc.narg('employee_id'))
 ORDER BY e.first_name, e.last_name;
 
 -- name: LockPayrollRun :exec
