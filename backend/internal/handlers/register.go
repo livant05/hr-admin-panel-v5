@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	db "github.com/livant05/rrhh-go/internal/db/generated"
@@ -51,6 +52,13 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	if utf8.RuneCountInString(lastName) > maxUserName {
 		fields["last_name"] = "at most 100 characters"
+	}
+	// A NUL would fail the insert with a 500; any other control character
+	// (newline, bell...) would be stored in a name shown across the panel.
+	for name, v := range map[string]string{"company_name": company, "first_name": firstName, "last_name": lastName} {
+		if _, bad := fields[name]; !bad && strings.IndexFunc(v, unicode.IsControl) >= 0 {
+			fields[name] = "must not contain control characters"
+		}
 	}
 	if !plausibleEmail(email) {
 		fields["email"] = "required, a valid address of at most 254 characters"
