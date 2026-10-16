@@ -23,9 +23,6 @@ const (
 	jobStatusClosed = "closed"
 
 	maxJobTitle = 200
-	// maxWriteBody bounds the body decodeStrictBody and decodeStrictPatch
-	// read (1 MiB, the same cap the other tenant resources use).
-	maxWriteBody = 1 << 20
 )
 
 // jobPostingFields is the writable surface of a job posting. It deliberately

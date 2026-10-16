@@ -227,19 +227,19 @@ func (a *API) UpdateEnrollment(w http.ResponseWriter, r *http.Request) {
 	if !has("score") {
 		score = cur.Score // an imported score outside 0-100 is kept, not re-parsed
 	}
+	status = pgtype.Text{String: st, Valid: true}
+	if !has("status") {
+		status = cur.Status // an imported NULL stays NULL, not the create default
+	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
-	}
-	storedStatus := pgtype.Text{String: st, Valid: true}
-	if !has("status") {
-		storedStatus = cur.Status // an imported NULL stays NULL, not the create default
 	}
 
 	row, err := q.UpdateEnrollment(r.Context(), db.UpdateEnrollmentParams{
 		CompanyID: companyID,
 		ID:        id,
-		Status:    storedStatus,
+		Status:    status,
 		Score:     score,
 		Notes:     notes,
 	})

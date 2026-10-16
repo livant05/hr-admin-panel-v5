@@ -13,8 +13,11 @@ import (
 
 // Shared write plumbing, born with the recruitment resources and now also used
 // by trainings, enrollments and ZKTeco devices. The body decoders
-// (decodeStrictBody, decodeStrictPatch) and their maxWriteBody cap live in
-// job_postings.go.
+// (decodeStrictBody, decodeStrictPatch) live in job_postings.go.
+
+// maxWriteBody bounds the body decodeStrictBody and decodeStrictPatch read
+// (1 MiB, the same cap the other tenant resources use).
+const maxWriteBody = 1 << 20
 
 // beginWriteTx opens the transaction of a write and writes
 // the 500 itself when it cannot. The caller defers the returned rollback.
