@@ -898,6 +898,33 @@ func TestZktecoDevices_Register(t *testing.T) {
 		}
 	})
 
+	t.Run("registering clears counters and pins left under the serial", func(t *testing.T) {
+		sn := newSerial(t)
+		ctx := context.Background()
+		t.Cleanup(func() {
+			_, _ = pool.Exec(ctx, `DELETE FROM zkteco_ingest_rejections WHERE serial_number = $1`, sn)
+			_, _ = pool.Exec(ctx, `DELETE FROM zkteco_unknown_pins WHERE serial_number = $1`, sn)
+		})
+		// Leftovers from before pre-registration, when the serial had no row.
+		if _, err := pool.Exec(ctx, `INSERT INTO zkteco_ingest_rejections (serial_number, reason, count) VALUES ($1, 'device_unclaimed', 7)`, sn); err != nil {
+			t.Fatalf("seed counter: %v", err)
+		}
+		if _, err := pool.Exec(ctx, `INSERT INTO zkteco_unknown_pins (pin, serial_number, attempts) VALUES ('4321', $1, 2)`, sn); err != nil {
+			t.Fatalf("seed unknown pin: %v", err)
+		}
+		if rec := testutil.Do(t, h, http.MethodPost, zkDevicesPath, tokA, map[string]any{"serial_number": sn}); rec.Code != http.StatusCreated {
+			t.Fatalf("register: got %d (%s), want 201", rec.Code, rec.Body.String())
+		}
+		var rejections, pins int
+		if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM zkteco_ingest_rejections WHERE serial_number = $1),
+			(SELECT count(*) FROM zkteco_unknown_pins WHERE serial_number = $1)`, sn).Scan(&rejections, &pins); err != nil {
+			t.Fatal(err)
+		}
+		if rejections != 0 || pins != 0 {
+			t.Fatalf("after register: %d counters and %d pins left, want 0 and 0", rejections, pins)
+		}
+	})
+
 	t.Run("invalid bodies are 400 and write nothing", func(t *testing.T) {
 		sn := newSerial(t)
 		for name, c := range map[string]struct {

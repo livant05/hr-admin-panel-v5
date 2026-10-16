@@ -96,7 +96,7 @@ func admsOptionText(now time.Time) string {
 	}, "\n") + "\n"
 }
 
-// GET /iclock/cdata — device registration / heartbeat. A registered serial is
+// GET /iclock/cdata — the device's handshake and heartbeat. A known serial is
 // refreshed; an unknown one is refused (403) and nothing is written.
 // company_id is never touched (ING-2).
 func (a *API) ADMSOptions(w http.ResponseWriter, r *http.Request) {
@@ -138,7 +138,7 @@ func (a *API) ADMSDeviceCmd(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !known {
-		writeErrCode(w, http.StatusForbidden, codeForbidden, "unknown device")
+		writeUnknownDevice(w)
 		return
 	}
 	if _, ok := readADMSBody(w, r); !ok {
@@ -154,7 +154,7 @@ func (a *API) ADMSDeviceCmd(w http.ResponseWriter, r *http.Request) {
 func (a *API) admsTouch(ctx context.Context, w http.ResponseWriter, q *db.Queries, sn string) (db.TouchDeviceHeartbeatRow, bool) {
 	device, err := q.TouchDeviceHeartbeat(ctx, sn)
 	if errors.Is(err, pgx.ErrNoRows) {
-		writeErrCode(w, http.StatusForbidden, codeForbidden, "unknown device")
+		writeUnknownDevice(w)
 		return device, false
 	}
 	if err != nil {
@@ -162,6 +162,14 @@ func (a *API) admsTouch(ctx context.Context, w http.ResponseWriter, q *db.Querie
 		return device, false
 	}
 	return device, true
+}
+
+// writeUnknownDevice refuses a serial that has no row in zkteco_devices.
+// Devices are pre-registered by an admin (runbook B2/B3), so the 403 says only
+// that this serial is not registered; the serial is unique across companies,
+// so that much is unavoidable and nothing else (no owner) is disclosed.
+func writeUnknownDevice(w http.ResponseWriter) {
+	writeErrCode(w, http.StatusForbidden, codeForbidden, "unknown device")
 }
 
 // admsFail logs a server-side failure and answers 500 in the A2 envelope. The

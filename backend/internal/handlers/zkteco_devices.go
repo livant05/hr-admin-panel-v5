@@ -177,16 +177,24 @@ func (a *API) RegisterZktecoDevice(w http.ResponseWriter, r *http.Request) {
 		Name:         name,
 		Location:     location,
 	})
+	if err != nil {
+		a.writeZktecoRegisterErr(w, err)
+		return
+	}
+	writeRows(w, http.StatusCreated, []db.ZktecoDevice{row})
+}
+
+// writeZktecoRegisterErr is writeDBErr plus the one-row-per-serial rule:
+// serial_number is UNIQUE across companies, so a 409 confirms only that the
+// serial is taken (the owner is never disclosed); the panel shows the Spanish
+// message as is.
+func (a *API) writeZktecoRegisterErr(w http.ResponseWriter, err error) {
 	var pg *pgconn.PgError
 	if errors.As(err, &pg) && pg.Code == "23505" {
 		writeErrCode(w, http.StatusConflict, codeConflict, "Ese número de serie ya está registrado")
 		return
 	}
-	if err != nil {
-		a.writeDBErr(w, err, "register zkteco device")
-		return
-	}
-	writeRows(w, http.StatusCreated, []db.ZktecoDevice{row})
+	a.writeDBErr(w, err, "register zkteco device")
 }
 
 // registerDevice inserts the device and, in the same transaction, deletes any
@@ -214,8 +222,9 @@ func (a *API) registerDevice(ctx context.Context, p db.RegisterZktecoDeviceParam
 	return row, tx.Commit(ctx)
 }
 
-// GET /api/zkteco_devices/unclaimed — the pool of devices that heartbeated
-// without belonging to any company. Admin only (ZKM-3, XC-4). The pool is
+// GET /api/zkteco_devices/unclaimed — the devices that have no company: loaded
+// by the importer, or self-registered before devices were pre-registered.
+// Admin only (ZKM-3, XC-4). The pool is
 // global by nature (an unclaimed device has no tenant), which is why it is
 // gated by role instead of scoped by company.
 func (a *API) ListUnclaimedZktecoDevices(w http.ResponseWriter, r *http.Request) {
