@@ -420,3 +420,35 @@ func TestPayBases_AggregatesQuincenasIntoOneMonth(t *testing.T) {
 		t.Fatalf("sal30 must be the summed gross of the latest month (3000), got %v", b.Sal30)
 	}
 }
+
+// The payslip asks for one employee: ?employee_id= limits the preview to that
+// employee (same figures as the full preview), so printing N slips does not
+// compute the whole company N times.
+func TestCalculatePayroll_EmployeeFilter(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "CalcEmployeeFilterCo")
+	other := testutil.Company(t, pool, "CalcEmployeeFilterOtherCo")
+	tok := c.Token(t, signer)
+	ana := testutil.Employee(t, pool, c, testutil.EmployeeName("Ana", "Diaz"), testutil.EmployeeSalary(3000))
+	testutil.Employee(t, pool, c, testutil.EmployeeName("Luis", "Pinto"), testutil.EmployeeSalary(2000))
+	foreign := testutil.Employee(t, pool, other, testutil.EmployeeName("Rosa", "Mena"))
+	seedOvertime(t, pool, c.CompanyID, ana.ID, 2025, 6, 20, 30)
+
+	full := previewPeriod(t, h, tok, ana.ID, "quincenal2")
+	rec := testutil.Do(t, h, http.MethodGet, "/api/payroll_history/calculate?year=2025&month=6&period=quincenal2&employee_id="+ana.ID, tok, nil)
+	rows := testutil.DecodeRows[quincenaPreviewRow](t, rec)
+	if rec.Code != http.StatusOK || len(rows) != 1 || rows[0] != full {
+		t.Fatalf("filtered preview: %d %+v, want exactly Ana's full-preview row %+v", rec.Code, rows, full)
+	}
+	if rows := testutil.DecodeRows[quincenaPreviewRow](t, testutil.Do(t, h, http.MethodGet, "/api/payroll_history/calculate?year=2025&month=6&period=mensual&employee_id="+foreign.ID, tok, nil)); len(rows) != 0 {
+		t.Fatalf("another company's employee: %d rows, want 0", len(rows))
+	}
+	if all := testutil.DecodeRows[quincenaPreviewRow](t, testutil.Do(t, h, http.MethodGet, "/api/payroll_history/calculate?year=2025&month=6&period=mensual", tok, nil)); len(all) != 2 {
+		t.Fatalf("without the filter: %d rows, want 2 (unchanged)", len(all))
+	}
+	bad := testutil.Do(t, h, http.MethodGet, "/api/payroll_history/calculate?year=2025&month=6&period=mensual&employee_id=x", tok, nil)
+	if bad.Code != http.StatusBadRequest || errField(t, bad, "employee_id") == "" {
+		t.Fatalf("malformed employee_id: got %d %s, want 400 with fields.employee_id", bad.Code, bad.Body.String())
+	}
+}
