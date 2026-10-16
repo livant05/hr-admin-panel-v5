@@ -325,6 +325,18 @@ test('printPayslip when the preview fails: Spanish danger toast, no slip window'
   assert.doesNotMatch(e.toasts[0].msg, /internal error/);
 });
 
+test('printPayslip previews only the printed employee (employee_id in the preview URL)', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  const urls = [];
+  const fetch = e.sandbox.Supa.goFetch;
+  e.sandbox.Supa.goFetch = async (u) => { urls.push(u); return fetch(u); };
+  await e.run("printPayslip('e1')");
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /^\/api\/payroll_history\/calculate\?/);
+  assert.match(urls[0], /employee_id=e1/);
+  assert.match(urls[0], /period=quincenal2/);
+});
+
 test('savePayrollRun: a double click sends ONE request and the button is disabled meanwhile', async () => {
   const e = makeEnv();
   e.run("_prRows = [{b:100,isr:1,net:90,tot:110}]");

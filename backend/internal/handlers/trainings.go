@@ -202,7 +202,7 @@ func (a *API) CreateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req trainingFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	params, fields := validateTraining(req)
@@ -232,12 +232,12 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req trainingFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update training")
+	tx, q, ok := a.beginWriteTx(w, r, "update training")
 	if !ok {
 		return
 	}
@@ -249,9 +249,13 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	v, fields := validateTraining(mergeTraining(cur, req, sent))
+	onlySentFieldErrors(fields, sent, map[string][]string{"end_date": {"start_date", "end_date"}})
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
+	}
+	if _, has := sent["status"]; !has {
+		v.Status = cur.Status // an imported NULL stays NULL, not the create default
 	}
 	row, err := q.UpdateTraining(r.Context(), db.UpdateTrainingParams{
 		CompanyID:   companyID,
@@ -270,7 +274,7 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update training")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update training") {
+	if !a.commitWriteTx(w, r, tx, "update training") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Training{row})

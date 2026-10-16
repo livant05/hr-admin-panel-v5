@@ -218,3 +218,64 @@ func TestTrainings_TenantIsolationAndPermission(t *testing.T) {
 		t.Fatalf("role with employees: got %d %s, want 201", rec.Code, rec.Body.String())
 	}
 }
+
+// Imported rows may already break the create rules (an unknown status, a long
+// name). A PATCH validates only what the client sends, so such a row can still
+// be edited; the stored values it does not touch are kept as they are.
+func TestTrainings_PatchOfALegacyRowValidatesOnlyTheSentFields(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "TrainLegacyCo")
+	tok := c.Token(t, signer)
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO trainings (company_id, name, status, hours) VALUES ($1, $2, 'cancelado', -3) RETURNING id`,
+		c.CompanyID, strings.Repeat("x", 250)).Scan(&id); err != nil {
+		t.Fatalf("seed legacy training: %v", err)
+	}
+	rec := testutil.Do(t, h, http.MethodPatch, trainingsPath+"/"+id, tok, map[string]any{"instructor": "Ana"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	got := testutil.DecodeRows[trainingRow](t, rec)[0]
+	if textOrNull(got.Instructor) != "Ana" || textOrNull(got.Status) != "cancelado" || len(got.Name) != 250 || got.Hours == nil || *got.Hours != -3 {
+		t.Fatalf("stored values must be kept: %+v", got)
+	}
+	if rec := testutil.Do(t, h, http.MethodPatch, trainingsPath+"/"+id, tok, map[string]any{"status": "cancelado"}); rec.Code != http.StatusBadRequest || errField(t, rec, "status") == "" {
+		t.Fatalf("a sent invalid status is still rejected: got %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// An imported course may have no status at all. A PATCH that does not send
+// status keeps it NULL instead of writing the create default (programado).
+func TestTrainings_PatchKeepsANullStatusWhenStatusIsNotSent(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "TrainNullStatusCo")
+	tok := c.Token(t, signer)
+	var id string
+	if err := pool.QueryRow(context.Background(),
+		`INSERT INTO trainings (company_id, name, status) VALUES ($1, 'Excel', NULL) RETURNING id`,
+		c.CompanyID).Scan(&id); err != nil {
+		t.Fatalf("seed training without status: %v", err)
+	}
+	rec := testutil.Do(t, h, http.MethodPatch, trainingsPath+"/"+id, tok, map[string]any{"instructor": "Ana"})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("got %d %s, want 200", rec.Code, rec.Body.String())
+	}
+	if got := testutil.DecodeRows[trainingRow](t, rec)[0]; got.Status != nil || textOrNull(got.Instructor) != "Ana" {
+		t.Fatalf("status must stay null and instructor change: %+v", got)
+	}
+	var stored *string
+	if err := pool.QueryRow(context.Background(), `SELECT status FROM trainings WHERE id = $1`, id).Scan(&stored); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if stored != nil {
+		t.Fatalf("stored status = %q, want NULL", *stored)
+	}
+	// Sending a status still sets it.
+	rec = testutil.Do(t, h, http.MethodPatch, trainingsPath+"/"+id, tok, map[string]any{"status": "completado"})
+	if rec.Code != http.StatusOK || textOrNull(testutil.DecodeRows[trainingRow](t, rec)[0].Status) != "completado" {
+		t.Fatalf("sent status: got %d %s, want 200 completado", rec.Code, rec.Body.String())
+	}
+}

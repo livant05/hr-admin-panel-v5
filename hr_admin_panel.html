@@ -3109,13 +3109,13 @@ var PR_PERIODS={mensual:{factor:1,label:'Mensual'},quincenal1:{factor:0.5,label:
 function prFactor(period){ return PR_PERIODS[period]?PR_PERIODS[period].factor:1; }
 function prPeriodLabel(period){ return PR_PERIODS[period]?PR_PERIODS[period].label:(period==='quincenal'?'Quincenal':String(period||'')); }
 function prQuota(quota,period){ return (quota||0)*prFactor(period); }
-// True when a 'YYYY-MM-DD' date falls inside the selected period of year/month.
 // The inclusive date range of a payroll period: the month, or days 1-15 /
 // 16-month end for a quincena. The one place that rule lives.
 function prPeriodRange(period,year,month){
   var mm=(month<10?'0':'')+month, last=new Date(Date.UTC(year,month,0)).getUTCDate();
   return {from:year+'-'+mm+'-'+(period==='quincenal2'?'16':'01'), to:year+'-'+mm+'-'+(period==='quincenal1'?'15':String(last))};
 }
+// True when a 'YYYY-MM-DD' date falls inside the selected period of year/month.
 function prInPeriod(dateStr,period,year,month){
   if(!dateStr) return false;
   var d=String(dateStr).substring(0,10), r=prPeriodRange(period,year,month);
@@ -3294,7 +3294,8 @@ async function printPayslip(empId) {
   // overtime rows listed below. Same authoritative endpoint as the table.
   var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
   var slipYr=parseInt(yr)||TD.getFullYear();
-  var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
+  // Only this employee: the full preview would compute the whole company per slip
+  var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period,employee_id:empId}));
   var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
   if(!row){ toast(calc&&calc.error?apiErrMsg(calc.error,'No se pudo calcular el recibo'):'No se pudo calcular el recibo','danger'); return; }
   var pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
@@ -5384,7 +5385,7 @@ async function openEnrollModal(trId){
     if(Array.isArray(r)) added++; else failed++;
   }
   if(failed) toast(failed+(failed===1?' inscripción no se pudo guardar':' inscripciones no se pudieron guardar'),'warning');
-  else if(added) toast('✅ Inscripciones actualizadas');
+  else toast('✅ Inscripciones actualizadas');
   await loadTraining();
 }
 async function setTrainingStatus(id,status){
@@ -5413,7 +5414,7 @@ async function saveGrade(){
   $('#gradeModal').modal('hide'); toast('✅ Calificación guardada'); await loadTraining();
 }
 async function delTraining(id){
-  if(!confirm('¿Eliminar capacitación? También se eliminan sus inscripciones.')) return;
+  if(!confirm('¿Eliminar capacitación?')) return;
   if(A.demo){ DS.trainings=DS.trainings.filter(function(t){ return t.id!==id; }); DS.enrollments=DS.enrollments.filter(function(e){ return e.training_id!==id; }); toast('Eliminada','info'); loadTraining(); return; }
   var r=await Supa.del('trainings',id);
   if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la capacitación'),'danger'); return; }
