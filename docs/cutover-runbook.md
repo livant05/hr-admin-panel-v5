@@ -247,7 +247,7 @@ source of truth, then re-export.
 
 Postgres runs `docker-entrypoint-initdb.d` **only on a fresh volume**. An existing volume keeps
 its old schema, and the dev volume was found missing `0005` to `0009`, so assume yours is too.
-Apply **every migration missing on the volume, in order**, not just `0010` to `0015`. Files
+Apply **every migration missing on the volume, in order**, not just `0010` to `0016`. Files
 `0005` and later are idempotent, so applying one that is already present is harmless.
 
 ```sh
@@ -255,7 +255,7 @@ cd backend
 for f in 0005_lookup_unique 0006_phase2_columns 0007_phase3_payroll 0008_phase4_hr_records \
          0009_medical_permission 0010_users_email_lower_unique 0011_zkteco_ingestion \
          0012_zkteco_tenant_scoping 0013_users_token_version 0014_payroll_periods \
-         0015_applications_unique; do
+         0015_applications_unique 0016_enrollments_unique; do
   echo "applying $f"
   docker compose exec -T postgres \
     psql -U rrhh_go -d rrhh_go -v ON_ERROR_STOP=1 -f "/docker-entrypoint-initdb.d/$f.sql" \
@@ -306,6 +306,20 @@ Nothing the running binary needs depends on `0015`: if it stops on the index, de
 duplicates and apply the file again. The importer (step 7) rejects a repeated pair in the export
 as `duplicate (job_posting_id, candidate_id) in export`.
 
+`0016` adds the unique key `enrollments (training_id, employee_id)`: an employee is enrolled at
+most once per course. It fails on existing duplicates; check first and keep one row per pair
+(normally the graded one):
+
+```sql
+SELECT training_id, employee_id, count(*) FROM enrollments
+WHERE training_id IS NOT NULL
+GROUP BY 1,2 HAVING count(*) > 1;
+```
+
+Nothing the running binary needs depends on `0016`; the trainings endpoints work without it, they
+just cannot refuse a duplicate. The importer rejects a repeated pair in the export as
+`duplicate (training_id, employee_id) in export`.
+
 **Verify** by comparing the catalog with `backend/migrations/`. Every row must be `true`. Note:
 `0009` reads `true` on an empty `roles` table whether or not it ran; that is harmless, since
 applying it is idempotent.
@@ -336,7 +350,9 @@ SELECT m.file, m.applied FROM (VALUES
   ('0014_payroll_periods',
      to_regclass('uq_payroll_history_period') IS NOT NULL AND to_regclass('uq_epr_run_period_v2') IS NOT NULL),
   ('0015_applications_unique',
-     to_regclass('uq_applications_posting_candidate') IS NOT NULL)
+     to_regclass('uq_applications_posting_candidate') IS NOT NULL),
+  ('0016_enrollments_unique',
+     to_regclass('uq_enrollments_training_employee') IS NOT NULL)
 ) AS m(file, applied)
 ORDER BY m.file;
 ```

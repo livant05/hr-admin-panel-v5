@@ -138,6 +138,13 @@ type Querier interface {
 	// net_salary is still trusted as sent (design R4f: CSV import's net_salary
 	// is authoritative historical data from the PayDay "Salario Neto" column).
 	CreateEmployeePayRecordWithoutEmployee(ctx context.Context, arg CreateEmployeePayRecordWithoutEmployeeParams) (CreateEmployeePayRecordWithoutEmployeeRow, error)
+	// The tenant check of both foreign keys IS the insert: the row is built from
+	// the course and the employee of the caller's company, so another company's id
+	// (or a nonexistent one) yields zero rows (pgx.ErrNoRows -> 404) and nothing
+	// is written. training_name and employee_name are derived here, never taken
+	// from input. FOR KEY SHARE takes the foreign key locks up front, so a course
+	// deleted meanwhile gives 404 instead of a 23503.
+	CreateEnrollment(ctx context.Context, arg CreateEnrollmentParams) (Enrollment, error)
 	// A1 rule 6: the tenant check on the client-supplied employee_id IS the
 	// insert -- a foreign employee_id selects zero rows -> pgx.ErrNoRows -> 404.
 	// employee_name is DERIVED from the employees row. scores/avg/category are
@@ -231,6 +238,7 @@ type Querier interface {
 	// Hard delete (spec "List and delete with filters" -- matches delPayRecord's
 	// existing behavior; no soft-delete semantics apply to this table).
 	DeleteEmployeePayRecord(ctx context.Context, arg DeleteEmployeePayRecordParams) (int64, error)
+	DeleteEnrollment(ctx context.Context, arg DeleteEnrollmentParams) (int64, error)
 	// Hard delete (Phase 2 Q3 precedent): evaluations is not an FK target.
 	DeleteEvaluation(ctx context.Context, arg DeleteEvaluationParams) (int64, error)
 	// Run in the claim transaction: counters collected while a device was
@@ -324,6 +332,9 @@ type Querier interface {
 	// Narrow tenant-scoped read for the medical_records incapacity cost (design
 	// D2): the salary is read INSIDE the write path, never taken from the client.
 	GetEmployeeSalary(ctx context.Context, arg GetEmployeeSalaryParams) (GetEmployeeSalaryRow, error)
+	GetEnrollment(ctx context.Context, arg GetEnrollmentParams) (Enrollment, error)
+	// PATCH's merge read; FOR NO KEY UPDATE serializes concurrent grades.
+	GetEnrollmentForMerge(ctx context.Context, arg GetEnrollmentForMergeParams) (Enrollment, error)
 	GetEvaluation(ctx context.Context, arg GetEvaluationParams) (Evaluation, error)
 	GetGeneratedDocument(ctx context.Context, arg GetGeneratedDocumentParams) (GeneratedDocument, error)
 	GetJobPosting(ctx context.Context, arg GetJobPostingParams) (JobPosting, error)
@@ -353,8 +364,9 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
-	// Locks the role row for a rename or delete, so the users it is checked or
-	// renamed against cannot change roles in between through this path.
+	// Locks the role row for a rename or delete. User writes that assign this
+	// role take LockRoleForShare first, so they wait for this transaction and
+	// never leave a user on a name renamed or deleted meanwhile.
 	GetRoleForUpdate(ctx context.Context, arg GetRoleForUpdateParams) (Role, error)
 	// Per-request session check (auth middleware): primary-key lookup of only the
 	// columns that decide whether a token is still honoured.
@@ -398,6 +410,7 @@ type Querier interface {
 	// (design R7) -- newest period first, ties broken by insertion order.
 	ListEmployeePayRecords(ctx context.Context, arg ListEmployeePayRecordsParams) ([]ListEmployeePayRecordsRow, error)
 	ListEmployees(ctx context.Context, arg ListEmployeesParams) ([]Employee, error)
+	ListEnrollments(ctx context.Context, arg ListEnrollmentsParams) ([]Enrollment, error)
 	ListEvaluations(ctx context.Context, arg ListEvaluationsParams) ([]Evaluation, error)
 	ListGeneratedDocuments(ctx context.Context, arg ListGeneratedDocumentsParams) ([]GeneratedDocument, error)
 	ListJobPostings(ctx context.Context, arg ListJobPostingsParams) ([]JobPosting, error)
@@ -472,6 +485,12 @@ type Querier interface {
 	// (or a mensual racing a quincena) waits for the other run to commit and then
 	// sees its rows. The unique indexes remain the backstop.
 	LockPayrollRun(ctx context.Context, dollar_1 string) error
+	// A user write that assigns a custom role takes this shared lock first, before
+	// any user row: it then waits for a rename or delete of the role in flight
+	// (GetRoleForUpdate) and re-reads it, so a user never ends up on a name that
+	// was renamed or deleted meanwhile. Same order everywhere (role, then users),
+	// so the two never deadlock.
+	LockRoleForShare(ctx context.Context, arg LockRoleForShareParams) (pgtype.UUID, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
@@ -510,6 +529,9 @@ type Querier interface {
 	// create -- it is a derived column regardless of which verb wrote it);
 	// net_salary is NOT recomputed, matching create.
 	UpdateEmployeePayRecord(ctx context.Context, arg UpdateEmployeePayRecordParams) (UpdateEmployeePayRecordRow, error)
+	// Grading only: status, score and notes. The course and the employee are fixed
+	// at creation (delete and enroll again to change them).
+	UpdateEnrollment(ctx context.Context, arg UpdateEnrollmentParams) (Enrollment, error)
 	UpdateJobPosting(ctx context.Context, arg UpdateJobPostingParams) (JobPosting, error)
 	// PATCH restricted to used_days only (design Q3): earned_days is owned by
 	// the accrual job (AccrueVacationDays below) and would be silently reverted

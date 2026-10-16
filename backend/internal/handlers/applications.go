@@ -177,7 +177,7 @@ func (a *API) CreateApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req applicationFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	params, fields := validateApplication(req)
@@ -244,12 +244,12 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req applicationFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update application")
+	tx, q, ok := a.beginWriteTx(w, r, "update application")
 	if !ok {
 		return
 	}
@@ -313,7 +313,7 @@ func (a *API) UpdateApplication(w http.ResponseWriter, r *http.Request) {
 		a.writeApplicationErr(w, err, "update application")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update application") {
+	if !a.commitWriteTx(w, r, tx, "update application") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Application{row})

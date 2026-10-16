@@ -38,8 +38,9 @@ FROM roles
 WHERE company_id = $1 AND name = $2;
 
 -- name: GetRoleForUpdate :one
--- Locks the role row for a rename or delete, so the users it is checked or
--- renamed against cannot change roles in between through this path.
+-- Locks the role row for a rename or delete. User writes that assign this
+-- role take LockRoleForShare first, so they wait for this transaction and
+-- never leave a user on a name renamed or deleted meanwhile.
 SELECT id, company_id, name, permissions, created_at
 FROM roles
 WHERE id = $2 AND company_id = $1
@@ -53,3 +54,13 @@ WHERE company_id = $1 AND role = sqlc.arg('old_name');
 
 -- name: CountUsersWithRole :one
 SELECT count(*) FROM users WHERE company_id = $1 AND role = sqlc.arg('name');
+
+-- name: LockRoleForShare :one
+-- A user write that assigns a custom role takes this shared lock first, before
+-- any user row: it then waits for a rename or delete of the role in flight
+-- (GetRoleForUpdate) and re-reads it, so a user never ends up on a name that
+-- was renamed or deleted meanwhile. Same order everywhere (role, then users),
+-- so the two never deadlock.
+SELECT id FROM roles
+WHERE company_id = $1 AND name = $2
+FOR SHARE;

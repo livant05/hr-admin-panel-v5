@@ -116,6 +116,13 @@ func (a *API) protectedRoutes() []routeSpec {
 		{"PATCH /api/trainings/{id}", need("employees"), a.UpdateTraining},
 		{"DELETE /api/trainings/{id}", need("employees"), a.DeleteTraining}, // cascades its enrollments
 
+		// enrollments: same gate as trainings (Capacitaciones page).
+		{"GET /api/enrollments", need("employees"), a.ListEnrollments},
+		{"POST /api/enrollments", need("employees"), a.CreateEnrollment}, // 409 if already enrolled
+		{"GET /api/enrollments/{id}", need("employees"), a.GetEnrollment},
+		{"PATCH /api/enrollments/{id}", need("employees"), a.UpdateEnrollment}, // grading
+		{"DELETE /api/enrollments/{id}", need("employees"), a.DeleteEnrollment},
+
 		// job_postings: recruitment.
 		{"GET /api/job_postings", need("recruitment"), a.ListJobPostings},
 		{"POST /api/job_postings", need("recruitment"), a.CreateJobPosting},

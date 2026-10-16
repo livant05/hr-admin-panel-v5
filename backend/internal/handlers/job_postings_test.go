@@ -883,7 +883,7 @@ func TestJobPostings_DeleteWaitsForAnInFlightApplication(t *testing.T) {
 }
 
 // TestJobPostings_BodyIsCappedAtOneMiB pins the 1 MiB cap of
-// decodeRecruitmentBody and decodeRecruitmentPatch (CO-S2a-2): a body over the
+// decodeStrictBody and decodeStrictPatch (CO-S2a-2): a body over the
 // cap is a 400 bad_request and writes nothing, while one just under it passes.
 func TestJobPostings_BodyIsCappedAtOneMiB(t *testing.T) {
 	pool := testutil.Pool(t)
