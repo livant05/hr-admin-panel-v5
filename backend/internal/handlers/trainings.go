@@ -254,6 +254,9 @@ func (a *API) UpdateTraining(w http.ResponseWriter, r *http.Request) {
 		writeFieldErr(w, fields)
 		return
 	}
+	if _, has := sent["status"]; !has {
+		v.Status = cur.Status // an imported NULL stays NULL, not the create default
+	}
 	row, err := q.UpdateTraining(r.Context(), db.UpdateTrainingParams{
 		CompanyID:   companyID,
 		ID:          id,

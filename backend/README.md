@@ -331,7 +331,7 @@ clears an optional field (`name` and `status` cannot be null), keys are exact, a
 validated as the whole course (an `end_date` before the stored `start_date` is rejected). The panel
 changes a course's status through it. Only the sent fields are validated: an imported course that
 already breaks a rule in a field the PATCH does not touch can still be edited, and that stored value
-is kept. `DELETE /{id}` returns `204` and removes the course's
+is kept (an imported `NULL` status stays `NULL` unless `status` is sent). `DELETE /{id}` returns `204` and removes the course's
 enrollments with it (`ON DELETE CASCADE`).
 
 ## Trainings: enrollments
@@ -353,7 +353,8 @@ enrollment is `409 conflict` with "El empleado ya está inscrito en esta capacit
 absent field is kept, `null` clears `score` or `notes`, `status` cannot be null. The course and the
 employee are fixed at creation, so a body carrying `training_id` or `employee_id` is `400 bad_request`
 (delete and enroll again instead). Only the sent fields are validated, so an imported enrollment with
-a score over 100 or an old status can still be graded; the untouched stored values are kept.
+a score over 100 or an old status can still be graded; the untouched stored values are kept (an
+imported `NULL` status stays `NULL` unless `status` is sent).
 `DELETE /{id}` returns `204`. The panel's certificates are the
 completed enrollments that have a score.
 
