@@ -15,8 +15,8 @@ Branch: `feat/device-preregistration` (from master e32ef78). Delivery: ask-on-ri
 
 | ID | Specs | Route | Status | Evidence |
 |----|-------|-------|--------|----------|
-| T1 | S1, S2, S4 (README) | inline | done | RED: unknown SN 200, POST 405; GREEN: suite 12/12 ok |
-| T2 | S3 | inline | pending | |
+| T1 | S1, S2, S4 (README) | inline | done | f782d64; RED: unknown SN 200, POST 405; GREEN: suite 12/12 ok |
+| T2 | S3 | inline | done | RED: registerZKDevice missing; GREEN: tools/zk-register 6/6, all harnesses ok |
 | T3 | S4 (runbook) | inline | pending | |
 | V  | S1-S4 | delegated verifier (high risk: item 2, device guard) | pending | |
 
