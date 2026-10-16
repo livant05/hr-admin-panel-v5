@@ -113,7 +113,7 @@ func (a *API) CreateCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req candidateFields
-	if !decodeRecruitmentBody(w, r, &req) {
+	if !decodeStrictBody(w, r, &req) {
 		return
 	}
 	if !req.Nationality.Valid {
@@ -183,12 +183,12 @@ func (a *API) UpdateCandidate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req candidateFields
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
 
-	tx, q, ok := a.beginRecruitmentTx(w, r, "update candidate")
+	tx, q, ok := a.beginWriteTx(w, r, "update candidate")
 	if !ok {
 		return
 	}
@@ -220,7 +220,7 @@ func (a *API) UpdateCandidate(w http.ResponseWriter, r *http.Request) {
 		a.writeDBErr(w, err, "update candidate")
 		return
 	}
-	if !a.commitRecruitmentTx(w, r, tx, "update candidate") {
+	if !a.commitWriteTx(w, r, tx, "update candidate") {
 		return
 	}
 	writeRows(w, http.StatusOK, []db.Candidate{row})

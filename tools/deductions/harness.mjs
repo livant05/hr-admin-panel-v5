@@ -1,8 +1,9 @@
 // tools/deductions/harness.mjs
 //
 // Drives the REAL deductions code of hr_admin_panel.html (renderDedTable for
-// the Deducciones table, loadLiqEmp for the installments and the vacation
-// balance offered in a liquidation) in a node:vm sandbox with fake Supa/DOM. Sources are sliced out
+// the Deducciones table, saveDed/saldaDed/delDed for its actions, loadLiqEmp
+// for the installments and the vacation balance offered in a liquidation) in a
+// node:vm sandbox with fake Supa/DOM. Sources are sliced out
 // of the HTML by name and executed as written.
 //
 // Outside demo mode DS is emptied at sign-in and never refilled, so these
@@ -15,33 +16,17 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.DEDUCTIONS_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 
 const srcs = [
   extractFunction(html, 'async function renderDedTable('),
   extractFunction(html, 'async function loadLiqEmp('),
+  extractFunction(html, 'function vacTotalsByEmployee('),
+  extractFunction(html, 'async function saveDed('),
   extractFunction(html, 'async function saldaDed('),
   extractFunction(html, 'async function delDed('),
   extractFunction(html, 'function apiErrMsg('),
@@ -66,12 +51,12 @@ const API_BALS = [
 const PATCH_FIELDS = ['employee_id', 'employee_name', 'type', 'description', 'total_amount', 'quota', 'remaining', 'start_date', 'status', 'cedula',
   'acreedor_nombre', 'acreedor_codigo', 'tipo_pago', 'centro_costo', 'prioridad', 'end_date', 'periodo', 'numero_planilla'];
 
-function makeEnv({ deds = API_DEDS, bals = API_BALS, updResult = null, delResult = null } = {}) {
+function makeEnv({ deds = API_DEDS, bals = API_BALS, insResult = null, updResult = null, delResult = null } = {}) {
   const calls = [], toasts = [];
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '', innerHTML: '', style: { display: 'none' }, classList: { add() {} } });
   el('liq-emp').value = 'e1';
-  const pick = (rows, flt) => rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v));
+  const pick = (rows, flt) => !Array.isArray(rows) ? rows : rows.filter((r) => Object.entries(flt || {}).every(([k, v]) => r[k] === v));
   const sandbox = {
     A: { companyId: 'c1', demo: false },
     DS: { deductions: [], leave_balances: [] },
@@ -80,10 +65,14 @@ function makeEnv({ deds = API_DEDS, bals = API_BALS, updResult = null, delResult
     gv: (id) => el(id).value,
     getEmpPayBases: async () => ({ months: 0 }),
     calcLiq: () => {},
+    TS: '2026-10-14',
+    API_FIELD_ES: { quota: 'cuota' },
+    API_CONFLICT_ES: {},
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
       sel: async (tbl, flt) => { calls.push({ fn: 'sel', tbl, flt }); return pick({ employees: [EMP], deductions: deds, leave_balances: bals }[tbl] || [], flt); },
       selAll: async (tbl, flt) => { calls.push({ fn: 'selAll', tbl, flt }); return pick({ employees: [EMP], deductions: deds, leave_balances: bals }[tbl] || [], flt); },
+      ins: async (tbl, data) => { calls.push({ fn: 'ins', tbl, data }); return insResult || [Object.assign({ id: 'new' }, data)]; },
       upd: async (tbl, id, data) => { calls.push({ fn: 'upd', tbl, id, data }); return updResult || [Object.assign({}, data, { id })]; },
       del: async (tbl, id) => { calls.push({ fn: 'del', tbl, id }); return delResult; },
     },
@@ -155,6 +144,32 @@ test('delDed success keeps the info toast (unchanged)', async () => {
   assert.deepEqual(e.toasts, [{ msg: 'Eliminada', type: 'info' }]);
 });
 
+const fillDed = (e) => {
+  e.el('ded-emp').value = 'e1'; e.el('ded-quota').value = '100'; e.el('ded-acreedor').value = 'Banco Uno';
+  e.el('ded-total').value = '1200'; e.el('ded-start').value = '2026-10-01';
+};
+
+test('saveDed rejected by the server shows the error, never a fake success', async () => {
+  const e = makeEnv({ insResult: { error: { code: 'validation_failed', message: 'validation failed', fields: { quota: 'required' } } } });
+  fillDed(e);
+  await e.run('saveDed()');
+  assert.equal(e.toasts.length, 1);
+  assert.equal(e.toasts[0].type, 'danger');
+});
+
+test('saveDed success keeps its toast and sends the deduction (unchanged)', async () => {
+  const e = makeEnv();
+  fillDed(e);
+  await e.run('saveDed()');
+  const ins = e.calls.find((c) => c.fn === 'ins');
+  assert.ok(ins, 'no POST sent');
+  assert.deepEqual(Object.keys(ins.data).filter((k) => !PATCH_FIELDS.includes(k)), [], 'unknown fields are a 400');
+  assert.equal(ins.data.quota, 100);
+  assert.equal(ins.data.remaining, 1200);
+  assert.equal(ins.data.status, 'active');
+  assert.deepEqual(e.toasts, [{ msg: 'Deducción guardada', type: 'success' }]);
+});
+
 test('loadLiqEmp offers the employee active installments from the API', async () => {
   const e = makeEnv();
   await e.run('loadLiqEmp()');
@@ -183,6 +198,14 @@ test('loadLiqEmp hides the installments box when the employee has none (unchange
   const e = makeEnv({ deds: [] });
   await e.run('loadLiqEmp()');
   assert.equal(e.el('liq-ded-wrap').style.display, 'none');
+});
+
+test('renderDedTable shows a failed read as an error, not as "Sin deducciones"', async () => {
+  const e = makeEnv({ deds: { error: { code: 'internal', message: 'internal error' } } });
+  await e.run('renderDedTable()');
+  const tb = e.el('ded-tbody').innerHTML;
+  assert.doesNotMatch(tb, /Sin deducciones/);
+  assert.match(tb, /No se pudieron cargar las deducciones: error interno del servidor/);
 });
 
 let failed = 0;
