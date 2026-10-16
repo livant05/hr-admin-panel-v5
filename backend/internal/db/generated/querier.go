@@ -364,8 +364,9 @@ type Querier interface {
 	// JWT's role by name within the caller's own tenant -- never by id, since
 	// the JWT carries only a role name, not a roles.id.
 	GetRoleByName(ctx context.Context, arg GetRoleByNameParams) (Role, error)
-	// Locks the role row for a rename or delete, so the users it is checked or
-	// renamed against cannot change roles in between through this path.
+	// Locks the role row for a rename or delete. User writes that assign this
+	// role take LockRoleForShare first, so they wait for this transaction and
+	// never leave a user on a name renamed or deleted meanwhile.
 	GetRoleForUpdate(ctx context.Context, arg GetRoleForUpdateParams) (Role, error)
 	// Per-request session check (auth middleware): primary-key lookup of only the
 	// columns that decide whether a token is still honoured.
@@ -484,6 +485,12 @@ type Querier interface {
 	// (or a mensual racing a quincena) waits for the other run to commit and then
 	// sees its rows. The unique indexes remain the backstop.
 	LockPayrollRun(ctx context.Context, dollar_1 string) error
+	// A user write that assigns a custom role takes this shared lock first, before
+	// any user row: it then waits for a rename or delete of the role in flight
+	// (GetRoleForUpdate) and re-reads it, so a user never ends up on a name that
+	// was renamed or deleted meanwhile. Same order everywhere (role, then users),
+	// so the two never deadlock.
+	LockRoleForShare(ctx context.Context, arg LockRoleForShareParams) (pgtype.UUID, error)
 	RenameEmployeeBranch(ctx context.Context, arg RenameEmployeeBranchParams) (int64, error)
 	RenameEmployeeDepartment(ctx context.Context, arg RenameEmployeeDepartmentParams) (int64, error)
 	RenameEmployeePosition(ctx context.Context, arg RenameEmployeePositionParams) (int64, error)
