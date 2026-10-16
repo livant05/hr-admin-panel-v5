@@ -63,14 +63,18 @@ Forecast ~400-600 authored lines (mostly tests). Strategy `ask-on-risk`; stacked
 - Live (curl): same user on two devices -> payroll 200 on both; logout from D1 204 -> D1 and D2 401, admin 200; re-login 200; admin PATCH role -> old token 401, re-login evaluated with the new role (payroll 403, vacations 200, /me role updated); DELETE user -> token 401 and login 401; admin unaffected. Versions after: test user 3, admin 0.
 - Live (Chrome, cache-busted): "Cerrar sesión" sends `POST /api/auth/logout` 204, toast "Sesión cerrada", local session cleared, old token 401. An open tab whose token was revoked from another device shows a single "Sesión expirada" and returns to login. Test user and roles deleted.
 - RDD: assess base 3a57996 -> high (hot_path, process_boundary), review due. Consent relayed, user granted. 4-lens native review (lineage review-d2306357519c5a0a): approved, acknowledged (`gentle-ai.review-acknowledged/v1`). Reviewed boundary advances to a32cede.
-- Informational follow-ups from the review (not blocking): R4 session lookup failure returns 500 without logging the error (`internal/auth/auth.go:147-150`) — resolved, see below; R3 concurrent-demotion test depends on scheduling to reach the 409 guard (`users_test.go:848-850`), possible flakiness — still open.
+- Informational follow-ups from the review (not blocking): R4 session lookup failure returns 500 without logging the error (`internal/auth/auth.go:147-150`) — resolved, see below; R3 concurrent-demotion test depends on scheduling to reach the 409 guard (`users_test.go:848-850`), possible flakiness — resolved, see "R3 follow-up" below.
 
 ### R4 follow-up (user-authorized, 2026-10-13) — commit adcd411 `fix(auth): log session lookup failures`
 - Route: direct inline (one mechanical line + one test). `API.SessionLookup` logs `session lookup` with `user_id` and `err` before returning a DB error (the middleware still answers a generic 500).
 - RED: `TestSessionCheck_LookupFailureIsLogged` (closed pool -> GET /api/me) got 500 but an empty log. GREEN after the change; `go build`, `go vet` clean; full suite ok.
 - RDD assess base a32cede: medium, 63 lines, `review_due: false` (`under_budget`). Dev backend rebuilt.
-- R3 (concurrent-demotion test timing) left open.
+- R3 (concurrent-demotion test timing) left open at the time; resolved 2026-10-14 (see below).
 - Review (2026-10-14): `adcd411` got its own native review (resilience + reliability, lineage review-9275ece9ea098014), approved and acknowledged. Its advisories: canceled lookups were logged at ERROR (now WARN, commit `fix(auth): log canceled session lookups below error level`) and the test did not assert the level (now asserts `level=ERROR` and `err=` for a real failure).
+
+### R3 follow-up (2026-10-14) — commit `test(users): force the concurrent demotion race onto the guard`
+- `TestUsers_ConcurrentDemotionOfTwoAdminsKeepsOneActive` no longer hopes that one of 25 rounds reaches the last-admin guard. The test holds the admin rows `FOR UPDATE`, waits until both PATCHes are parked inside `LockActiveAdmins` (counted by query: the second waiter queues behind the first, so `pg_blocking_pids` does not name the holder), then releases. Each guard path (role, status) must give exactly one 200 and one last-admin 409, with one active admin left. A `t.Cleanup` releases the rows if an assertion fails.
+- Evidence: 30 consecutive runs pass in 3.7 s; with `FOR UPDATE` removed from `LockActiveAdmins` the test fails ("only 0 of 2 requests parked") instead of passing or hanging. Full suite ok.
 
 ## Delivery (2026-10-13)
 User chose Feature Branch Chain on tracker #33 (`feat/rrhh-go-auth-cutover`). Slices, each targeting its parent; this document covers S9a/S9b, `odd/tasks/server-permissions.md` covers S8a-S8c:
@@ -84,4 +88,4 @@ User chose Feature Branch Chain on tracker #33 (`feat/rrhh-go-auth-cutover`). Sl
 No repository CI besides the skipped Supabase Preview. Nothing merged.
 
 ## Next step
-Human review and merge down the chain into the tracker; R3 optional.
+Human review and merge down the chain into the tracker.
