@@ -1,8 +1,8 @@
 // tools/attendance/harness.mjs
 //
 // Drives the REAL attendance screen code of hr_admin_panel.html (saveAttendance,
-// delAtt, the monthly report loadAttReport, plus apiErrMsg) in a node:vm
-// sandbox with fake Supa/DOM/toast. Sources
+// delAtt, the monthly report loadAttReport and its export exportAttReport, plus
+// apiErrMsg) in a node:vm sandbox with fake Supa/DOM/toast. Sources
 // are sliced out of the HTML by name and executed as written.
 //
 // Outside demo mode DS.attendance_logs is emptied at sign-in and never
@@ -17,49 +17,29 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction, extractMaybeAsync } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.ATTENDANCE_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-// Only used on functions without regex literals.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 
-// The function may or may not be declared async; keep the keyword if present.
-function extractMaybeAsync(src, header) {
-  const fn = extractFunction(src, header);
-  const at = src.indexOf(header);
-  return src.slice(Math.max(0, at - 6), at) === 'async ' ? 'async ' + fn : fn;
-}
 
 const srcs = [
   extractFunction(html, 'async function saveAttendance('),
   extractFunction(html, 'async function delAtt('),
   extractFunction(html, 'function apiErrMsg('),
   extractMaybeAsync(html, 'function loadAttReport('),
+  extractMaybeAsync(html, 'function exportAttReport('),
+  extractFunction(html, 'function csvCell('),
+  extractFunction(html, 'function csvText('),
+  extractFunction(html, 'function hwCalc('),
+  html.includes('async function attMonthLogs(') ? extractFunction(html, 'async function attMonthLogs(') : '',
 ].join('\n');
 
 const LOGS = [{ id: 'a1', company_id: 'c1', employee_id: 'e1', date: '2026-10-14', status: 'present' }];
 
 function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updResult = null, delResult = null } = {}) {
-  const calls = [], toasts = [], reloads = [];
+  const calls = [], toasts = [], reloads = [], downloads = [];
   const els = {};
   const el = (id) => (els[id] ??= { id, value: '' });
   el('att-emp').value = 'e1';
@@ -68,7 +48,7 @@ function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updRe
   el('att-date').value = '2026-10-14';
   el('att-in').value = '08:00'; el('att-out').value = '17:00'; el('att-st').value = 'present';
   // date_from/date_to behave like the API (inclusive range); every other key is an exact match
-  const pick = (rows, flt) => rows.filter((r) => Object.entries(flt || {}).every(([k, v]) =>
+  const pick = (rows, flt) => !Array.isArray(rows) ? rows : rows.filter((r) => Object.entries(flt || {}).every(([k, v]) =>
     k === 'date_from' ? r.date >= v : k === 'date_to' ? r.date <= v : r[k] === v));
   const sandbox = {
     A: { companyId: 'c1', demo },
@@ -77,6 +57,7 @@ function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updRe
     TD: new Date('2026-10-14T12:00:00Z'),
     escHtml: (v) => String(v ?? ''),
     API_FIELD_ES: {},
+    API_CONFLICT_ES: {},
     gv: (id) => el(id).value,
     JSON, Object, Array, Number, String, Math, Promise, parseInt, parseFloat,
     Supa: {
@@ -89,10 +70,11 @@ function makeEnv({ logs = LOGS, emps = [], demo = false, insResult = null, updRe
     document: { getElementById: el },
     toast: (msg, type) => toasts.push({ msg, type: type || 'success' }),
     loadAttendance: () => { reloads.push(1); },
+    downCSV: (csv, name) => downloads.push({ csv, name }),
   };
   vm.createContext(sandbox);
   vm.runInContext(srcs, sandbox);
-  return { el, calls, toasts, reloads, run: (c) => vm.runInContext(c, sandbox) };
+  return { el, calls, toasts, reloads, downloads, run: (c) => vm.runInContext(c, sandbox) };
 }
 
 const tests = [];
@@ -183,6 +165,45 @@ test('monthly report in demo mode still works on the local store', async () => {
   await e.run('loadAttReport()');
   assert.equal(reportRows(e).length, 2);
   assert.match(reportRows(e)[0], /text-success">1</);
+});
+
+test('monthly export downloads that month from the API, first and last day included', async () => {
+  const logs = MONTH_LOGS.map((l) => Object.assign({ employee_name: l.employee_id === 'e1' ? 'Ana Diaz' : 'Luis "Lucho" Gomez', department: null, time_in: null, time_out: null }, l));
+  logs[0].time_in = '08:00'; logs[0].time_out = '17:00'; logs[0].department = 'Ventas';
+  const e = makeEnv({ logs, emps: EMPS });
+  e.el('att-r-month').value = '10'; e.el('att-r-year').value = '2026';
+  await e.run('exportAttReport()');
+  const q = e.calls.find((c) => c.tbl === 'attendance_logs');
+  assert.deepEqual(JSON.parse(JSON.stringify(q.flt)), { date_from: '2026-10-01', date_to: '2026-10-31' });
+  assert.equal(e.downloads.length, 1);
+  const { csv, name } = e.downloads[0];
+  assert.equal(name, 'asistencia_Octubre_2026.csv');
+  const lines = csv.split('\n');
+  assert.equal(lines[0], '"Empleado","Dpto","Fecha","Entrada","Salida","Horas","Estado"');
+  assert.equal(lines.length, 5, 'Oct 1, Oct 31, Oct 15, Oct 20; not Sep 30 nor Nov 1');
+  assert.match(lines[1], /^"Ana Diaz","Ventas","2026-10-01","08:00","17:00","[^"]+","present"$/);
+  assert.ok(lines.includes('"Luis ""Lucho"" Gomez","","2026-10-15","","","0","absent"'), 'quotes doubled, 0 hours kept, null empty');
+  assert.deepEqual(e.toasts, [{ msg: 'Exportado 📥', type: 'success' }]);
+});
+
+test('monthly export with no logs that month warns and downloads nothing', async () => {
+  const e = makeEnv({ logs: [MONTH_LOGS[2]], emps: EMPS });
+  e.el('att-r-month').value = '10'; e.el('att-r-year').value = '2026';
+  await e.run('exportAttReport()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts, [{ msg: 'Sin datos', type: 'warning' }]);
+});
+
+test('monthly report and export show a failed read as an error, not as an empty month', async () => {
+  const fail = { error: { code: 'internal', message: 'internal error' } };
+  const e = makeEnv({ logs: fail, emps: EMPS });
+  e.el('att-r-month').value = '10'; e.el('att-r-year').value = '2026';
+  await e.run('exportAttReport()');
+  assert.equal(e.downloads.length, 0);
+  assert.deepEqual(e.toasts.map((t) => t.type), ['danger']);
+  assert.match(e.toasts[0].msg, /error interno del servidor/);
+  await e.run('loadAttReport()');
+  assert.match(e.el('att-rep-content').innerHTML, /No se pudo cargar la asistencia del mes: error interno del servidor/);
 });
 
 let failed = 0;
