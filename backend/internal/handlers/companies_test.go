@@ -121,7 +121,7 @@ func TestCompanies_CrossTenantLeak(t *testing.T) {
 
 	t.Run("any authenticated role may read its own company", func(t *testing.T) {
 		for _, role := range []string{"empleado", "manager"} {
-			rec := testutil.Do(t, h, http.MethodGet, "/api/companies", a.TokenAs(t, signer, role), nil)
+			rec := testutil.Do(t, h, http.MethodGet, "/api/companies", a.TokenAs(t, pool, signer, role), nil)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("%s: got %d", role, rec.Code)
 			}

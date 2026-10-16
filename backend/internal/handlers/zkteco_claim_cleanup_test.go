@@ -99,7 +99,7 @@ func TestZktecoDevices_ClaimClearsEarlierIngestData(t *testing.T) {
 		}
 		free := seedZkDevice(t, pool, zkSeed{})
 		seedIngestData(t, pool, free.SerialNumber)
-		if rec := testutil.Do(t, h, http.MethodPost, claimPath(free.ID), a.TokenAs(t, signer, "empleado"), nil); rec.Code != http.StatusForbidden {
+		if rec := testutil.Do(t, h, http.MethodPost, claimPath(free.ID), a.TokenAs(t, pool, signer, "empleado"), nil); rec.Code != http.StatusForbidden {
 			t.Fatalf("non-admin claim got %d, want 403", rec.Code)
 		}
 		if rec := testutil.Do(t, h, http.MethodPost, claimPath(free.ID), ta, map[string]any{"company_id": b.CompanyID}); rec.Code != http.StatusBadRequest {

@@ -24,15 +24,20 @@ API health: http://localhost:8100/api/health
 
 ## Seeded login
 
-The existing real Ventatec company/user were seeded in `migrations/0003_seed.sql`:
+`migrations/0003_seed.sql` seeds the existing company and its admin user. The
+email and the password hash are in that file; the password is a public
+development default, so treat this login as local-only:
 
-- email: `livan.05@hotmail.com`
-- password: `Admin123`
+- change it right after the first login on any database that is not a
+  throwaway local copy;
+- with `APP_ENV=production` the API refuses to start while any user still has
+  the seed password (`cmd/api/seed_guard.go`, see `docs/cutover-runbook.md`).
 
 ```sh
+# SEED_EMAIL / SEED_PASSWORD: the seeded admin from migrations/0003_seed.sql
 curl -X POST http://localhost:8100/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"livan.05@hotmail.com","password":"Admin123"}'
+  -d "{\"email\":\"$SEED_EMAIL\",\"password\":\"$SEED_PASSWORD\"}"
 ```
 
 ## Current scope — auth skeleton only
@@ -107,7 +112,8 @@ lines are how an operator sees it happen.
 Public (no token), behind the shared `AuthLimiter` described above. Body `{company_name, first_name,
 last_name?, email, password}`; unknown keys (`role`, `status`, `company_id`, ...) and bodies over
 4 KiB are a `400 bad_request`. Validation failures are `400 validation_failed` with `fields`:
-`company_name` 1-200 characters (trimmed), `first_name` 1-100, `last_name` at most 100, `email` a
+`company_name` 1-200 characters (trimmed), `first_name` 1-100, `last_name` at most 100 (none of the
+three may contain control characters such as NUL or a newline), `email` a
 plausible address of at most 254 characters, `password` 8-72 **bytes** (`auth.ValidatePassword`; a
 37-character string of 2-byte runes is too long).
 
@@ -118,11 +124,35 @@ remains) and answers `409 conflict`. On success the answer is `201` with exactly
 (`access_token`, `token_type`, `expires_in`, `company_name`, `user` with `user_metadata`), so the
 caller is logged in; it never contains `password_hash`. The login view's "Registrar nueva empresa" form calls it and logs the new admin in.
 
+Known limitation (accepted 2026-10-14): `409` vs `201` tells an unauthenticated caller whether an email
+already belongs to a user in any company. The shared `AuthLimiter` bounds how fast that can be probed;
+hiding it would need email verification (same answer either way, confirmation mail, no auto-login),
+which the API does not have.
+
 ## Users and roles (admin only)
 
 `/api/users` (list, get by id, create, patch, delete) and the write routes of `/api/roles` (create, update, delete)
 require the JWT role `admin`; any other role gets `403 forbidden` before the body or the database
 is touched. Role reads stay open to every authenticated role.
+
+`users.role` holds the role **name**, and permissions are looked up by it. So:
+- `PATCH /api/roles/{id}` that changes `name` renames, in the same transaction, every user of the
+  company that held the old name; they keep the role's permissions. A permissions-only PATCH
+  touches no user.
+- `DELETE /api/roles/{id}` of a role some user still holds is `409 conflict` with the message
+  "N usuario(s) tienen este rol", and nothing is deleted. Reassign those users first.
+- `admin` (any case, trimmed) is reserved: creating or renaming a role to it is `400
+  validation_failed` with `fields.name` = `reserved name`, because every permission check bypasses
+  on that name. A legacy row already named `admin` (imported data) cannot be renamed either: the
+  rename would carry every administrator along. A row named exactly `admin` can be deleted (it
+  backs nobody: the admin bypass matches that exact name); a case variant such as `Admin` is an
+  ordinary role and follows the in-use rule. Permissions stay editable.
+- A row named `empleado` (the built-in default role of new users) can be created, edited and
+  deleted under the rules above, but not renamed: new users would keep `empleado` while the
+  existing ones moved away.
+- `POST /api/users` and `PATCH /api/users/{id}` that assign a custom role take a shared lock on that
+  role row first, so they wait for a rename or delete in flight; a role gone meanwhile is `400
+  validation_failed` with `fields.role`.
 
 - `POST /api/users` takes `{email, first_name, last_name, role, status?}` and nothing else (a
   `password`, `password_hash`, `company_id` or `id` key is a 400). The email is trimmed and
@@ -144,14 +174,26 @@ is touched. Role reads stay open to every authenticated role.
   guard runs in one transaction that locks the company's active admins in id order, then the
   target row, so two admins demoting each other concurrently cannot both succeed.
 
-### Residual risk: sessions outlive deactivation (AUTH-10)
+### Sessions and revocation
 
-A user who is deactivated (`DELETE /api/users/{id}`, `status: inactive`) or demoted keeps a working
-JWT until it expires, up to 24 hours: the token carries `role` and `company_id` as signed claims
-and the middleware does not re-check the user's row on each request (design D17). Login does check
-`status`, so a deactivated user cannot obtain a new token. If an account is compromised, deactivation
-alone does not end the current session within the day. A cache-backed per-request status check in
-the auth middleware is the follow-up if this window becomes unacceptable.
+Every authenticated request is checked against the database, not only against the JWT signature.
+The auth middleware (`auth.Signer.Middleware`) takes a `SessionLookup` (wired in `Routes` to one
+primary-key query on `users`: status, role, company, `token_version`) and answers `401` unless the
+user exists, is `active` and the token's `tv` claim equals `users.token_version`. `role` and
+`company_id` in the request context come from that row, never from the token, so a demotion applies
+on the next request. A lookup failure is a `500` (fail closed). Tokens issued before migration
+`0013` have no `tv` claim and count as version 0; they stay valid until they expire or the user's
+version is first bumped.
+
+The version is bumped (every token of that user, on every device, stops working):
+
+- `POST /api/auth/logout` (authenticated, any role, `204`) bumps the caller's own version.
+- `PATCH /api/users/{id}` that actually changes `role` or `status`, and `DELETE /api/users/{id}`
+  that deactivates, bump the target's version in the same transaction. Renames and unchanged values
+  do not. The affected user must sign in again.
+
+Migration `0013_users_token_version.sql` must be applied **before** the new binary starts (the
+middleware reads the column on every request).
 
 ## Module permissions (server-side)
 
@@ -169,7 +211,7 @@ from validation errors. Every protected route carries a classification and
 | `users`, `zkteco_devices` claim/unclaimed, `zkteco_unknown_pins` | admin (in handler) | admin (in handler) |
 | `zkteco_devices` list / rename | any authenticated | any authenticated |
 | `employees` | any authenticated, sensitive fields redacted (below) | `employees` |
-| `evaluations`, `uniforms` | `employees` | `employees` |
+| `evaluations`, `uniforms`, `trainings`, `enrollments` | `employees` | `employees` |
 | `attendance_logs` | `attendance` | `attendance` |
 | `leave_balances`, `leave_requests` | `vacations` | `vacations` |
 | `medical_records` | `medical` (in handler) | `medical` (in handler) |
@@ -212,6 +254,8 @@ request body over 1 MiB is `400 bad_request`.
 `PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, an explicit
 `null` clears an optional field (`title` and `status` cannot be null), and the result is validated as the
 whole posting, so the salary ordering also holds against a stored salary the body did not repeat.
+PATCH keys are exact (here and on candidates, applications and `zkteco_devices`): `"Title"` is a
+`400 bad_request`, never accepted and silently ignored.
 `DELETE /{id}` returns `204`, or `409 conflict` (message carries the count) while any application still
 references the posting: the schema's `ON DELETE CASCADE` never fires through the API. The posting row is
 locked (`FOR UPDATE`) during the check, so an application being created concurrently is waited for
@@ -255,6 +299,11 @@ The posting and the candidate must belong to the caller's company. The check is 
 guarded delete of either (`FOR UPDATE`) waits for it and then answers `409`, and an insert that loses to
 a delete answers `404` instead of a foreign key error.
 
+A candidate has at most one application per posting (unique index from migration `0015`): a second
+`POST` for the same pair, such as a retry after a timeout, or a `PATCH` that re-points onto an existing
+pair is `409 conflict` with the message "El candidato ya tiene una postulación para esta vacante", and
+nothing is written. Imported rows whose posting or candidate is gone (`NULL`) never collide.
+
 `PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, `notes` may be
 `null` to clear it, and `job_posting_id`, `candidate_id`, `stage` and `applied_at` cannot be null
 (`400 validation_failed`). A stage change is only a stage change: moving an application to `hired` creates
@@ -265,6 +314,49 @@ stored names. The new target is locked `FOR KEY SHARE` for the rest of the trans
 delete of it waits for the PATCH and then answers `409`. An application whose foreign key is `NULL`
 (imported data) can still change stage. `DELETE /{id}` is a hard delete (`204`; another company's id is
 `404`): nothing references an application.
+
+## Trainings (Capacitaciones)
+
+`/api/trainings` is tenant-scoped and requires the `employees` permission (the key the panel's
+Capacitaciones page uses). `GET` lists (filter `id`; `_limit`/`_offset`; any other parameter is
+`400 validation_failed`), `GET /{id}` returns one course (another company's id is `404`), `POST`
+creates one and returns a one-element array. Body fields: `name` (required, trimmed, at most 200
+characters), `category` (at most 100), `hours` (whole number 0-10000), `start_date` and `end_date`
+(`YYYY-MM-DD`, end not before start; an empty string is invalid, send `null`), `mode` (at most 50),
+`instructor` (at most 200), `description`, `status` (`programado` default, `en_progreso`,
+`completado`). Unknown fields, including `id`, `company_id` and `created_at`, are `400 bad_request`.
+
+`PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, `null`
+clears an optional field (`name` and `status` cannot be null), keys are exact, and the result is
+validated as the whole course (an `end_date` before the stored `start_date` is rejected). The panel
+changes a course's status through it. Only the sent fields are validated: an imported course that
+already breaks a rule in a field the PATCH does not touch can still be edited, and that stored value
+is kept (an imported `NULL` status stays `NULL` unless `status` is sent). `DELETE /{id}` returns `204` and removes the course's
+enrollments with it (`ON DELETE CASCADE`).
+
+## Trainings: enrollments
+
+`/api/enrollments` is tenant-scoped and requires the `employees` permission. `GET` lists (filters `id`,
+`training_id`, `employee_id`; `_limit`/`_offset`; a malformed uuid or any other parameter is
+`400 validation_failed`), `GET /{id}` returns one enrollment (another company's id is `404`), `POST`
+enrolls an employee and returns a one-element array. Body fields: `training_id` and `employee_id`
+(required uuids), `status` (`programado` default, `en_progreso`, `completado`), `score` (number 0-100,
+stored with two decimals, `null` for none) and `notes`. `training_name` and `employee_name` are
+accepted but ignored: the server copies them from the course and the employee. The course and the
+employee must belong to the caller's company; the check is the insert itself, so a foreign or
+missing id is `404` and nothing is written.
+
+An employee is enrolled at most once per course (unique index from migration `0016`): a second
+enrollment is `409 conflict` with "El empleado ya está inscrito en esta capacitación".
+
+`PATCH /{id}` grades an enrollment (the panel's "Calificar"): only `status`, `score` and `notes`; an
+absent field is kept, `null` clears `score` or `notes`, `status` cannot be null. The course and the
+employee are fixed at creation, so a body carrying `training_id` or `employee_id` is `400 bad_request`
+(delete and enroll again instead). Only the sent fields are validated, so an imported enrollment with
+a score over 100 or an old status can still be graded; the untouched stored values are kept (an
+imported `NULL` status stays `NULL` unless `status` is sent).
+`DELETE /{id}` returns `204`. The panel's certificates are the
+completed enrollments that have a score.
 
 ## ZKTeco devices and unknown PINs
 
@@ -366,15 +458,30 @@ that commits late with an older `created_at`, so the client keeps `maxSeenCreate
 already shown by `id` (a bounded seen-set). The first call, which only learns the starting point and
 shows nothing, is `_order=created_at.desc&_limit=1`.
 
+## Payroll preview (`GET /api/payroll_history/calculate`)
+
+Requires the `payroll` permission. It computes the payroll of the caller's company and writes
+nothing; the committing run is `POST /api/payroll_history`. Query parameters: `year` (required),
+`month` (1-12), `period` (`mensual`, `quincenal1` or `quincenal2`) and, optionally, `employee_id` (a
+uuid). A missing or invalid parameter is `400 validation_failed` with one message per field.
+
+The response is an array with one row per active employee: `employee_id`, `employee_name`, `cedula`
+and the computed amounts (`sal_base`, `att_ded`, `ot_amt`, `b`, `css`, `se`, `isr`, `ded`,
+`ded_quota`, `net`, `pcss`, `pse`, `dec`, `dec_cssp`, `tot`). With `employee_id` only that employee is
+computed (the panel's payslip uses it); an employee of another company, or one that is not active,
+gives an empty array.
+
 ## Dev procedure
 
 The login screen talks to this backend, so there is nothing to seed by hand.
 
 1. Start the stack: `docker compose up -d --build`.
 2. Open `http://localhost:8100` and log in normally. With the local dev seed that is
-   `livan.05@hotmail.com` / `Admin123` (see "Seeded login"), or use "Registrar nueva empresa".
+   the seeded admin (see "Seeded login"), or use "Registrar nueva empresa".
 3. The token lasts 24 hours; after that, or on any 401, the app returns to the login view. To leave
-   earlier use "Cerrar sesión", or clear `hr_sess` and `hr_meta` from `localStorage`.
+   earlier use "Cerrar sesión", which calls `POST /api/auth/logout` (best effort: the browser session
+   is cleared even if the call fails) and invalidates every token of that user, or clear `hr_sess`
+   and `hr_meta` from `localStorage`.
 4. After a `git checkout`, `git pull` or any change to `nginx/default.conf`, run
    `docker compose restart nginx`. The page and the nginx config are single-file bind mounts: git
    replaces the file with a new inode, the container keeps the old one and silently serves the
@@ -506,7 +613,7 @@ The step-by-step Supabase cutover, rollback and end-to-end checklist live in
 `[USER-OPS]`: it is yours to run, not the build's.
 
 **Startup seed guard.** With `APP_ENV=production` the API checks, before serving, whether any
-user row, active or inactive, still has the committed seed password hash (`Admin123`, from `migrations/0003_seed.sql`).
+user row, active or inactive, still has the committed seed password hash (from `migrations/0003_seed.sql`).
 If so it logs `seed credential present` and exits 1; a failed check also exits 1. Any other `APP_ENV`
 is not checked and logs one `seed guard skipped` line naming the value. Delete the seed admin first (runbook step 6).
 

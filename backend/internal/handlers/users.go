@@ -176,7 +176,7 @@ func (a *API) CreateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !known {
-			fields["role"] = "must be admin, empleado or an existing role"
+			fields["role"] = msgUnknownRole
 		}
 	}
 	if len(fields) > 0 {
@@ -197,7 +197,22 @@ func (a *API) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row, err := a.Queries.CreateUser(r.Context(), db.CreateUserParams{
+	tx, err := a.Pool.Begin(r.Context())
+	if err != nil {
+		a.writeDBErr(w, err, "create user")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	q := a.Queries.WithTx(tx)
+	if err := lockAssignedRole(r.Context(), q, companyID, role); err != nil {
+		if errors.Is(err, errRoleGone) {
+			writeFieldErr(w, map[string]string{"role": msgUnknownRole})
+			return
+		}
+		a.writeDBErr(w, err, "create user")
+		return
+	}
+	row, err := q.CreateUser(r.Context(), db.CreateUserParams{
 		CompanyID:    companyID, // $1 — from ctx, never from req
 		Email:        pgtype.Text{String: email, Valid: true},
 		Role:         role,
@@ -208,6 +223,10 @@ func (a *API) CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		a.writeDBErr(w, err, "create user") // 23505 on lower(email) -> 409
+		return
+	}
+	if err := tx.Commit(r.Context()); err != nil {
+		a.writeDBErr(w, err, "create user")
 		return
 	}
 
@@ -234,12 +253,37 @@ type updateUserRequest struct {
 // active admin (UM-3, UM-4).
 var errLastActiveAdmin = errors.New("company must keep at least one active admin")
 
+// msgUnknownRole is the 400 field error for a role that is neither built in
+// nor an existing custom role of the company.
+const msgUnknownRole = "must be admin, empleado or an existing role"
+
+// errRoleGone: the custom role a user write assigns was deleted or renamed
+// while the write waited for its lock. Answered like an unknown role (400).
+var errRoleGone = errors.New("role no longer exists")
+
+// lockAssignedRole takes the shared lock on the custom role a user write
+// assigns, before any user row (see LockRoleForShare). The built-in admin and
+// empleado need no row and take no lock.
+func lockAssignedRole(ctx context.Context, q *db.Queries, companyID pgtype.UUID, role string) error {
+	if role == "" || role == roleAdmin || role == roleEmpleado {
+		return nil
+	}
+	_, err := q.LockRoleForShare(ctx, db.LockRoleForShareParams{CompanyID: companyID, Name: role})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errRoleGone
+	}
+	return err
+}
+
 // userChange is a planned mutation of a locked user row: the role and status
 // the row will have afterwards (for the last-admin guard) and the write that
 // produces them. A nil write means "nothing to store".
 type userChange struct {
 	role, status string
 	write        func(q *db.Queries) (userResponse, error)
+	// revoke bumps the user's token_version in the same transaction as write,
+	// so tokens issued under the old role or status stop working at once.
+	revoke bool
 }
 
 // changeUser runs one user mutation under the last-active-admin guard.
@@ -251,7 +295,7 @@ type userChange struct {
 // requests wait on each other's row. With one global order, concurrent
 // requests serialize on the first admin row and the loser re-reads the
 // committed state when its lock is granted.
-func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, plan func(cur db.GetUserForUpdateRow) userChange) (userResponse, error) {
+func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, assignRole string, plan func(cur db.GetUserForUpdateRow) userChange) (userResponse, error) {
 	tx, err := a.Pool.Begin(ctx)
 	if err != nil {
 		return userResponse{}, err
@@ -259,6 +303,10 @@ func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, plan fu
 	defer tx.Rollback(ctx)
 	q := a.Queries.WithTx(tx)
 
+	// The assigned role first: role locks always precede user locks.
+	if err := lockAssignedRole(ctx, q, companyID, assignRole); err != nil {
+		return userResponse{}, err
+	}
 	admins, err := q.LockActiveAdmins(ctx, companyID)
 	if err != nil {
 		return userResponse{}, err
@@ -280,6 +328,11 @@ func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, plan fu
 		if out, err = change.write(q); err != nil {
 			return userResponse{}, err
 		}
+		if change.revoke {
+			if err = q.BumpUserTokenVersion(ctx, id); err != nil {
+				return userResponse{}, err
+			}
+		}
 	}
 	return out, tx.Commit(ctx)
 }
@@ -289,6 +342,10 @@ func (a *API) changeUser(ctx context.Context, companyID, id pgtype.UUID, plan fu
 func (a *API) writeUserChangeErr(w http.ResponseWriter, err error, op string) {
 	if errors.Is(err, errLastActiveAdmin) {
 		writeErrCode(w, http.StatusConflict, codeConflict, errLastActiveAdmin.Error())
+		return
+	}
+	if errors.Is(err, errRoleGone) {
+		writeFieldErr(w, map[string]string{"role": msgUnknownRole})
 		return
 	}
 	a.writeDBErr(w, err, op)
@@ -341,7 +398,7 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 	if req.Role != nil {
 		role = strings.TrimSpace(*req.Role)
 		if role == "" {
-			fields["role"] = "must be admin, empleado or an existing role"
+			fields["role"] = msgUnknownRole
 		}
 	}
 	if len(fields) == 0 && req.Role != nil {
@@ -351,7 +408,7 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !known {
-			fields["role"] = "must be admin, empleado or an existing role"
+			fields["role"] = msgUnknownRole
 		}
 	}
 	if len(fields) > 0 {
@@ -359,7 +416,11 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	row, err := a.changeUser(r.Context(), companyID, id, func(cur db.GetUserForUpdateRow) userChange {
+	assignRole := ""
+	if req.Role != nil {
+		assignRole = role
+	}
+	row, err := a.changeUser(r.Context(), companyID, id, assignRole, func(cur db.GetUserForUpdateRow) userChange {
 		p := db.UpdateUserParams{
 			CompanyID: companyID, // $1 — from ctx, never from req
 			ID:        id,
@@ -384,7 +445,10 @@ func (a *API) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		if req.Status != nil {
 			p.Status = status
 		}
-		return userChange{role: p.Role, status: p.Status, write: func(q *db.Queries) (userResponse, error) {
+		// Only an actual role or status change revokes: a rename or an
+		// unchanged value keeps the user signed in.
+		revoke := p.Role != cur.Role || p.Status != cur.Status
+		return userChange{role: p.Role, status: p.Status, revoke: revoke, write: func(q *db.Queries) (userResponse, error) {
 			updated, err := q.UpdateUser(r.Context(), p) // 23505 on lower(email) -> 409
 			return userResponse(updated), err
 		}}
@@ -413,11 +477,11 @@ func (a *API) DeleteUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, err = a.changeUser(r.Context(), companyID, id, func(cur db.GetUserForUpdateRow) userChange {
+	_, err = a.changeUser(r.Context(), companyID, id, "", func(cur db.GetUserForUpdateRow) userChange {
 		if cur.Status == statusInactive {
 			return userChange{role: cur.Role, status: cur.Status} // idempotent: nothing to write
 		}
-		return userChange{role: cur.Role, status: statusInactive, write: func(q *db.Queries) (userResponse, error) {
+		return userChange{role: cur.Role, status: statusInactive, revoke: true, write: func(q *db.Queries) (userResponse, error) {
 			row, err := q.DeactivateUser(r.Context(), db.DeactivateUserParams{CompanyID: companyID, ID: id})
 			return userResponse(row), err
 		}}

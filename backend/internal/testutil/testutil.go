@@ -271,21 +271,30 @@ func Company(t *testing.T, pool *pgxpool.Pool, name string) Tenant {
 // Token mints a real JWT via signer.Sign — same code path as Login.
 func (tn Tenant) Token(t *testing.T, signer *auth.Signer) string {
 	t.Helper()
-	tok, err := signer.Sign(tn.UserID, tn.CompanyID, tn.Role)
+	tok, err := signer.Sign(tn.UserID, tn.CompanyID, tn.Role, 0)
 	if err != nil {
 		t.Fatalf("sign test token: %v", err)
 	}
 	return tok
 }
 
-// TokenAs mints a JWT for this tenant asserting a role other than the one
-// Company created (always "admin"). The JWT role need not match a `users`
-// row for the middleware to accept it — role comes from the signed claim,
-// not a DB lookup. Needed by Phase 2's permission tests (design Q4/Q7),
-// e.g. an "empleado" token to prove requirePermission denies it.
-func (tn Tenant) TokenAs(t *testing.T, signer *auth.Signer, role string) string {
+// TokenAs mints a JWT for a fresh active user of this tenant holding role.
+// The auth middleware takes role and company from the users row, not from the
+// token, so asserting a role means a row that has it: every call inserts a
+// new user (never the tenant's admin), keeping tokens for different roles
+// independent of each other.
+func (tn Tenant) TokenAs(t *testing.T, pool *pgxpool.Pool, signer *auth.Signer, role string) string {
 	t.Helper()
-	tok, err := signer.Sign(tn.UserID, tn.CompanyID, role)
+	userID := uuid.NewString()
+	_, err := pool.Exec(context.Background(),
+		`INSERT INTO users (id, company_id, email, role, first_name, last_name, status)
+		 VALUES ($1, $2, $3, $4, 'Test', 'Role', 'active')`,
+		userID, tn.CompanyID, "role-"+uuid.NewString()[:8]+"@example.test", role,
+	)
+	if err != nil {
+		t.Fatalf("insert test user with role %s: %v", role, err)
+	}
+	tok, err := signer.Sign(userID, tn.CompanyID, role, 0)
 	if err != nil {
 		t.Fatalf("sign test token as %s: %v", role, err)
 	}

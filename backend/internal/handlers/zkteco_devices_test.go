@@ -297,7 +297,7 @@ func TestZktecoDevices_PatchUpdatesOnlyNameAndLocation(t *testing.T) {
 
 	t.Run("forbidden fields are rejected with 400 bad_request and nothing changes", func(t *testing.T) {
 		before := readZkDevice(t, pool, dev.ID)
-		for _, field := range []string{"serial_number", "company_id", "status", "id", "last_seen", "firmware_version", "created_at"} {
+		for _, field := range []string{"serial_number", "company_id", "status", "id", "last_seen", "firmware_version", "created_at", "Location"} {
 			rec := testutil.Do(t, h, http.MethodPatch, path, ta, map[string]any{"name": "sneaky", field: "x"})
 			if rec.Code != http.StatusBadRequest {
 				t.Fatalf("%s: got %d (%s), want 400", field, rec.Code, rec.Body.String())
@@ -388,7 +388,7 @@ func TestZktecoDevices_ListRules(t *testing.T) {
 	})
 
 	t.Run("any authenticated role may list and rename", func(t *testing.T) {
-		te := a.TokenAs(t, signer, "empleado")
+		te := a.TokenAs(t, pool, signer, "empleado")
 		if rec := testutil.Do(t, h, http.MethodGet, zkDevicesPath, te, nil); rec.Code != http.StatusOK {
 			t.Fatalf("list as empleado: got %d (%s)", rec.Code, rec.Body.String())
 		}
@@ -415,7 +415,7 @@ func TestZktecoDevices_UnclaimedPool(t *testing.T) {
 
 	t.Run("non-admin roles get 403 before any validation", func(t *testing.T) {
 		for _, role := range []string{"empleado", "manager", "rrhh"} {
-			rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath+"?bogus=1", a.TokenAs(t, signer, role), nil)
+			rec := testutil.Do(t, h, http.MethodGet, zkUnclaimedPath+"?bogus=1", a.TokenAs(t, pool, signer, role), nil)
 			if rec.Code != http.StatusForbidden {
 				t.Fatalf("%s: got %d (%s), want 403", role, rec.Code, rec.Body.String())
 			}
@@ -670,13 +670,13 @@ func TestZktecoDevices_Claim(t *testing.T) {
 	t.Run("non-admin roles get 403 and the device stays unclaimed", func(t *testing.T) {
 		dev := seedZkDevice(t, pool, zkSeed{})
 		for _, role := range []string{"empleado", "manager", "rrhh"} {
-			rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), a.TokenAs(t, signer, role), nil)
+			rec := testutil.Do(t, h, http.MethodPost, claimPath(dev.ID), a.TokenAs(t, pool, signer, role), nil)
 			if rec.Code != http.StatusForbidden || testutil.ErrCode(t, rec) != "forbidden" {
 				t.Fatalf("%s: got %d (%s), want 403 forbidden", role, rec.Code, rec.Body.String())
 			}
 		}
 		// The gate runs before the id and the body are looked at.
-		rec := doRawBody(t, h, http.MethodPost, claimPath("not-a-uuid"), a.TokenAs(t, signer, "empleado"), `garbage`)
+		rec := doRawBody(t, h, http.MethodPost, claimPath("not-a-uuid"), a.TokenAs(t, pool, signer, "empleado"), `garbage`)
 		if rec.Code != http.StatusForbidden {
 			t.Fatalf("got %d, want 403 before any validation", rec.Code)
 		}

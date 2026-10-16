@@ -1,0 +1,11 @@
+-- Per-user token version for server-side session revocation.
+--
+-- The JWT carries the version it was issued under (claim "tv"); the auth
+-- middleware rejects a token whose version differs from this column. Bumping
+-- the column (logout, role or status change, deactivation) invalidates every
+-- token the user holds, on every device. Tokens issued before this migration
+-- have no "tv" claim and count as version 0, which matches the default.
+--
+-- Idempotent (rule for every migration numbered 0010 or higher); existing
+-- volumes do not run new migrations automatically: apply it with psql.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0;

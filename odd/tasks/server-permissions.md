@@ -77,7 +77,16 @@ Forecast ~550-700 authored lines (mostly tests). Strategy: `ask-on-risk` (defaul
 - RDD assess `--base-ref 429ed0f --committed-only`: risk `medium`, `review_due: false` (`under_budget`); no native review started. Writer self-verification + parent spot check (medium tier, non-small writer).
 - Delivery: running count ~1040 changed lines (mostly tests and route-table re-indent), above the ~400 budget; chain strategy pending user choice before any PR.
 - Live E2E on the dev stack (2026-10-13, backend rebuilt from 66f2999, nginx restarted): temporary role `qa-perm-test` `{vacations:true}` + user. As that user: leave_requests/leave_balances/departments/employees 200; payroll_history (list, calculate, DELETE), liquidation_history (list, DELETE), employee_pay_records, deductions (GET, POST), overtime_logs, attendance_logs, POST employees, POST departments, evaluations, job_postings, document_templates, medical_records, users, POST roles all 403. Employees list: salary/cedula/ss_number/address/emergency_contact null, phone and birth_date present; admin sees all. Granting `payroll` via PATCH /api/roles took effect immediately (payroll 200, salaries visible, deductions still 403); revoking returned 403. UI as that user: 12 pages, 0 JS errors, 0 non-403 failures. Test user and role deleted afterwards (users: only the admin remains; roles back to 1).
-- Observed, out of scope: the frontend menu still shows nearly every module to that role (`hasPerm` is fail-open on undefined keys; audit finding #20). Denied screens render empty.
+- Observed: the frontend menu still showed nearly every module to that role (fail-open on undefined keys; audit finding #20). Addressed by T4.
+
+### T4 — fail-closed frontend menu (user-authorized follow-up, 2026-10-13)
+- Commit da55313 `fix(frontend): fail-closed sidebar and page permissions for non-admin roles` (+32/-19 html, +245 `tools/permissions/harness.mjs`). Route: delegated writer.
+- Behaviour: `permOk` denies undefined/null keys; admin bypass in `applyPermissions`/`isPageAllowed`; `loadRolePerms` sets `{}` on missing row or failed fetch and always re-applies; `enterApp` (startSession + init) makes non-admins await perms and land on the first allowed page, or toast "Tu rol no tiene módulos asignados..." without navigating.
+- RED: 5/13 on the pre-change html (8 failures incl. undefined key, missing row, failed fetch, entry flow, stale menu after logout). GREEN 13/13; session 32/32, leave 7/7, zk-feed 13/13; `node --check` OK. Parent re-run: 13/13.
+- Live (Chrome, nginx restarted, cache-busted URL): role `{vacations:true}` sees only Vacaciones + Alertas and lands on Vacaciones; `go('payroll')` stays and toasts "No tenés permisos..."; role `{}` sees only Alertas and gets the no-modules toast; admin sees all 30 entries; 0 JS errors. Test users/roles deleted (only the admin user and 1 role remain).
+- Gotcha: the browser kept the old html until a cache-busting URL (nginx sends no Cache-Control; audit #38).
+- Known limit: `Supa.sel` has no try/catch (audit #13); a network rejection on the roles fetch leaves a non-admin on a blank page with no toast.
+- RDD assess base 429ed0f: medium, 1342 changed lines, `review_due: false` (`under_budget`).
 
 ## Next step
 User review; push / PR is the user's decision.

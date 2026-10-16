@@ -204,7 +204,7 @@ func TestLeaveBalances_AccrueRequiresPermission(t *testing.T) {
 	h, signer := testutil.ServerWithScheduler(t, pool, sched)
 
 	c := testutil.Company(t, pool, "LeaveBalAccruePermCo")
-	empleado := c.TokenAs(t, signer, "empleado")
+	empleado := c.TokenAs(t, pool, signer, "empleado")
 
 	rec := testutil.Do(t, h, http.MethodPost, "/api/leave_balances/accrue", empleado, nil)
 	if rec.Code != http.StatusForbidden {

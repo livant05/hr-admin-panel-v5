@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -39,21 +40,61 @@ type payrollPreviewRow struct {
 	Tot          pgtype.Numeric `json:"tot"`
 }
 
-// payrollFactor derives `factor` server-side (design R4e): 'mensual' -> 1,
-// 'quincenal' -> 1/2. An unrecognized period is validation_failed (Q6's
-// unknown-type precedent), never a silent factor=0.5 fallback --
-// loadPayroll:2936's `period==='mensual'?1:0.5` would quietly halve every
-// salary on a typo'd period.
-func payrollFactor(period string) (payroll.Num, bool) {
+// payrollPeriod is the server-side meaning of a `period` value: the factor
+// that scales the base salary AND the deduction quota, and the day range
+// (inclusive start day, exclusive end day, 0 = first day of next month) that
+// bounds the date-based inputs (attendance, overtime).
+type payrollPeriod struct {
+	Factor   payroll.Num
+	StartDay int // inclusive
+	EndDay   int // exclusive; 0 means "first day of the next month"
+}
+
+// payrollPeriodSpec resolves the period vocabulary the UI sends: 'mensual'
+// (factor 1, whole month), 'quincenal1' (factor 1/2, days 1-15) and
+// 'quincenal2' (factor 1/2, day 16 to month end). An unrecognized period --
+// including the retired 'quincenal' -- is validation_failed (Q6's
+// unknown-type precedent), never a silent factor=0.5 fallback.
+func payrollPeriodSpec(period string) (payrollPeriod, bool) {
 	switch period {
 	case "mensual":
-		return payroll.FromInt(1), true
-	case "quincenal":
-		return payroll.FromFrac(1, 2), true
+		return payrollPeriod{Factor: payroll.FromInt(1), StartDay: 1, EndDay: 0}, true
+	case "quincenal1":
+		return payrollPeriod{Factor: payroll.FromFrac(1, 2), StartDay: 1, EndDay: 16}, true
+	case "quincenal2":
+		return payrollPeriod{Factor: payroll.FromFrac(1, 2), StartDay: 16, EndDay: 0}, true
 	default:
-		return payroll.Num{}, false
+		return payrollPeriod{}, false
 	}
 }
+
+// dateRange returns the half-open [start, end) calendar range of the period
+// inside year/month, as pgtype.Date values for ListPayrollRunInputs.
+func (p payrollPeriod) dateRange(year, month int32) (start, end pgtype.Date) {
+	first := time.Date(int(year), time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	endT := first.AddDate(0, 1, 0)
+	if p.EndDay != 0 {
+		endT = first.AddDate(0, 0, p.EndDay-1)
+	}
+	return pgtype.Date{Time: first.AddDate(0, 0, p.StartDay-1), Valid: true},
+		pgtype.Date{Time: endT, Valid: true}
+}
+
+// label is the human `periodo` text stored on the ledger row.
+func (p payrollPeriod) label(monthName string, year int32) string {
+	base := fmt.Sprintf("%s %d", monthName, year)
+	switch p.StartDay {
+	case 1:
+		if p.EndDay == 16 {
+			return base + " - 1ra Quincena"
+		}
+	case 16:
+		return base + " - 2da Quincena"
+	}
+	return base
+}
+
+const payrollPeriodError = "must be 'mensual', 'quincenal1' or 'quincenal2'"
 
 // employeeRunResult pairs one active employee's identity with their
 // calculated payroll.Result. Shared by both CalculatePayroll (preview,
@@ -70,15 +111,17 @@ type employeeRunResult struct {
 }
 
 // calculatePayrollRun runs ListPayrollRunInputs + payroll.Calculate for
-// every active employee in companyID/year/month under factor. q may be the
+// every active employee in companyID/year/month under the period. q may be the
 // plain a.Queries (preview, no transaction) or a.Queries.WithTx(tx) (the
 // committing run), so the committed write path calculates against the exact
 // same transactional snapshot it then writes from.
-func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UUID, year, month int32, factor payroll.Num) ([]employeeRunResult, error) {
+func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UUID, year, month int32, period payrollPeriod, employeeID pgtype.UUID) ([]employeeRunResult, error) {
+	start, end := period.dateRange(year, month)
 	rows, err := q.ListPayrollRunInputs(ctx, db.ListPayrollRunInputsParams{
-		CompanyID: companyID,
-		Year:      year,
-		Month:     month,
+		CompanyID:  companyID,
+		StartDate:  start,
+		EndDate:    end,
+		EmployeeID: employeeID, // invalid (NULL) = every active employee
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list payroll run inputs: %w", err)
@@ -99,15 +142,20 @@ func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UU
 			return nil, fmt.Errorf("parse deduction quota: %w", err)
 		}
 
+		// The quota is the employee's monthly installment; each period pays
+		// its share (50% per quincena, 100% mensual). Scaling happens here,
+		// not inside payroll.Calculate, so that function stays a byte-faithful
+		// port of prCalc (its golden fixtures only exercise factor-scaled
+		// salary and pass a quota through unchanged).
 		result, err := payroll.Calculate(payroll.Input{
 			Salary: salary,
-			Factor: factor,
+			Factor: period.Factor,
 			Attendance: &payroll.Attendance{
 				HasData:        row.HasAttendance,
 				AbsentDays:     int(row.AbsentDays),
 				OvertimeAmount: otAmount,
 			},
-			Deduction: &payroll.Deduction{QuotaTotal: dedQuota},
+			Deduction: &payroll.Deduction{QuotaTotal: dedQuota.Mul(period.Factor)},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("calculate: %w", err)
@@ -124,7 +172,7 @@ func calculatePayrollRun(ctx context.Context, q *db.Queries, companyID pgtype.UU
 	return out, nil
 }
 
-// GET /api/payroll_history/calculate?month=&year=&period= -- pure preview
+// GET /api/payroll_history/calculate?month=&year=&period=[&employee_id=] -- pure preview
 // (design R4e, task 5.9). Writes nothing; the committing run is slice 3f's
 // CreatePayrollRun. The literal "/calculate" segment ranks above
 // payroll_history's future "/{id}" under Go 1.22 ServeMux (Q5c).
@@ -145,16 +193,21 @@ func (a *API) CalculatePayroll(w http.ResponseWriter, r *http.Request) {
 	if monthErr != nil || month < 1 || month > 12 {
 		fields["month"] = "must be between 1 and 12"
 	}
-	factor, okPeriod := payrollFactor(q.Get("period"))
+	period, okPeriod := payrollPeriodSpec(q.Get("period"))
 	if !okPeriod {
-		fields["period"] = "must be 'mensual' or 'quincenal'"
+		fields["period"] = payrollPeriodError
+	}
+	// Optional: the payslip previews one employee instead of the whole company.
+	employeeID, err := optionalUUIDFilter(q.Get("employee_id"))
+	if err != nil {
+		fields["employee_id"] = "must be a uuid"
 	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
 		return
 	}
 
-	results, err := calculatePayrollRun(r.Context(), a.Queries, companyID, int32(year), int32(month), factor)
+	results, err := calculatePayrollRun(r.Context(), a.Queries, companyID, int32(year), int32(month), period, employeeID)
 	if err != nil {
 		a.Log.Error("calculate payroll", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -237,9 +290,9 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 	if req.Month < 1 || req.Month > 12 {
 		fields["month"] = "must be between 1 and 12"
 	}
-	factor, okPeriod := payrollFactor(req.Period)
+	period, okPeriod := payrollPeriodSpec(req.Period)
 	if !okPeriod {
-		fields["period"] = "must be 'mensual' or 'quincenal'"
+		fields["period"] = payrollPeriodError
 	}
 	if len(fields) > 0 {
 		writeFieldErr(w, fields)
@@ -256,7 +309,29 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 
 	q := a.Queries.WithTx(tx)
 
-	results, err := calculatePayrollRun(r.Context(), q, companyID, req.Year, req.Month, factor)
+	// Serialize runs of this (company, year, month): a double submit waits for
+	// the first run to commit, then replaces it (one history row survives).
+	if err := q.LockPayrollRun(r.Context(), fmt.Sprintf("payroll_run:%s:%d:%d", uuidToString(companyID), req.Year, req.Month)); err != nil {
+		a.Log.Error("create payroll run: lock", "err", err)
+		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
+		return
+	}
+
+	// A month is paid as one mensual run or as quincenas, never both.
+	conflicts, err := q.CountConflictingPayrollPeriods(r.Context(), db.CountConflictingPayrollPeriodsParams{
+		CompanyID: companyID, Year: req.Year, Month: req.Month, Period: req.Period,
+	})
+	if err != nil {
+		a.writeDBErr(w, err, "create payroll run: check exclusivity")
+		return
+	}
+	if conflicts > 0 {
+		writeErrCode(w, http.StatusConflict, codeConflict,
+			"this month already has payroll in a different period type: a month is paid either as one mensual run or as quincenas; delete the existing run and its pay records first")
+		return
+	}
+
+	results, err := calculatePayrollRun(r.Context(), q, companyID, req.Year, req.Month, period, pgtype.UUID{})
 	if err != nil {
 		a.Log.Error("create payroll run: calculate", "err", err)
 		writeErrCode(w, http.StatusInternalServerError, codeInternal, "internal error")
@@ -272,9 +347,9 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	monthName := payroll.MonthNameES(int(req.Month))
-	periodo := fmt.Sprintf("%s %d", monthName, req.Year)
+	periodo := period.label(monthName, req.Year)
 
-	historyRow, err := q.CreatePayrollHistory(r.Context(), db.CreatePayrollHistoryParams{
+	historyRow, err := q.UpsertPayrollHistory(r.Context(), db.UpsertPayrollHistoryParams{
 		CompanyID:     companyID,
 		Period:        req.Period,
 		Month:         req.Month,
@@ -298,6 +373,7 @@ func (a *API) CreatePayrollRun(w http.ResponseWriter, r *http.Request) {
 			Periodo:         pgtype.Text{String: periodo, Valid: true},
 			PeriodYear:      req.Year,
 			PeriodMonth:     req.Month,
+			Period:          req.Period,
 			GrossSalary:     numToNumeric(rr.Result.SalBase),
 			OvertimeAmount:  numToNumeric(rr.Result.OtAmt),
 			TotalEarned:     numToNumeric(rr.Result.B),

@@ -7,7 +7,7 @@
 //
 // Covers AUTH-9 / AUTH-6 (UI) / XC-5 / SR-1 of rrhh-go-auth-cutover: Go sign-in
 // without the global 401 hook, 429 wording, register auto-login, logout with
-// no request, expiry on load, a single "Sesión expirada" on mid-session 401,
+// a best-effort server logout, expiry on load, a single "Sesión expirada" on mid-session 401,
 // and demo mode making no network request at all.
 //
 // Run: node tools/session/harness.mjs   (exit code 1 on any failed assertion)
@@ -18,30 +18,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.SESSION_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Returns the source of `header ... { ... }` using brace matching that skips
-// string literals and comments. Only used on functions without regex literals.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 function between(startMarker, endMarker) {
   const s = html.indexOf(startMarker);
   assert.ok(s >= 0, `${startMarker} not found`);
@@ -302,23 +283,70 @@ test('register client-side checks (mismatch, short password, empty) make no requ
 });
 
 // ── logout ──────────────────────────────────────────────────────────────
-test('logout makes zero requests, clears the session keys, stops polling and shows login', async () => {
-  const e = makeEnv();
+const settle = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+const loginFor = async (e) => {
   e.respondWith(async () => res(200, loginPayload()));
   e.fillLogin('ana@x.test', 'secret123');
   await e.run('doLogin()');
   e.calls.length = 0; e.toasts.length = 0; e.views.length = 0;
   e.A.perms = { dashboard: true };
-  await e.run('doLogout()');
-  assert.equal(e.calls.length, 0);
+};
+const assertSignedOutLocally = (e) => {
   assert.equal(e.A.session, null);
   assert.equal(e.A.perms, null);
   assert.equal(e.store.has('hr_sess'), false);
   assert.equal(e.store.has('hr_meta'), false);
   assert.equal(e.log.stopZK, 1);
   assert.equal(e.lastView(), 'login');
-  assert.deepEqual(e.toasts, [{ msg: 'Sesión cerrada', type: 'info' }]);
   assert.equal(e.run('DS.employees.length'), 0);
+};
+
+test('logout sends one POST /api/auth/logout with the bearer token, then clears the session, stops polling and shows login', async () => {
+  const e = makeEnv();
+  await loginFor(e);
+  e.respondWith(async () => res(204));
+  await e.run('doLogout()');
+  await settle();
+  assert.equal(e.calls.length, 1);
+  assert.equal(e.calls[0].url, '/api/auth/logout');
+  assert.equal(e.calls[0].method, 'POST');
+  assert.equal(e.calls[0].headers.Authorization, 'Bearer ' + validToken());
+  assertSignedOutLocally(e);
+  assert.deepEqual(e.toasts, [{ msg: 'Sesión cerrada', type: 'info' }]);
+});
+
+test('logout still signs out locally, with no error toast, when the server is unreachable', async () => {
+  const e = makeEnv();
+  await loginFor(e);
+  e.respondWith(async () => { throw new TypeError('Failed to fetch'); });
+  await e.run('doLogout()');
+  await settle();
+  assert.equal(e.calls.length, 1);
+  assertSignedOutLocally(e);
+  assert.deepEqual(e.toasts, [{ msg: 'Sesión cerrada', type: 'info' }]);
+});
+
+test('logout answered 401 or 500 does not start the "Sesión expirada" flow nor toast an error', async () => {
+  for (const status of [401, 500]) {
+    const e = makeEnv();
+    await loginFor(e);
+    e.respondWith(async () => res(status, errBody(status === 401 ? 'unauthorized' : 'internal')));
+    await e.run('doLogout()');
+    await settle();
+    assert.equal(e.calls.length, 1, String(status));
+    assertSignedOutLocally(e);
+    assert.equal(e.expiredToasts(), 0, String(status));
+    assert.equal(e.run('Supa.sessionExpired'), false, String(status));
+    assert.deepEqual(e.toasts, [{ msg: 'Sesión cerrada', type: 'info' }], String(status));
+  }
+});
+
+test('logout with no session makes no request but still ends on login', async () => {
+  const e = makeEnv();
+  await e.run('doLogout()');
+  await settle();
+  assert.equal(e.calls.length, 0);
+  assert.equal(e.lastView(), 'login');
 });
 
 // ── restore on load ─────────────────────────────────────────────────────

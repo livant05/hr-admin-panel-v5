@@ -187,6 +187,7 @@ type EmployeePayRecord struct {
 	Notes           pgtype.Text        `json:"notes"`
 	CreatedAt       pgtype.Timestamptz `json:"created_at"`
 	Origin          string             `json:"origin"`
+	Period          string             `json:"period"`
 }
 
 type Enrollment struct {
@@ -409,6 +410,7 @@ type User struct {
 	Status       string             `json:"status"`
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 	PasswordHash string             `json:"password_hash"`
+	TokenVersion int32              `json:"token_version"`
 }
 
 type ZktecoDevice struct {

@@ -98,7 +98,7 @@ func TestTenant_TokenAsMintsRequestedRole(t *testing.T) {
 	h, signer := testutil.Server(t, pool)
 	tenant := testutil.Company(t, pool, "TestutilTokenAsCo")
 
-	tok := tenant.TokenAs(t, signer, "empleado")
+	tok := tenant.TokenAs(t, pool, signer, "empleado")
 
 	claims, err := signer.Parse(tok)
 	if err != nil {
