@@ -7,8 +7,9 @@ import (
 )
 
 // gateKind classifies how a protected route is authorized. Every route in
-// protectedRoutes MUST carry one: routes_test.go pins the full classification
-// table, so a route added without a deliberate decision fails the build.
+// protectedRoutes MUST carry one: TestRoutes_EveryProtectedRouteIsClassified
+// (routes_permissions_test.go) pins the full classification table, so a route
+// added without a deliberate decision fails that test.
 type gateKind int
 
 const (
@@ -75,6 +76,7 @@ func (a *API) perm(keys []string, h http.HandlerFunc) http.HandlerFunc {
 func (a *API) protectedRoutes() []routeSpec {
 	return []routeSpec{
 		{"GET /api/me", open, a.Me},
+		{"POST /api/auth/logout", open, a.Logout}, // authenticated; behind the middleware, unlike login/register
 
 		{"GET /api/departments", open, a.ListDepartments},
 		{"POST /api/departments", need("settings"), a.CreateDepartment},
@@ -106,6 +108,20 @@ func (a *API) protectedRoutes() []routeSpec {
 		{"GET /api/users/{id}", viaHandler, a.GetUser},
 		{"PATCH /api/users/{id}", viaHandler, a.UpdateUser},  // last-active-admin guard (409)
 		{"DELETE /api/users/{id}", viaHandler, a.DeleteUser}, // soft delete, idempotent 204
+
+		// trainings: the panel's Capacitaciones page is gated by employees.
+		{"GET /api/trainings", need("employees"), a.ListTrainings},
+		{"POST /api/trainings", need("employees"), a.CreateTraining},
+		{"GET /api/trainings/{id}", need("employees"), a.GetTraining},
+		{"PATCH /api/trainings/{id}", need("employees"), a.UpdateTraining},
+		{"DELETE /api/trainings/{id}", need("employees"), a.DeleteTraining}, // cascades its enrollments
+
+		// enrollments: same gate as trainings (Capacitaciones page).
+		{"GET /api/enrollments", need("employees"), a.ListEnrollments},
+		{"POST /api/enrollments", need("employees"), a.CreateEnrollment}, // 409 if already enrolled
+		{"GET /api/enrollments/{id}", need("employees"), a.GetEnrollment},
+		{"PATCH /api/enrollments/{id}", need("employees"), a.UpdateEnrollment}, // grading
+		{"DELETE /api/enrollments/{id}", need("employees"), a.DeleteEnrollment},
 
 		// job_postings: recruitment.
 		{"GET /api/job_postings", need("recruitment"), a.ListJobPostings},
@@ -159,8 +175,9 @@ func (a *API) protectedRoutes() []routeSpec {
 		{"DELETE /api/attendance_logs/{id}", need("attendance"), a.DeleteAttendanceLog}, // hard delete (Q3)
 
 		// leave_balances: no generic POST, no DELETE (design Q3) — rows are owned
-		// by the accrual scheduler. The one exception is the admin-gated manual
-		// accrual trigger below; Go 1.22 ServeMux ranks the literal
+		// by the accrual scheduler. The one exception is the manual accrual
+		// trigger below, gated like the rest of the module by `vacations` (the
+		// handler checks the same permission again); Go 1.22 ServeMux ranks the literal
 		// "/accrue" path above the "/{id}" pattern, so there is no registration
 		// conflict (design Q5c).
 		{"GET /api/leave_balances", need("vacations"), a.ListLeaveBalances},

@@ -386,6 +386,9 @@ func TestRegister_FieldValidation(t *testing.T) {
 		{"email two @", func(m map[string]string) { m["email"] = "a@b@corp.test" }, "email"},
 		{"email with space", func(m map[string]string) { m["email"] = "a na@corp.test" }, "email"},
 		{"email over 254", func(m map[string]string) { m["email"] = strings.Repeat("a", 250) + "@c.test" }, "email"},
+		{"company_name with NUL", func(m map[string]string) { m["company_name"] += "\x00x" }, "company_name"},
+		{"first_name with a control character", func(m map[string]string) { m["first_name"] = "An\x07a" }, "first_name"},
+		{"last_name with a newline", func(m map[string]string) { m["last_name"] = "Diaz\nAdmin" }, "last_name"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

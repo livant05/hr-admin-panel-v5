@@ -198,3 +198,137 @@ func TestSessionCheck_RegisterIssuesVersionZeroToken(t *testing.T) {
 		t.Fatalf("register token on /api/me: got %d (%s)", rec.Code, rec.Body.String())
 	}
 }
+
+func tokenVersionOf(t *testing.T, pool *pgxpool.Pool, userID string) int32 {
+	t.Helper()
+	var v int32
+	if err := pool.QueryRow(context.Background(), `SELECT token_version FROM users WHERE id = $1`, userID).Scan(&v); err != nil {
+		t.Fatalf("read token_version: %v", err)
+	}
+	return v
+}
+
+func TestLogout_InvalidatesEveryTokenOfTheCallerOnly(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "LogoutCo")
+	device1 := loginAs(t, pool, h, c)
+	device2 := loginAs(t, pool, h, c)
+	bystander := testutil.Company(t, pool, "LogoutBystander")
+	bystanderTok := bystander.Token(t, signer)
+
+	rec := testutil.Do(t, h, http.MethodPost, "/api/auth/logout", device1, nil)
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Fatalf("logout: got %d (%q), want 204 with no body", rec.Code, rec.Body.String())
+	}
+	if v := tokenVersionOf(t, pool, c.UserID); v != 1 {
+		t.Fatalf("token_version = %d, want 1", v)
+	}
+	for label, tok := range map[string]string{"the token used to log out": device1, "the same user's other device": device2} {
+		rec := testutil.Do(t, h, http.MethodGet, "/api/me", tok, nil)
+		assertUnauthorized(t, label, rec)
+	}
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/me", bystanderTok, nil); rec.Code != http.StatusOK {
+		t.Fatalf("another user must be unaffected: got %d", rec.Code)
+	}
+	// A replay with the dead token is a plain 401 and bumps nothing.
+	rec = testutil.Do(t, h, http.MethodPost, "/api/auth/logout", device1, nil)
+	assertUnauthorized(t, "logout replay", rec)
+	if v := tokenVersionOf(t, pool, c.UserID); v != 1 {
+		t.Fatalf("replay changed token_version to %d", v)
+	}
+	// Signing in again works and starts a fresh session.
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/me", loginAs(t, pool, h, c), nil); rec.Code != http.StatusOK {
+		t.Fatalf("login after logout: got %d", rec.Code)
+	}
+}
+
+func TestLogout_RequiresAuthentication(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, _ := testutil.Server(t, pool)
+	rec := testutil.Do(t, h, http.MethodPost, "/api/auth/logout", "", nil)
+	assertUnauthorized(t, "no token", rec)
+}
+
+func TestLogout_NonAdminRoleNeedsNoModulePermission(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "LogoutEmpleado")
+	rec := testutil.Do(t, h, http.MethodPost, "/api/auth/logout", c.TokenAs(t, pool, signer, "ghost"), nil)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("role without any permission row: got %d (%s)", rec.Code, rec.Body.String())
+	}
+}
+
+func TestUserAdmin_BumpsTokenVersionOnRoleOrStatusChange(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "BumpCo")
+	admin := c.Token(t, signer)
+	other := testutil.Company(t, pool, "BumpOther")
+	otherTok := other.Token(t, signer)
+
+	target, _ := seedUserAs(t, pool, c, "empleado", "active")
+	targetTok, err := signer.Sign(target, c.CompanyID, "empleado", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	patch := func(body map[string]any) {
+		t.Helper()
+		if rec := patchUser(t, h, admin, target, body); rec.Code != http.StatusOK {
+			t.Fatalf("patch %v: got %d (%s)", body, rec.Code, rec.Body.String())
+		}
+	}
+
+	patch(map[string]any{"first_name": "Renamed"})
+	patch(map[string]any{"role": "empleado", "status": "active"}) // same values
+	if v := tokenVersionOf(t, pool, target); v != 0 {
+		t.Fatalf("a name change or a no-op role/status must not bump, version = %d", v)
+	}
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/me", targetTok, nil); rec.Code != http.StatusOK {
+		t.Fatalf("token must survive a name change: got %d", rec.Code)
+	}
+
+	patch(map[string]any{"role": "admin"})
+	if v := tokenVersionOf(t, pool, target); v != 1 {
+		t.Fatalf("role change: version = %d, want 1", v)
+	}
+	rec := testutil.Do(t, h, http.MethodGet, "/api/me", targetTok, nil)
+	assertUnauthorized(t, "token issued before the role change", rec)
+
+	patch(map[string]any{"status": "inactive"})
+	if v := tokenVersionOf(t, pool, target); v != 2 {
+		t.Fatalf("status change: version = %d, want 2", v)
+	}
+	if v := tokenVersionOf(t, pool, c.UserID); v != 0 {
+		t.Fatalf("the acting admin must be untouched, version = %d", v)
+	}
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/me", admin, nil); rec.Code != http.StatusOK {
+		t.Fatalf("admin token: got %d", rec.Code)
+	}
+	if rec := testutil.Do(t, h, http.MethodGet, "/api/me", otherTok, nil); rec.Code != http.StatusOK {
+		t.Fatalf("other tenant: got %d", rec.Code)
+	}
+}
+
+func TestUserAdmin_DeleteBumpsTokenVersion(t *testing.T) {
+	pool := testutil.Pool(t)
+	h, signer := testutil.Server(t, pool)
+	c := testutil.Company(t, pool, "DeleteBumpCo")
+	admin := c.Token(t, signer)
+	target, _ := seedUserAs(t, pool, c, "empleado", "active")
+
+	if rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+target, admin, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("delete: got %d (%s)", rec.Code, rec.Body.String())
+	}
+	if v := tokenVersionOf(t, pool, target); v != 1 {
+		t.Fatalf("delete: version = %d, want 1", v)
+	}
+	// Deleting an already-inactive user writes nothing, so it bumps nothing.
+	if rec := testutil.Do(t, h, http.MethodDelete, "/api/users/"+target, admin, nil); rec.Code != http.StatusNoContent {
+		t.Fatalf("repeat delete: got %d", rec.Code)
+	}
+	if v := tokenVersionOf(t, pool, target); v != 1 {
+		t.Fatalf("repeat delete bumped: version = %d, want 1", v)
+	}
+}
