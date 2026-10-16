@@ -80,5 +80,22 @@ Forecast ~600-900 authored lines (mostly tests). Strategy: continue the Feature 
   - R2: `CountConflictingPayrollPeriods` uses positional `$4::text`, so sqlc names the field `Column4`; use `sqlc.arg('period')`.
   - R4: 0014 drops `uq_epr_run_period` before creating `uq_payroll_history_period` without one transaction; if the history unique index fails on existing duplicates, the old ledger index is already gone while the previous binary still upserts on it. Wrap in a transaction or create the new indexes before dropping the old one.
 
+### R4 + R2 follow-ups (user-authorized 2026-10-14: "dale, arreglá R4 y R2")
+- R4, commit 8b5e89f `fix(db): drop the old run index only after 0014's new indexes exist` (route: direct inline). 0014 now creates `uq_payroll_history_period`, then `uq_epr_run_period_v2`, and drops `uq_epr_run_period` last; runbook says a failed 0014 keeps the old index and can be re-applied after the cleanup.
+  - RED: `TestMigration0014_FailureKeepsTheOldLedgerIndex` (isolated schema back to the pre-0014 layout, duplicate history rows, 0014 applied statement by statement like `psql -f` with ON_ERROR_STOP) -> `uq_epr_run_period was dropped before the failing statement (... SQLSTATE 23505)`. GREEN after the reorder.
+- R2, commit 6430d46 `refactor(payroll): name the period parameter of the period conflict query`: `sqlc.arg('period')`, field `Period` (no `Column4`). No RED possible (rename only); the existing exclusivity tests cover it.
+- Checks: `go build`, `go vet` clean; full suite `go test ./... -count=1` with TEST_DB_URL all ok. Dev: 0014 re-applied with psql, idempotent (notices only), indexes `uq_epr_run_period_v2` + `uq_payroll_history_period`.
+- RDD assess base ae0e51b: medium, `review_due: false` (`under_budget`).
+
+## Delivery (2026-10-14, user: "dale, prepará el PR de planilla")
+Feature Branch Chain on tracker #33, after #67; one slice per task:
+| PR | Branch | Commits | Authored +/- |
+|---|---|---|---|
+| #68 | `auth-cutover/s10a-payroll-period-calc` | 092ca2d | +283/-27 |
+| #69 | `auth-cutover/s10b-payroll-period-ledger` | 60c7f40 | +443/-24 (`size:exception`) |
+| #70 | `auth-cutover/s10c-payroll-frontend` | 37acc09..ae0e51b | +336/-23 |
+| #71 | `auth-cutover/s10d-payroll-migration-order` | 8b5e89f..be9c13e + this record | +110/-9 |
+Nothing merged.
+
 ## Next step
-Optional follow-ups R4 (migration atomicity, matters for production) and R2; then push/PR in the chain after #67.
+Human review and merge down the chain. Open: R1/R3 production pre-check for `period='quincenal'`; payslip overtime with cached row (product decision).

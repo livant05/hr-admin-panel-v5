@@ -52,6 +52,7 @@ LEFT JOIN (
   GROUP BY d.employee_id
 ) ded ON ded.employee_id = e.id
 WHERE e.company_id = $1 AND e.status = 'active'
+  AND (sqlc.narg('employee_id')::uuid IS NULL OR e.id = sqlc.narg('employee_id'))
 ORDER BY e.first_name, e.last_name;
 
 -- name: LockPayrollRun :exec
@@ -70,14 +71,14 @@ SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0));
 SELECT (
   SELECT count(*) FROM payroll_history ph
   WHERE ph.company_id = $1 AND ph.year = $2 AND ph.month = $3
-    AND ph.period <> $4::text
-    AND ($4::text = 'mensual' OR ph.period = 'mensual')
+    AND ph.period <> sqlc.arg('period')::text
+    AND (sqlc.arg('period')::text = 'mensual' OR ph.period = 'mensual')
 ) + (
   SELECT count(*) FROM employee_pay_records epr
   WHERE epr.company_id = $1 AND epr.period_year = $2 AND epr.period_month = $3
     AND epr.origin = 'run'
-    AND epr.period <> $4::text
-    AND ($4::text = 'mensual' OR epr.period = 'mensual')
+    AND epr.period <> sqlc.arg('period')::text
+    AND (sqlc.arg('period')::text = 'mensual' OR epr.period = 'mensual')
 ) AS conflicts;
 
 -- name: UpsertPayrollHistory :one

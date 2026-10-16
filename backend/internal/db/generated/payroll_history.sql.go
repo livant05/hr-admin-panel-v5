@@ -30,7 +30,7 @@ type CountConflictingPayrollPeriodsParams struct {
 	CompanyID pgtype.UUID `json:"company_id"`
 	Year      int32       `json:"year"`
 	Month     int32       `json:"month"`
-	Column4   string      `json:"column_4"`
+	Period    string      `json:"period"`
 }
 
 // A month is paid either as ONE 'mensual' run or as quincenas, never both.
@@ -43,7 +43,7 @@ func (q *Queries) CountConflictingPayrollPeriods(ctx context.Context, arg CountC
 		arg.CompanyID,
 		arg.Year,
 		arg.Month,
-		arg.Column4,
+		arg.Period,
 	)
 	var conflicts int32
 	err := row.Scan(&conflicts)
@@ -229,13 +229,15 @@ LEFT JOIN (
   GROUP BY d.employee_id
 ) ded ON ded.employee_id = e.id
 WHERE e.company_id = $1 AND e.status = 'active'
+  AND ($4::uuid IS NULL OR e.id = $4)
 ORDER BY e.first_name, e.last_name
 `
 
 type ListPayrollRunInputsParams struct {
-	CompanyID pgtype.UUID `json:"company_id"`
-	StartDate pgtype.Date `json:"start_date"`
-	EndDate   pgtype.Date `json:"end_date"`
+	CompanyID  pgtype.UUID `json:"company_id"`
+	StartDate  pgtype.Date `json:"start_date"`
+	EndDate    pgtype.Date `json:"end_date"`
+	EmployeeID pgtype.UUID `json:"employee_id"`
 }
 
 type ListPayrollRunInputsRow struct {
@@ -269,7 +271,12 @@ type ListPayrollRunInputsRow struct {
 // No LIMIT/OFFSET, deliberately departing from the P2.1 rule-7 pagination
 // convention -- a partial payroll run is far worse than a slow one.
 func (q *Queries) ListPayrollRunInputs(ctx context.Context, arg ListPayrollRunInputsParams) ([]ListPayrollRunInputsRow, error) {
-	rows, err := q.db.Query(ctx, listPayrollRunInputs, arg.CompanyID, arg.StartDate, arg.EndDate)
+	rows, err := q.db.Query(ctx, listPayrollRunInputs,
+		arg.CompanyID,
+		arg.StartDate,
+		arg.EndDate,
+		arg.EmployeeID,
+	)
 	if err != nil {
 		return nil, err
 	}
