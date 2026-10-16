@@ -283,6 +283,9 @@ type Querier interface {
 	// owner starts with a clean unknown-PIN list instead of inheriting someone
 	// else's punches.
 	DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pgtype.Text) error
+	// Read-only check for endpoints that must not refresh the heartbeat
+	// (devicecmd): true when the serial has a row, registered or imported.
+	DeviceSerialKnown(ctx context.Context, serialNumber string) (bool, error)
 	GetApplication(ctx context.Context, arg GetApplicationParams) (Application, error)
 	// PATCH's merge read. FOR NO KEY UPDATE serializes concurrent PATCHes and a PATCH
 	// against DELETE, and keeps a concurrent committed write from being overwritten

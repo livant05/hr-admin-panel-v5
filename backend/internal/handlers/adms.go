@@ -124,15 +124,21 @@ func (a *API) ADMSGetRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // POST /iclock/devicecmd — the device's reply to a command. PROVISIONAL: no
-// command is ever issued, so the reply of a registered device is validated,
-// drained within the body cap and acknowledged; the only write is the
-// heartbeat refresh. An unknown serial is refused (403).
+// command is ever issued, so the reply of a known device is validated, drained
+// within the body cap and acknowledged without any write (not even the
+// heartbeat). An unknown serial is refused (403).
 func (a *API) ADMSDeviceCmd(w http.ResponseWriter, r *http.Request) {
 	sn, ok := admsSerial(w, r)
 	if !ok {
 		return
 	}
-	if _, ok := a.admsTouch(r.Context(), w, a.Queries, sn); !ok {
+	known, err := a.Queries.DeviceSerialKnown(r.Context(), sn)
+	if err != nil {
+		a.admsFail(w, "adms devicecmd", sn, err)
+		return
+	}
+	if !known {
+		writeErrCode(w, http.StatusForbidden, codeForbidden, "unknown device")
 		return
 	}
 	if _, ok := readADMSBody(w, r); !ok {

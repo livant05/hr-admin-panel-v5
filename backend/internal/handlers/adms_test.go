@@ -333,6 +333,32 @@ func TestADMS_UnknownSerialIsRefusedAndWritesNothing(t *testing.T) {
 	}
 }
 
+// POST /iclock/devicecmd only acknowledges: for a known serial it writes
+// nothing, not even a heartbeat, whether the reply is accepted or refused 413.
+func TestADMS_DeviceCmdOfAKnownSerialWritesNothing(t *testing.T) {
+	pool := testutil.Pool(t)
+	env := newADMSDefault(t, pool)
+	a := testutil.Company(t, pool, "AdmsCmdKnown")
+	sn := claimedDevice(t, pool, a) // offline, last_seen one day old
+
+	snapshot := func() (status string, lastSeen time.Time) {
+		if err := pool.QueryRow(context.Background(),
+			`SELECT status, last_seen FROM zkteco_devices WHERE serial_number = $1`, sn).Scan(&status, &lastSeen); err != nil {
+			t.Fatalf("read device: %v", err)
+		}
+		return status, lastSeen
+	}
+	status0, seen0 := snapshot()
+
+	wantBody(t, env.do(http.MethodPost, admsCmdPath+"?SN="+sn, "ID=1&Return=0&CMD=DATA"), http.StatusOK, "OK")
+	if rec := env.do(http.MethodPost, admsCmdPath+"?SN="+sn, strings.Repeat("x", 3<<20)); rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized reply got %d, want 413", rec.Code)
+	}
+	if status, seen := snapshot(); status != status0 || !seen.Equal(seen0) {
+		t.Fatalf("devicecmd wrote the device: status %s -> %s, last_seen %v -> %v", status0, status, seen0, seen)
+	}
+}
+
 func TestADMS_UnclaimedDeviceNeverCreatesAttendance(t *testing.T) {
 	pool := testutil.Pool(t)
 	env := newADMSDefault(t, pool)

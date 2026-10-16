@@ -12,6 +12,11 @@ UPDATE zkteco_devices SET status = 'online', last_seen = now()
 WHERE serial_number = $1
 RETURNING id, company_id;
 
+-- name: DeviceSerialKnown :one
+-- Read-only check for endpoints that must not refresh the heartbeat
+-- (devicecmd): true when the serial has a row, registered or imported.
+SELECT EXISTS (SELECT 1 FROM zkteco_devices WHERE serial_number = $1);
+
 -- name: ResolveEmployeesByCedula :many
 -- Company-scoped PIN resolution. LIMIT 2 is enough to tell "exactly one" from
 -- "ambiguous" without scanning every duplicate.

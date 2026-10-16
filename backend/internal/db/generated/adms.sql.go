@@ -84,6 +84,19 @@ func (q *Queries) DeleteUnknownPinsBySerial(ctx context.Context, serialNumber pg
 	return err
 }
 
+const deviceSerialKnown = `-- name: DeviceSerialKnown :one
+SELECT EXISTS (SELECT 1 FROM zkteco_devices WHERE serial_number = $1)
+`
+
+// Read-only check for endpoints that must not refresh the heartbeat
+// (devicecmd): true when the serial has a row, registered or imported.
+func (q *Queries) DeviceSerialKnown(ctx context.Context, serialNumber string) (bool, error) {
+	row := q.db.QueryRow(ctx, deviceSerialKnown, serialNumber)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const ingestCheckIn = `-- name: IngestCheckIn :execrows
 INSERT INTO attendance_logs (company_id, employee_id, employee_name, department, date, time_in, status)
 SELECT $1, e.id, e.first_name || ' ' || e.last_name, e.department,

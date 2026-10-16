@@ -111,6 +111,11 @@ test('demo mode sends nothing', async () => {
   assert.equal(env.toasts.at(-1).type, 'info');
 });
 
+test('the setup steps tell admins to register first, not to wait in the unclaimed list', () => {
+  assert.ok(!html.includes('aparecerá en <em>Relojes sin asignar</em>'), 'stale self-registration step still present');
+  assert.ok(html.includes('Primero registrar el número de serie del reloj'), 'register-first step missing');
+});
+
 let failed = 0;
 for (const [name, fn] of tests) {
   try { await fn(); console.log('ok   ' + name); }

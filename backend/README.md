@@ -424,8 +424,8 @@ so they do not change the auth of any `/api/*` route. nginx routes `/iclock/` to
 - Devices are **pre-registered** (runbook B2/B3): a serial with no row in `zkteco_devices` is answered
   `403 forbidden` ("unknown device") on every endpoint above and nothing is written: no device row, no
   counter, no unknown PIN. These refusals are not logged per request. An admin registers the device first
-  (`POST /api/zkteco_devices`). A known serial is refreshed (online, `last_seen`); a heartbeat never
-  changes `company_id`.
+  (`POST /api/zkteco_devices`). For a known serial, `cdata` and `getrequest` refresh the heartbeat
+  (online, `last_seen`) and `devicecmd` writes nothing; a heartbeat never changes `company_id`.
 - Attendance is written only for **claimed** devices, and the PIN is resolved against the employees of the
   device's company only. A punch from an unclaimed device is counted `device_unclaimed` and answered
   `OK: 0`, so the device does not retry it forever.
