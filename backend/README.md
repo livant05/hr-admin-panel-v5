@@ -458,6 +458,19 @@ that commits late with an older `created_at`, so the client keeps `maxSeenCreate
 already shown by `id` (a bounded seen-set). The first call, which only learns the starting point and
 shows nothing, is `_order=created_at.desc&_limit=1`.
 
+## Payroll preview (`GET /api/payroll_history/calculate`)
+
+Requires the `payroll` permission. It computes the payroll of the caller's company and writes
+nothing; the committing run is `POST /api/payroll_history`. Query parameters: `year` (required),
+`month` (1-12), `period` (`mensual`, `quincenal1` or `quincenal2`) and, optionally, `employee_id` (a
+uuid). A missing or invalid parameter is `400 validation_failed` with one message per field.
+
+The response is an array with one row per active employee: `employee_id`, `employee_name`, `cedula`
+and the computed amounts (`sal_base`, `att_ded`, `ot_amt`, `b`, `css`, `se`, `isr`, `ded`,
+`ded_quota`, `net`, `pcss`, `pse`, `dec`, `dec_cssp`, `tot`). With `employee_id` only that employee is
+computed (the panel's payslip uses it); an employee of another company, or one that is not active,
+gives an empty array.
+
 ## Dev procedure
 
 The login screen talks to this backend, so there is nothing to seed by hand.
