@@ -144,7 +144,15 @@ is touched. Role reads stay open to every authenticated role.
 - `admin` (any case, trimmed) is reserved: creating or renaming a role to it is `400
   validation_failed` with `fields.name` = `reserved name`, because every permission check bypasses
   on that name. A legacy row already named `admin` (imported data) cannot be renamed either: the
-  rename would carry every administrator along. Its permissions stay editable.
+  rename would carry every administrator along. A row named exactly `admin` can be deleted (it
+  backs nobody: the admin bypass matches that exact name); a case variant such as `Admin` is an
+  ordinary role and follows the in-use rule. Permissions stay editable.
+- A row named `empleado` (the built-in default role of new users) can be created, edited and
+  deleted under the rules above, but not renamed: new users would keep `empleado` while the
+  existing ones moved away.
+- `POST /api/users` and `PATCH /api/users/{id}` that assign a custom role take a shared lock on that
+  role row first, so they wait for a rename or delete in flight; a role gone meanwhile is `400
+  validation_failed` with `fields.role`.
 
 - `POST /api/users` takes `{email, first_name, last_name, role, status?}` and nothing else (a
   `password`, `password_hash`, `company_id` or `id` key is a 400). The email is trimmed and
@@ -203,7 +211,7 @@ from validation errors. Every protected route carries a classification and
 | `users`, `zkteco_devices` claim/unclaimed, `zkteco_unknown_pins` | admin (in handler) | admin (in handler) |
 | `zkteco_devices` list / rename | any authenticated | any authenticated |
 | `employees` | any authenticated, sensitive fields redacted (below) | `employees` |
-| `evaluations`, `uniforms` | `employees` | `employees` |
+| `evaluations`, `uniforms`, `trainings`, `enrollments` | `employees` | `employees` |
 | `attendance_logs` | `attendance` | `attendance` |
 | `leave_balances`, `leave_requests` | `vacations` | `vacations` |
 | `medical_records` | `medical` (in handler) | `medical` (in handler) |
@@ -307,6 +315,49 @@ delete of it waits for the PATCH and then answers `409`. An application whose fo
 (imported data) can still change stage. `DELETE /{id}` is a hard delete (`204`; another company's id is
 `404`): nothing references an application.
 
+## Trainings (Capacitaciones)
+
+`/api/trainings` is tenant-scoped and requires the `employees` permission (the key the panel's
+Capacitaciones page uses). `GET` lists (filter `id`; `_limit`/`_offset`; any other parameter is
+`400 validation_failed`), `GET /{id}` returns one course (another company's id is `404`), `POST`
+creates one and returns a one-element array. Body fields: `name` (required, trimmed, at most 200
+characters), `category` (at most 100), `hours` (whole number 0-10000), `start_date` and `end_date`
+(`YYYY-MM-DD`, end not before start; an empty string is invalid, send `null`), `mode` (at most 50),
+`instructor` (at most 200), `description`, `status` (`programado` default, `en_progreso`,
+`completado`). Unknown fields, including `id`, `company_id` and `created_at`, are `400 bad_request`.
+
+`PATCH /{id}` is a partial update returning a one-element array: an absent field is kept, `null`
+clears an optional field (`name` and `status` cannot be null), keys are exact, and the result is
+validated as the whole course (an `end_date` before the stored `start_date` is rejected). The panel
+changes a course's status through it. Only the sent fields are validated: an imported course that
+already breaks a rule in a field the PATCH does not touch can still be edited, and that stored value
+is kept (an imported `NULL` status stays `NULL` unless `status` is sent). `DELETE /{id}` returns `204` and removes the course's
+enrollments with it (`ON DELETE CASCADE`).
+
+## Trainings: enrollments
+
+`/api/enrollments` is tenant-scoped and requires the `employees` permission. `GET` lists (filters `id`,
+`training_id`, `employee_id`; `_limit`/`_offset`; a malformed uuid or any other parameter is
+`400 validation_failed`), `GET /{id}` returns one enrollment (another company's id is `404`), `POST`
+enrolls an employee and returns a one-element array. Body fields: `training_id` and `employee_id`
+(required uuids), `status` (`programado` default, `en_progreso`, `completado`), `score` (number 0-100,
+stored with two decimals, `null` for none) and `notes`. `training_name` and `employee_name` are
+accepted but ignored: the server copies them from the course and the employee. The course and the
+employee must belong to the caller's company; the check is the insert itself, so a foreign or
+missing id is `404` and nothing is written.
+
+An employee is enrolled at most once per course (unique index from migration `0016`): a second
+enrollment is `409 conflict` with "El empleado ya está inscrito en esta capacitación".
+
+`PATCH /{id}` grades an enrollment (the panel's "Calificar"): only `status`, `score` and `notes`; an
+absent field is kept, `null` clears `score` or `notes`, `status` cannot be null. The course and the
+employee are fixed at creation, so a body carrying `training_id` or `employee_id` is `400 bad_request`
+(delete and enroll again instead). Only the sent fields are validated, so an imported enrollment with
+a score over 100 or an old status can still be graded; the untouched stored values are kept (an
+imported `NULL` status stays `NULL` unless `status` is sent).
+`DELETE /{id}` returns `204`. The panel's certificates are the
+completed enrollments that have a score.
+
 ## ZKTeco devices and unknown PINs
 
 `GET /api/zkteco_devices` lists the caller's devices (any authenticated role; filter `id`;
@@ -406,6 +457,19 @@ that commits late with an older `created_at`, so the client keeps `maxSeenCreate
 `_limit=200`, pages with `_offset` until a page returns fewer rows than the limit, and drops rows it has
 already shown by `id` (a bounded seen-set). The first call, which only learns the starting point and
 shows nothing, is `_order=created_at.desc&_limit=1`.
+
+## Payroll preview (`GET /api/payroll_history/calculate`)
+
+Requires the `payroll` permission. It computes the payroll of the caller's company and writes
+nothing; the committing run is `POST /api/payroll_history`. Query parameters: `year` (required),
+`month` (1-12), `period` (`mensual`, `quincenal1` or `quincenal2`) and, optionally, `employee_id` (a
+uuid). A missing or invalid parameter is `400 validation_failed` with one message per field.
+
+The response is an array with one row per active employee: `employee_id`, `employee_name`, `cedula`
+and the computed amounts (`sal_base`, `att_ded`, `ot_amt`, `b`, `css`, `se`, `isr`, `ded`,
+`ded_quota`, `net`, `pcss`, `pse`, `dec`, `dec_cssp`, `tot`). With `employee_id` only that employee is
+computed (the panel's payslip uses it); an employee of another company, or one that is not active,
+gives an empty array.
 
 ## Dev procedure
 
