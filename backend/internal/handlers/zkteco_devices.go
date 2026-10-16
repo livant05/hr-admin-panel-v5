@@ -89,7 +89,7 @@ func (a *API) UpdateZktecoDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req zktecoDevicePatch
-	sent, ok := decodeRecruitmentPatch(w, r, &req)
+	sent, ok := decodeStrictPatch(w, r, &req)
 	if !ok {
 		return
 	}
