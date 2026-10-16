@@ -18,7 +18,7 @@ Branch: `feat/device-preregistration` (from master e32ef78). Delivery: ask-on-ri
 | T1 | S1, S2, S4 (README) | inline | done | f782d64; RED: unknown SN 200, POST 405; GREEN: suite 12/12 ok |
 | T2 | S3 | inline | done | a627c58; RED: registerZKDevice missing; GREEN: tools/zk-register 6/6, all harnesses ok |
 | T3 | S4 (runbook) | inline | done | passive doc; structural readback |
-| V  | S1-S4 | delegated verifier (high risk: item 2, device guard) | pending | |
+| V  | S1-S4 | delegated verifier (high risk: item 2, device guard) | done | 2 blockers fixed in 3c83cf4, recheck pass; native review review-35b2007409294239 approved+acked |
 
 ## Log
 
@@ -26,3 +26,4 @@ Branch: `feat/device-preregistration` (from master e32ef78). Delivery: ask-on-ri
 - **L2** Map: heartbeat self-registers via `UpsertDeviceHeartbeat` (adms.sql), called from `ADMSOptions`, `ADMSGetRequest` and the `POST /iclock/cdata` tx (backend/internal/handlers/adms.go:106,120,202). Claim flow: `GET /api/zkteco_devices/unclaimed`, `POST /api/zkteco_devices/{id}/claim`; panel `zkRenderUnclaimed`/`claimZKDevice` (hr_admin_panel.html:4401-4460). The importer loads `zkteco_devices` (company may be NULL, runbook step 9).
 - **L3** S1 revised (agent decision, consistency): the 403 uses the A2 error envelope like the existing ADMS 400/500 answers, not plain text.
 - **L4** Verifier: S2 pass, S4 pass; blockers: (1) devicecmd refreshed the heartbeat of known serials, even on 413 (baseline wrote nothing); (2) panel setup step still said a new clock appears in "Relojes sin asignar". Fixed: read-only `DeviceSerialKnown` in devicecmd + regression test; setup steps say to register first + harness check.
+- **L5** Native review (risk, readability, reliability) approved and acknowledged. Advisories: R1-001 WARNING zkteco_devices.go:174-184 (409 path); R1-002 adms.go:154-160; R2-001 WARNING zkteco_devices.go:217 (unclaimed handler comment still says "devices that heartbeated"); R2-002..004 suggestions; R3 WARNING register cleanup of stale counters/pins untested. Next: push + PR when the user agrees.
