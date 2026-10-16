@@ -19,30 +19,11 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { extractFunction } from '../lib/extract.mjs';
 
 const html = readFileSync(process.env.PAYROLL_HTML ||
   path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../hr_admin_panel.html'), 'utf8');
 
-// Source of `header ... { ... }` by brace matching that skips strings/comments.
-// Only used on functions without regex literals.
-function extractFunction(src, header) {
-  const at = src.indexOf(header);
-  assert.ok(at >= 0, `${header} not found in hr_admin_panel.html`);
-  let i = src.indexOf('{', at);
-  let depth = 0;
-  for (; i < src.length; i++) {
-    const c = src[i];
-    if (c === '"' || c === "'" || c === '`') {
-      for (i++; src[i] !== c; i++) if (src[i] === '\\') i++;
-    } else if (c === '/' && src[i + 1] === '/') {
-      i = src.indexOf('\n', i);
-    } else if (c === '/' && src[i + 1] === '*') {
-      i = src.indexOf('*/', i) + 1;
-    } else if (c === '{') depth++;
-    else if (c === '}' && --depth === 0) return src.slice(at, i + 1);
-  }
-  throw new Error(`unbalanced braces after ${header}`);
-}
 function between(startMarker, endMarker) {
   const s = html.indexOf(startMarker);
   assert.ok(s >= 0, `${startMarker} not found`);
@@ -55,6 +36,7 @@ const srcs = [
   between('var PR_PERIODS', '\n\n'),
   extractFunction(html, 'function prFactor('),
   extractFunction(html, 'function prPeriodLabel('),
+  extractFunction(html, 'function prPeriodRange('),
   extractFunction(html, 'function prInPeriod('),
   extractFunction(html, 'function prQuota('),
   extractFunction(html, 'async function loadPayroll('),
@@ -101,7 +83,7 @@ function makeEnv({ period = 'quincenal1', previewRow = {} } = {}) {
     Supa: {
       gq: (o) => '?' + Object.entries(o).map(([k, v]) => `${k}=${v}`).join('&'),
       sel: async (tbl) => ({ employees: [EMP], attendance_logs: ATT, overtime_logs: OT, deductions: DEDS }[tbl] || []),
-      selAll: async () => [],
+      selAll: async (tbl) => (tbl === 'overtime_logs' ? OT : []),
       goFetch: async () => [{ employee_id: 'e1', b: 1500, css: 146.25, se: 18.75, isr: 0, ded: 165, ded_quota: 40, net: 1295, pcss: 0, pse: 0, dec: 0, dec_cssp: 0, tot: 1500, ...previewRow }],
       ins: async (tbl, data) => { inserts.push({ tbl, data }); return ctl.insResult(); },
       del: async () => [],
@@ -142,6 +124,15 @@ test('prInPeriod: day 15 closes the 1st half, day 16 opens the 2nd, mensual take
   assert.equal(f('2025-07-01', 'mensual'), false);
   assert.equal(f('2025-07-01', 'quincenal2'), false);
   assert.equal(e.run("prInPeriod(null,'mensual',2025,6)"), false);
+});
+
+test('prPeriodRange: inclusive bounds, month end follows the calendar (leap February)', () => {
+  const e = makeEnv();
+  const r = (p, y, m) => ({ ...e.run(`prPeriodRange('${p}',${y},${m})`) });
+  assert.deepEqual(r('quincenal1', 2025, 6), { from: '2025-06-01', to: '2025-06-15' });
+  assert.deepEqual(r('quincenal2', 2025, 6), { from: '2025-06-16', to: '2025-06-30' });
+  assert.deepEqual(r('mensual', 2024, 2), { from: '2024-02-01', to: '2024-02-29' });
+  assert.deepEqual(r('quincenal2', 2025, 12), { from: '2025-12-16', to: '2025-12-31' });
 });
 
 test('prPeriodLabel: readable labels for the history badge', () => {
@@ -239,6 +230,21 @@ test('printPayslip HH.EE. lists the overtime from the API, not the in-memory dem
   assert.doesNotMatch(doc, /Horas Extras regular/);
 });
 
+test('printPayslip HH.EE. reads every overtime page, so an older period is not cut off by the 200-row default page', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  // The default page (newest first) no longer reaches June 2025; only the whole list does
+  const sel = e.sandbox.Supa.sel;
+  e.sandbox.Supa.sel = async (tbl, flt) => (tbl === 'overtime_logs' ? [] : sel(tbl, flt));
+  e.sandbox.Supa.selAll = async (tbl) => (tbl === 'overtime_logs' ? OT : []);
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Horas Extras nocturno \(3 hrs\)<\/td><td class="text-right text-success">30\.00</);
+  assert.doesNotMatch(doc, /Horas Extras regular/);
+  assert.match(doc, /Total Horas Extras<\/td><td style="color:#28a745">30\.00</);
+});
+
 test('printPayslip (no cache) lists the installments from the API and totals the server quota', async () => {
   const e = makeEnv({ period: 'quincenal1', previewRow: { ded: 165, ded_quota: 40, net: 1295 } });
   e.sandbox.DS.deductions = [];
@@ -280,6 +286,55 @@ test('printPayslip with HH.EE. and Aportes Patronales: Costo Total Empresa is th
   const doc = e.written.join('');
   assert.match(doc, /<small>Salario Base<\/small><div class="val">1470\.00</);
   assert.match(doc, /Costo Total Empresa<\/td><td style="color:#e65100">1900\.00</);
+});
+
+test('printPayslip asks the server only for the period\'s overtime (employee and date range)', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  const calls = [];
+  e.sandbox.Supa.selAll = async (tbl, flt) => { calls.push({ tbl, flt }); return tbl === 'overtime_logs' ? OT : []; };
+  e.run('_prRows = []');
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const ot = calls.filter((c) => c.tbl === 'overtime_logs');
+  assert.equal(ot.length, 1);
+  assert.deepEqual({ ...ot[0].flt }, { employee_id: 'e1', date_from: '2025-06-16', date_to: '2025-06-30' });
+  assert.match(e.written.join(''), /Horas Extras nocturno \(3 hrs\)/);
+});
+
+test('printPayslip after overtime was logged past "Calcular": the totals are recomputed, not the stale table row', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  await e.run('loadPayroll()'); // table computed with 30.00 of overtime
+  // A new 20.00 overtime log arrives; the server now computes 50.00
+  e.sandbox.Supa.goFetch = async () => [{ employee_id: 'e1', b: 1520, ot_amt: 50, css: 148.2, se: 19, isr: 0, ded: 167.2, ded_quota: 40, net: 1312.8, pcss: 0, pse: 0, dec: 0, dec_cssp: 0, tot: 1520 }];
+  e.el('slip-show-ot').checked = true;
+  await e.run("printPayslip('e1')");
+  const doc = e.written.join('');
+  assert.match(doc, /Total Horas Extras<\/td><td style="color:#28a745">50\.00</);
+  assert.match(doc, /TOTAL DEVENGADO<\/td><td style="color:#007bff">1520\.00</);
+  assert.match(doc, /SALARIO NETO A PAGAR<\/small><div class="val">1312\.80</);
+});
+
+test('printPayslip when the preview fails: Spanish danger toast, no slip window', async () => {
+  const e = makeEnv({ period: 'quincenal2' });
+  e.sandbox.Supa.goFetch = async () => ({ error: { code: 'internal', message: 'internal error' } });
+  await e.run("printPayslip('e1')");
+  assert.equal(e.written.length, 0);
+  assert.equal(e.toasts.length, 1);
+  assert.equal(e.toasts[0].type, 'danger');
+  assert.match(e.toasts[0].msg, /^No se pudo calcular el recibo/);
+  assert.doesNotMatch(e.toasts[0].msg, /internal error/);
+});
+
+test('printPayslip previews only the printed employee (employee_id in the preview URL)', async () => {
+  const e = makeEnv({ period: 'quincenal2', previewRow: OT_ROW });
+  const urls = [];
+  const fetch = e.sandbox.Supa.goFetch;
+  e.sandbox.Supa.goFetch = async (u) => { urls.push(u); return fetch(u); };
+  await e.run("printPayslip('e1')");
+  assert.equal(urls.length, 1);
+  assert.match(urls[0], /^\/api\/payroll_history\/calculate\?/);
+  assert.match(urls[0], /employee_id=e1/);
+  assert.match(urls[0], /period=quincenal2/);
 });
 
 test('savePayrollRun: a double click sends ONE request and the button is disabled meanwhile', async () => {

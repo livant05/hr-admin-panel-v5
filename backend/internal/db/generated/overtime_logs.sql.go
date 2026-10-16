@@ -131,6 +131,8 @@ WHERE company_id = $1
   AND ($2::uuid IS NULL OR id = $2)
   AND ($5::uuid IS NULL OR employee_id = $5)
   AND ($6::date IS NULL OR date = $6)
+  AND ($7::date IS NULL OR date >= $7)
+  AND ($8::date IS NULL OR date <= $8)
 ORDER BY date DESC
 LIMIT $3 OFFSET $4
 `
@@ -142,6 +144,8 @@ type ListOvertimeLogsParams struct {
 	Offset     int32       `json:"offset"`
 	EmployeeID pgtype.UUID `json:"employee_id"`
 	Date       pgtype.Date `json:"date"`
+	DateFrom   pgtype.Date `json:"date_from"`
+	DateTo     pgtype.Date `json:"date_to"`
 }
 
 func (q *Queries) ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsParams) ([]OvertimeLog, error) {
@@ -152,6 +156,8 @@ func (q *Queries) ListOvertimeLogs(ctx context.Context, arg ListOvertimeLogsPara
 		arg.Offset,
 		arg.EmployeeID,
 		arg.Date,
+		arg.DateFrom,
+		arg.DateTo,
 	)
 	if err != nil {
 		return nil, err

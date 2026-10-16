@@ -1593,6 +1593,25 @@ body.dark-mode .ev-contract{background:#3d0d12;color:#ef9a9a}
   </div>
 </div></div></div>
 
+<!-- MODAL: Calificar inscripción -->
+<div class="modal fade" id="gradeModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header"><h5 class="modal-title"><i class="fas fa-star mr-2"></i>Calificar inscripción</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
+  <div class="modal-body">
+    <input type="hidden" id="gr-id">
+    <p class="text-muted small mb-2" id="gr-who"></p>
+    <div class="form-row">
+      <div class="col form-group"><label>Estado</label><select id="gr-status" class="form-control form-control-sm"><option value="programado">Programado</option><option value="en_progreso">En progreso</option><option value="completado">Completado</option></select></div>
+      <div class="col form-group"><label>Nota (0-100)</label><input type="number" id="gr-score" class="form-control form-control-sm" min="0" max="100" step="0.01" placeholder="Sin nota"></div>
+    </div>
+    <div class="form-group"><label>Notas</label><textarea id="gr-notes" class="form-control form-control-sm" rows="2"></textarea></div>
+    <small class="text-muted">El certificado aparece cuando la inscripción está completada y tiene nota.</small>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary btn-sm" data-dismiss="modal">Cancelar</button>
+    <button type="button" class="btn btn-primary btn-sm" onclick="saveGrade()"><i class="fas fa-save mr-1"></i>Guardar</button>
+  </div>
+</div></div></div>
+
 <!-- MODAL: Comunicado -->
 <div class="modal fade" id="announcementModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content">
   <div class="modal-header"><h5 class="modal-title"><i class="fas fa-bullhorn mr-2"></i>Nuevo Comunicado</h5><button type="button" class="close" data-dismiss="modal"><span>×</span></button></div>
@@ -2419,7 +2438,7 @@ function clearSession() {
   ['employees','departments','positions','attendance_logs','leave_balances','leave_requests',
    'overtime_logs','deductions','payroll_history','liquidation_history','document_templates',
    'generated_documents','evaluations','uniforms','medical_records','surveys','survey_responses',
-   'trainings','enrollments','announcements','job_postings','candidates','applications'
+   'trainings','enrollments','trainingEmployees','announcements','job_postings','candidates','applications'
   ].forEach(function(k){ DS[k]=[]; });
 }
 
@@ -2514,7 +2533,10 @@ function isPageAllowed(pg){
   return permOk((A.perms||{})[permKey],subKey);
 }
 async function loadRolePerms(){
-  var roles=await Supa.sel('roles'), role=Array.isArray(roles)&&roles.find(function(r){ return r.name===A.role; });
+  // A rejected request (network down) is handled like an error answer: no
+  // permissions (fail-closed), so enterApp still ends in a page or a toast
+  var roles; try{ roles=await Supa.sel('roles'); }catch(e){ roles=null; }
+  var role=Array.isArray(roles)&&roles.find(function(r){ return r.name===A.role; });
   A.perms=role&&role.permissions&&typeof role.permissions==='object' ? role.permissions : {};
   applyPermissions(A.perms);
 }
@@ -2743,12 +2765,10 @@ async function showEmpProfile(id) {
   var emps=await Supa.sel('employees');
   var e=Array.isArray(emps)?emps.find(function(x){ return x.id===id; }):null;
   if(!e) return;
-  // Leave balances come from the API (DS is empty outside demo mode): one row
-  // per year with no carry-over, so the profile sums every year, as the
-  // liquidation does
+  // Leave balances come from the API (DS is empty outside demo mode), summed
+  // over every year like everywhere else (vacTotalsByEmployee)
   var balRes=await Supa.sel('leave_balances',{employee_id:id});
-  var bals=(Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===id; });
-  var bal=bals.length?bals.reduce(function(s,b){ return {remaining_days:s.remaining_days+(Number(b.remaining_days)||0),earned_days:s.earned_days+(Number(b.earned_days)||0)}; },{remaining_days:0,earned_days:0}):null;
+  var bal=vacTotalsByEmployee((Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===id; }))[0]||null;
   // Planilla tab estimate, via the server preview endpoint (design R4e) --
   // prCalc was deleted in slice 3h. The preview only covers ACTIVE
   // employees for the current month (ListPayrollRunInputs' WHERE clause),
@@ -3089,15 +3109,17 @@ var PR_PERIODS={mensual:{factor:1,label:'Mensual'},quincenal1:{factor:0.5,label:
 function prFactor(period){ return PR_PERIODS[period]?PR_PERIODS[period].factor:1; }
 function prPeriodLabel(period){ return PR_PERIODS[period]?PR_PERIODS[period].label:(period==='quincenal'?'Quincenal':String(period||'')); }
 function prQuota(quota,period){ return (quota||0)*prFactor(period); }
+// The inclusive date range of a payroll period: the month, or days 1-15 /
+// 16-month end for a quincena. The one place that rule lives.
+function prPeriodRange(period,year,month){
+  var mm=(month<10?'0':'')+month, last=new Date(Date.UTC(year,month,0)).getUTCDate();
+  return {from:year+'-'+mm+'-'+(period==='quincenal2'?'16':'01'), to:year+'-'+mm+'-'+(period==='quincenal1'?'15':String(last))};
+}
 // True when a 'YYYY-MM-DD' date falls inside the selected period of year/month.
 function prInPeriod(dateStr,period,year,month){
   if(!dateStr) return false;
-  var pfx=year+'-'+(month<10?'0'+month:''+month);
-  if(String(dateStr).substring(0,7)!==pfx) return false;
-  var day=parseInt(String(dateStr).substring(8,10),10);
-  if(period==='quincenal1') return day<=15;
-  if(period==='quincenal2') return day>=16;
-  return true;
+  var d=String(dateStr).substring(0,10), r=prPeriodRange(period,year,month);
+  return d>=r.from&&d<=r.to;
 }
 async function loadPayroll() {
   var emps=await Supa.sel('employees',{status:'active'});
@@ -3267,29 +3289,24 @@ async function printPayslip(empId) {
   var yr=document.getElementById('pr-year').value||TD.getFullYear();
   var period=document.getElementById('pr-period').value||'mensual';
   var perLbl={mensual:'Mensual',quincenal1:'1ra Quincena',quincenal2:'2da Quincena'};
-  // Use cached attendance data from loadPayroll if available
-  var cachedRow=_prRows.find(function(r){ return r.e.id===empId; });
-  var pr;
-  if(cachedRow){
-    pr={b:cachedRow.b,ot:cachedRow.otAmt||0,dedQuota:cachedRow.dedQuota||0,css:cachedRow.css,se:cachedRow.se,isr:cachedRow.isr,ded:cachedRow.ded,net:cachedRow.net,pcss:cachedRow.pcss,pse:cachedRow.pse,dec:cachedRow.dec,decCSSP:cachedRow.decCSSP,tot:cachedRow.tot};
-  } else {
-    // No cached row (payroll "Calcular" was never run for this period) --
-    // prCalc's degraded no-attendance/no-dedQuota recompute is retired
-    // (design R8's "no payslip endpoint" note): the payslip now always
-    // calls the same authoritative server preview the main table uses,
-    // never a locally-approximated figure.
-    var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
-    var slipYr=parseInt(yr)||TD.getFullYear();
-    var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period}));
-    var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
-    if(!row){ toast(calc&&calc.error?calc.error.message:'No se pudo calcular el recibo: corré "Calcular" primero','danger'); return; }
-    pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
-  }
+  // Always the server preview, never the row cached by "Calcular": overtime or
+  // absences logged since then would leave the totals stale next to the fresh
+  // overtime rows listed below. Same authoritative endpoint as the table.
+  var slipMo=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
+  var slipYr=parseInt(yr)||TD.getFullYear();
+  // Only this employee: the full preview would compute the whole company per slip
+  var calc=await Supa.goFetch('/api/payroll_history/calculate'+Supa.gq({month:slipMo,year:slipYr,period:period,employee_id:empId}));
+  var row=Array.isArray(calc)?calc.find(function(r){ return r.employee_id===empId; }):null;
+  if(!row){ toast(calc&&calc.error?apiErrMsg(calc.error,'No se pudo calcular el recibo'):'No se pudo calcular el recibo','danger'); return; }
+  var pr={b:row.b||0,ot:row.ot_amt||0,dedQuota:row.ded_quota||0,css:row.css||0,se:row.se||0,isr:row.isr||0,ded:row.ded||0,net:row.net||0,pcss:row.pcss||0,pse:row.pse||0,dec:row.dec||0,decCSSP:row.dec_cssp||0,tot:row.tot||0};
   var hrRate=((e.salary||0)/((e.weekly_hours||44)*52/12)).toFixed(2);
   // OT: only the selected period (month, or the 1st/2nd half for a quincena)
   var slipMonth=parseInt(document.getElementById('pr-month').value)||(TD.getMonth()+1);
   // Same source as loadPayroll (the API); DS only holds demo data outside demo mode
-  var empOT=await Supa.sel('overtime_logs',{employee_id:empId});
+  // Only the period's dates (the server bounds them, inclusive); selAll so a busy
+  // period is never cut off by the 200-row default page
+  var range=prPeriodRange(period,parseInt(yr),slipMonth);
+  var empOT=await Supa.selAll('overtime_logs',{employee_id:empId,date_from:range.from,date_to:range.to});
   var otLogs=(Array.isArray(empOT)?empOT:[]).filter(function(l){ return l.employee_id===empId&&prInPeriod(l.date,period,parseInt(yr),slipMonth); });
   // The server's b already includes the period's overtime (b = base - absences
   // + ot_amt) and css/se/isr/net are computed on it: HH.EE. only itemizes it.
@@ -3305,9 +3322,9 @@ async function printPayslip(empId) {
   // Itemized, the gross splits into base salary + overtime rows; otherwise it is
   // shown whole and labelled as the gross, since it includes the overtime
   var itemOT=showOT&&otTotal>0, baseAmt=itemOT?pr.b-otTotal:pr.b, baseLbl=itemOT?'Salario Base':'Salario Bruto';
-  // pr.net comes from the server in both branches and already includes the
-  // overtime and the (period-scaled) quota — never add or subtract them again
-  var netFinal=pr.net;
+  // The net shown is pr.net: it comes from the server in both branches and
+  // already includes the overtime and the (period-scaled) quota — never add
+  // or subtract them again
   var w=window.open('','_blank','width=720,height=920');
   var otRows=otLogs.map(function(l){ return '<tr><td>Horas Extras '+escHtml(l.type)+' ('+escHtml(l.hours)+' hrs)</td><td class="text-right text-success">'+fmt(l.amount)+'</td></tr>'; }).join('');
   var dedRows=dedLogs.map(function(d){ return '<tr><td>'+escHtml(d.description||d.type)+' (cuota)</td><td class="text-right text-danger">- '+fmt(d.quota)+'</td></tr>'; }).join('');
@@ -3319,7 +3336,7 @@ async function printPayslip(empId) {
     +'<div class="sec"><div class="sec-t">Devengos</div><table><tr><td>'+baseLbl+'</td><td>'+fmt(baseAmt)+'</td></tr>'+(itemOT?otRows+'<tr style="background:#e8f5e9;font-weight:700"><td>Total Horas Extras</td><td style="color:#28a745">'+fmt(otTotal)+'</td></tr>':'')+'<tr style="background:#e3f2fd;font-weight:700"><td>TOTAL DEVENGADO</td><td style="color:#007bff">'+fmt(pr.b)+'</td></tr></table></div>'
     +'<div class="sec"><div class="sec-t">Deducciones Legales</div><table><tr><td>CSS empleado (9.75%)</td><td style="color:#dc3545">- '+fmt(pr.css)+'</td></tr><tr><td>SE (1.25%)</td><td style="color:#dc3545">- '+fmt(pr.se)+'</td></tr><tr><td>ISR — Imp. Sobre la Renta</td><td style="color:#dc3545">- '+fmt(pr.isr)+'</td></tr>'+dedRows+'<tr style="background:#fce4ec;font-weight:700"><td>TOTAL DEDUCCIONES</td><td style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</td></tr></table></div>'
     +(showPat?'<div class="sec"><div class="sec-t">Aportes Patronales (referencial)</div><table><tr><td>CSS Patronal (12.25%)</td><td style="color:#fd7e14">'+fmt(pr.pcss)+'</td></tr><tr><td>SE Patronal (1.5%)</td><td style="color:#fd7e14">'+fmt(pr.pse)+'</td></tr><tr><td>Décimo 3er Mes — Provisión (8.33%)</td><td style="color:#fd7e14">'+fmt(pr.dec)+'</td></tr><tr><td>CSS Patronal sobre Décimo (7.25%)</td><td style="color:#fd7e14">'+fmt(pr.decCSSP)+'</td></tr><tr style="background:#fff3e0;font-weight:700"><td>Costo Total Empresa</td><td style="color:#e65100">'+fmt(pr.tot)+'</td></tr></table></div>':'')
-    +'<div class="tot-bar"><div class="tot-box"><small>'+baseLbl+'</small><div class="val">'+fmt(baseAmt)+'</div></div>'+(itemOT?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(netFinal)+'</div></div></div>'
+    +'<div class="tot-bar"><div class="tot-box"><small>'+baseLbl+'</small><div class="val">'+fmt(baseAmt)+'</div></div>'+(itemOT?'<div class="tot-box"><small>Horas Extras</small><div class="val" style="color:#28a745">+ '+fmt(otTotal)+'</div></div>':'')+'<div class="tot-box"><small>Total Deducciones</small><div class="val" style="color:#dc3545">- '+fmt(pr.ded+dedTotal)+'</div></div><div class="net-box"><small>SALARIO NETO A PAGAR</small><div class="val">'+fmt(pr.net)+'</div></div></div>'
     +'<div class="sig"><div class="sig-box"><div class="sig-line">Firma del Empleado<br>'+escHtml(e.first_name+' '+e.last_name)+'<br>C.I. '+escHtml(e.cedula||'—')+'</div></div><div class="sig-box"><div class="sig-line">Firma Autorizada<br>'+escHtml(A.companyName)+'<br>Recursos Humanos</div></div><div class="sig-box"><div class="sig-line">Recibido Conforme<br>Fecha: ____/____/________</div></div></div>'
     +'<div class="footer">'+escHtml(A.companyName)+' · HR Admin Panel · '+new Date().toLocaleDateString('es-PA',{year:'numeric',month:'long',day:'numeric'})+' · Cálculos según Código de Trabajo y Ley 51/2005 — República de Panamá</div>'
     +'</div><div style="text-align:center;margin:16px"><button onclick="window.print()" style="background:#007bff;color:#fff;border:none;padding:8px 24px;border-radius:6px;font-size:.9rem;cursor:pointer">🖨️ Imprimir / Guardar PDF</button></div>'
@@ -3855,9 +3872,9 @@ async function loadLiqEmp() {
   // per year with no carry-over, and every unused day is owed at termination,
   // so the proposal is the sum over all years (still editable)
   var balRes=await Supa.sel('leave_balances',{employee_id:empId});
-  var bals=(Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===empId; });
+  var tot=vacTotalsByEmployee((Array.isArray(balRes)?balRes:[]).filter(function(b){ return b.employee_id===empId; }))[0];
   var vacEl=document.getElementById('liq-vac');
-  if(vacEl&&bals.length) vacEl.value=bals.reduce(function(s,b){ return s+(Number(b.remaining_days)||0); },0);
+  if(vacEl&&tot) vacEl.value=tot.remaining_days;
   // Auto-fill sal30 from employee salary
   var sal30El=document.getElementById('liq-sal30'); if(sal30El&&e.salary) sal30El.value=(e.salary||0).toFixed(2);
   var dedRes=await Supa.sel('deductions',{employee_id:empId,status:'active'});
@@ -4643,10 +4660,19 @@ var PERM_MODULES=[
   {key:'settings',label:'Configuración',icon:'fa-cogs',color:'text-secondary'}
 ];
 async function loadRoleMgmt(){ var roles=await Supa.sel('roles'); var el=document.getElementById('role-list'); if(!el||!Array.isArray(roles)) return; el.innerHTML=roles.length?roles.map(function(r){ return '<li class="list-group-item d-flex justify-content-between align-items-center" id="role-li-'+r.id+'"><span><i class="fas fa-shield-alt mr-2 text-info"></i>'+escHtml(r.name)+'</span><div><button class="btn btn-xs btn-outline-secondary mr-1" title="Editar" onclick="editRole(\''+r.id+'\')"><i class="fas fa-pencil-alt"></i></button><button class="btn btn-xs btn-outline-primary mr-1" title="Permisos" onclick="openRolePermsModal(\''+r.id+'\')"><i class="fas fa-key"></i></button><button class="btn btn-xs btn-outline-danger" onclick="delRole(\''+r.id+'\')"><i class="fas fa-trash"></i></button></div></li>'; }).join(''):'<li class="list-group-item text-muted">Sin roles</li>'; }
-async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(r.error.message||'No se pudo agregar','danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
-async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(r.error.message||'No se pudo eliminar','danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
+// "admin" is the built-in role every permission check bypasses on; the server
+// refuses it too (a roles row with that name would make its users admins).
+function reservedRoleName(n){ return String(n||'').trim().toLowerCase()==='admin'; }
+function roleErrMsg(err,fallback){
+  if(err&&err.code==='validation_failed'&&err.fields&&err.fields.name==='reserved name') return 'El nombre "admin" está reservado para el administrador';
+  if(err&&err.code==='conflict'&&err.message==='already exists') return 'Ya existe un rol con ese nombre';
+  if(err&&err.code==='conflict') return fallback+': '+err.message; // "N usuario(s) tienen este rol"
+  return apiErrMsg(err,fallback);
+}
+async function saveRole(){ var n=gv('new-role-name'); if(!n){toast('Ingresa el nombre','warning');return;} if(reservedRoleName(n)){ toast('El nombre "admin" está reservado para el administrador','warning'); return; } var r=await Supa.ins('roles',{name:n,permissions:{}}); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo agregar'),'danger'); return; } document.getElementById('new-role-name').value=''; toast('✅ Rol agregado'); loadRoleMgmt(); }
+async function delRole(id){ if(!confirm('¿Eliminar?')) return; var r=await Supa.del('roles',id); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo eliminar'),'danger'); return; } toast('Eliminado','info'); loadRoleMgmt(); }
 function editRole(id){ editEntity('role',id,'updateRole','loadRoleMgmt'); }
-async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(r.error.message||'No se pudo actualizar','danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
+async function updateRole(id){ var inp=document.getElementById('role-edit-'+id); if(!inp||!inp.value.trim()){toast('Ingresa un nombre','warning');return;} if(reservedRoleName(inp.value)){ toast('El nombre "admin" está reservado para el administrador','warning'); return; } if(A.demo){var r=DS.roles.find(function(x){return x.id===id;}); if(r) r.name=inp.value.trim();}else{var r=await Supa.upd('roles',id,{name:inp.value.trim()}); if(r&&r.error){ toast(roleErrMsg(r.error,'No se pudo actualizar'),'danger'); return; }} toast('✅ Rol actualizado'); loadRoleMgmt(); }
 async function openRolePermsModal(id){
   var rows=await Supa.sel('roles',{id:id}); var role=Array.isArray(rows)&&rows[0]; if(!role) return;
   document.getElementById('rpm-role-id').value=id;
@@ -5260,14 +5286,40 @@ function delSurvey(id){ if(!confirm('¿Eliminar encuesta?')) return; DS.surveys=
 
 // ════════════════ TRAINING ═══════════════════════════════════
 var chTr=null;
+var TR_STATUS_LABEL={programado:'Programado',en_progreso:'En progreso',completado:'Completado'};
+// The course form as the API body: empty fields are null (the server rejects
+// an empty date string), hours a whole number.
+function trainingPayload(){
+  var n=function(id){ var v=gv(id); return v===''?null:v; };
+  var h=gv('tr-hours'), hours=h===''?null:parseInt(h,10);
+  return {name:gv('tr-name'),category:n('tr-cat'),hours:isNaN(hours)?null:hours,start_date:n('tr-start'),end_date:n('tr-end'),mode:n('tr-mode'),instructor:n('tr-instructor'),description:n('tr-desc')};
+}
 async function loadTraining(){
-  var emps=await Supa.sel('employees');
-  var trs=DS.trainings.filter(function(t){ return t.company_id===A.companyId; });
-  var enrs=DS.enrollments.filter(function(e){ return e.company_id===A.companyId; });
+  var trs, enrs, emps;
+  if(A.demo){
+    emps=await Supa.sel('employees');
+    trs=DS.trainings.filter(function(t){ return t.company_id===A.companyId; });
+    enrs=DS.enrollments.filter(function(e){ return e.company_id===A.companyId; });
+  } else {
+    // DS.trainings/DS.enrollments are only the read cache the modals and the
+    // certificate use; the server is the source of truth.
+    var res;
+    try { res=await Promise.all([Supa.selAll('trainings'),Supa.selAll('enrollments'),Supa.selAll('employees')]); }
+    catch(err){ res=[{error:{code:'network',message:String(err&&err.message||err)}}]; }
+    var badAt=res.findIndex(function(x){ return !Array.isArray(x); });
+    if(badAt>=0){
+      ['training-stats','training-cards','enrollment-tbody','certificate-cards','tr-emp-wrap'].forEach(function(id){ var x=document.getElementById(id); if(x) x.innerHTML=''; });
+      toast(apiErrMsg(res[badAt]&&res[badAt].error,'No se pudieron cargar las capacitaciones'),'danger'); return;
+    }
+    DS.trainings=trs=res[0]; DS.enrollments=enrs=res[1]; emps=res[2];
+  }
+  DS.trainingEmployees=Array.isArray(emps)?emps.filter(function(e){ return e.status==='active'; }):[];
+  var byId={}; trs.forEach(function(t){ byId[t.id]=t; });
+  var hasScore=function(e){ return e.score!==null&&e.score!==undefined; };
   // Stats
   var st=document.getElementById('training-stats');
-  var total=trs.length, completed=trs.filter(function(t){ return t.status==='completado'; }).length, totalHrs=enrs.filter(function(e){ return e.status==='completado'; }).reduce(function(s){ return s; },0);
-  var certCount=enrs.filter(function(e){ return e.status==='completado'&&e.score!==null; }).length;
+  var total=trs.length, completed=trs.filter(function(t){ return t.status==='completado'; }).length;
+  var certCount=enrs.filter(function(e){ return e.status==='completado'&&hasScore(e); }).length;
   if(st) st.innerHTML=[{l:'Cursos',v:total,c:'info',i:'fa-graduation-cap'},{l:'Completados',v:completed,c:'success',i:'fa-check-circle'},{l:'En Progreso',v:trs.filter(function(t){ return t.status==='en_progreso'; }).length,c:'warning',i:'fa-spinner'},{l:'Certificados',v:certCount,c:'primary',i:'fa-certificate'}].map(function(s){ return '<div class="col-md-3 col-6"><div class="small-box bg-'+s.c+' stat-card"><div class="inner"><h3>'+s.v+'</h3><p>'+s.l+'</p></div><div class="icon"><i class="fas '+s.i+'"></i></div></div></div>'; }).join('');
   // Courses cards
   var catIcons={tecnico:'fa-laptop-code',seguridad:'fa-hard-hat',habilidades:'fa-heart',legal:'fa-balance-scale',liderazgo:'fa-crown',otro:'fa-book'};
@@ -5275,46 +5327,106 @@ async function loadTraining(){
   var tc=document.getElementById('training-cards');
   if(tc) tc.innerHTML=trs.map(function(t){
     var enrolled=enrs.filter(function(e){ return e.training_id===t.id; }).length;
-    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.88rem"><i class="fas '+(catIcons[t.category]||'fa-book')+' mr-1 text-primary"></i>'+escHtml(t.name)+'</h3><div class="card-tools"><span class="badge badge-'+(stColors[t.status]||'secondary')+'">'+escHtml(t.status.replace(/_/g,' '))+'</span></div></div><div class="card-body"><p class="text-muted small">'+escHtml(t.description)+'</p><small class="text-muted d-block"><i class="fas fa-clock mr-1"></i>'+escHtml(t.hours)+' horas · '+escHtml(t.mode)+'</small><small class="text-muted d-block"><i class="fas fa-calendar mr-1"></i>'+escHtml(t.start_date)+' → '+escHtml(t.end_date)+'</small><small class="text-muted d-block"><i class="fas fa-user-tie mr-1"></i>'+escHtml(t.instructor)+'</small><small class="text-muted d-block"><i class="fas fa-users mr-1"></i>'+enrolled+' inscritos</small></div><div class="card-footer"><button class="btn btn-sm btn-outline-primary mr-1" onclick="openEnrollModal(\''+t.id+'\')"><i class="fas fa-user-plus mr-1"></i>Inscribir</button><button class="btn btn-sm btn-outline-danger" onclick="delTraining(\''+t.id+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
+    var stSel='<select class="form-control form-control-sm d-inline-block w-auto mr-1" title="Estado del curso" onchange="setTrainingStatus(\''+escHtml(t.id)+'\',this.value)">'+Object.keys(TR_STATUS_LABEL).map(function(k){ return '<option value="'+k+'"'+(t.status===k?' selected':'')+'>'+TR_STATUS_LABEL[k]+'</option>'; }).join('')+'</select>';
+    return '<div class="col-md-4 mb-3"><div class="card h-100"><div class="card-header"><h3 class="card-title" style="font-size:.88rem"><i class="fas '+(catIcons[t.category]||'fa-book')+' mr-1 text-primary"></i>'+escHtml(t.name)+'</h3><div class="card-tools"><span class="badge badge-'+(stColors[t.status]||'secondary')+'">'+escHtml(String(t.status||'').replace(/_/g,' '))+'</span></div></div><div class="card-body"><p class="text-muted small">'+escHtml(t.description)+'</p><small class="text-muted d-block"><i class="fas fa-clock mr-1"></i>'+escHtml(t.hours)+' horas · '+escHtml(t.mode)+'</small><small class="text-muted d-block"><i class="fas fa-calendar mr-1"></i>'+escHtml(t.start_date)+' → '+escHtml(t.end_date)+'</small><small class="text-muted d-block"><i class="fas fa-user-tie mr-1"></i>'+escHtml(t.instructor)+'</small><small class="text-muted d-block"><i class="fas fa-users mr-1"></i>'+enrolled+' inscritos</small></div><div class="card-footer">'+stSel+'<button class="btn btn-sm btn-outline-primary mr-1" onclick="openEnrollModal(\''+escHtml(t.id)+'\')"><i class="fas fa-user-plus mr-1"></i>Inscribir</button><button class="btn btn-sm btn-outline-danger" onclick="delTraining(\''+escHtml(t.id)+'\')"><i class="fas fa-trash"></i></button></div></div></div>';
   }).join('');
   // Enrollments table
   var etb=document.getElementById('enrollment-tbody');
-  if(etb) etb.innerHTML=enrs.length?enrs.map(function(e){ return '<tr><td><strong>'+escHtml(e.employee_name)+'</strong></td><td>'+escHtml(e.training_name)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{category:'—'}).category)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{start_date:'—'}).start_date)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{end_date:'—'}).end_date)+'</td><td>'+escHtml((DS.trainings.find(function(t){ return t.id===e.training_id; })||{hours:'—'}).hours)+'</td><td><span class="badge badge-'+(e.status==='completado'?'success':e.status==='en_progreso'?'warning':'secondary')+'">'+escHtml(e.status.replace(/_/g,' '))+'</span></td><td>'+(e.score!==null?'<span class="badge badge-'+(e.score>=70?'success':'danger')+'">'+e.score+'%</span>':'—')+'</td><td><button class="btn btn-xs btn-outline-danger" onclick="delEnrollment(\''+e.id+'\')"><i class="fas fa-trash"></i></button></td></tr>'; }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin inscripciones registradas.</td></tr>';
-  // Certificates
-  var certs=enrs.filter(function(e){ return e.status==='completado'&&e.score!==null; });
+  if(etb) etb.innerHTML=enrs.length?enrs.map(function(e){
+    var t=byId[e.training_id]||{category:'—',start_date:'—',end_date:'—',hours:'—'};
+    var score=hasScore(e)?Number(e.score):null;
+    return '<tr><td><strong>'+escHtml(e.employee_name)+'</strong></td><td>'+escHtml(e.training_name)+'</td><td>'+escHtml(t.category)+'</td><td>'+escHtml(t.start_date)+'</td><td>'+escHtml(t.end_date)+'</td><td>'+escHtml(t.hours)+'</td><td><span class="badge badge-'+(e.status==='completado'?'success':e.status==='en_progreso'?'warning':'secondary')+'">'+escHtml(String(e.status||'').replace(/_/g,' '))+'</span></td><td>'+(score!==null?'<span class="badge badge-'+(score>=70?'success':'danger')+'">'+escHtml(score)+'%</span>':'—')+'</td><td><button class="btn btn-xs btn-outline-primary mr-1" title="Calificar" onclick="openGradeModal(\''+escHtml(e.id)+'\')"><i class="fas fa-star mr-1"></i>Calificar</button><button class="btn btn-xs btn-outline-danger" onclick="delEnrollment(\''+escHtml(e.id)+'\')"><i class="fas fa-trash"></i></button></td></tr>';
+  }).join(''):'<tr><td colspan="9" class="text-center p-3 text-muted">Sin inscripciones registradas.</td></tr>';
+  // Certificates: completed enrollments with a score
+  var certs=enrs.filter(function(e){ return e.status==='completado'&&hasScore(e); });
   var cc=document.getElementById('certificate-cards');
-  if(cc) cc.innerHTML=certs.length?certs.map(function(e){ return '<div class="col-md-4 mb-3"><div class="card text-center"><div class="card-body"><div style="font-size:3rem">🎓</div><h6 class="mt-2">'+escHtml(e.employee_name)+'</h6><p class="text-muted small">'+escHtml(e.training_name)+'</p><span class="badge badge-'+(e.score>=90?'success':'primary')+' px-3 py-2 mb-2">'+e.score+'% · '+( e.score>=90?'Distinción':e.score>=70?'Aprobado':'Reprobado')+'</span><br><button class="btn btn-sm btn-outline-primary mt-2" onclick="printCertificate(\''+e.id+'\')"><i class="fas fa-print mr-1"></i>Imprimir Cert.</button></div></div></div>'; }).join(''):'<div class="col-12 text-center text-muted py-4"><i class="fas fa-certificate fa-3x d-block mb-2" style="opacity:.3"></i>Sin certificados aún</div>';
+  if(cc) cc.innerHTML=certs.length?certs.map(function(e){ var sc=Number(e.score); return '<div class="col-md-4 mb-3"><div class="card text-center"><div class="card-body"><div style="font-size:3rem">🎓</div><h6 class="mt-2">'+escHtml(e.employee_name)+'</h6><p class="text-muted small">'+escHtml(e.training_name)+'</p><span class="badge badge-'+(sc>=90?'success':'primary')+' px-3 py-2 mb-2">'+escHtml(sc)+'% · '+(sc>=90?'Distinción':sc>=70?'Aprobado':'Reprobado')+'</span><br><button class="btn btn-sm btn-outline-primary mt-2" onclick="printCertificate(\''+escHtml(e.id)+'\')"><i class="fas fa-print mr-1"></i>Imprimir Cert.</button></div></div></div>'; }).join(''):'<div class="col-12 text-center text-muted py-4"><i class="fas fa-certificate fa-3x d-block mb-2" style="opacity:.3"></i>Sin certificados aún</div>';
   // Populate emp selectors for modal
   var tw=document.getElementById('tr-emp-wrap');
-  if(tw&&Array.isArray(emps)) tw.innerHTML=emps.filter(function(e){ return e.status==='active'; }).map(function(e){ return '<div class="col-md-6 mb-1"><div class="icheck-primary"><input type="checkbox" id="tr-emp-'+e.id+'" value="'+e.id+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'"><label for="tr-emp-'+e.id+'"> '+escHtml(e.first_name+' '+e.last_name)+'</label></div></div>'; }).join('');
+  if(tw) tw.innerHTML=DS.trainingEmployees.map(function(e){ return '<div class="col-md-6 mb-1"><div class="icheck-primary"><input type="checkbox" id="tr-emp-'+escHtml(e.id)+'" value="'+escHtml(e.id)+'" data-name="'+escHtml(e.first_name+' '+e.last_name)+'"><label for="tr-emp-'+escHtml(e.id)+'"> '+escHtml(e.first_name+' '+e.last_name)+'</label></div></div>'; }).join('');
 }
 function openTrainingModal(){ ['tr-id','tr-name','tr-hours','tr-start','tr-end','tr-instructor','tr-desc'].forEach(function(id){ var e=document.getElementById(id); if(e) e.value=''; }); document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){ cb.checked=false; }); $('#trainingModal').modal('show'); }
 async function saveTraining(){
-  var name=gv('tr-name'); if(!name){toast('Ingresa el nombre del curso','warning');return;}
-  var d={name:name,category:gv('tr-cat')||'tecnico',hours:parseInt(gv('tr-hours'))||0,start_date:gv('tr-start'),end_date:gv('tr-end'),mode:gv('tr-mode')||'presencial',instructor:gv('tr-instructor'),description:gv('tr-desc'),status:'programado'};
-  var trId='tr-'+Date.now();
-  DS.trainings.push(Object.assign({id:trId,company_id:A.companyId,created_at:new Date().toISOString()},d));
-  // Enroll checked employees
-  document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){
-    if(cb.checked) DS.enrollments.push({id:'en-'+Date.now()+'-'+cb.value,company_id:A.companyId,training_id:trId,training_name:name,employee_id:cb.value,employee_name:cb.getAttribute('data-name'),status:'programado',score:null,notes:''});
-  });
-  $('#trainingModal').modal('hide'); toast('✅ Capacitación guardada'); loadTraining();
+  var d=trainingPayload(); if(!d.name){toast('Ingresa el nombre del curso','warning');return;}
+  var checked=[]; document.querySelectorAll('[id^="tr-emp-"]').forEach(function(cb){ if(cb.checked) checked.push({id:cb.value,name:cb.getAttribute('data-name')}); });
+  if(A.demo){
+    // Demo rows keep the values the demo store always held (0 hours, '' dates)
+    var trId='tr-'+Date.now();
+    DS.trainings.push({id:trId,company_id:A.companyId,created_at:new Date().toISOString(),name:d.name,category:gv('tr-cat')||'tecnico',hours:parseInt(gv('tr-hours'))||0,start_date:gv('tr-start'),end_date:gv('tr-end'),mode:gv('tr-mode')||'presencial',instructor:gv('tr-instructor'),description:gv('tr-desc'),status:'programado'});
+    checked.forEach(function(c){ DS.enrollments.push({id:'en-'+Date.now()+'-'+c.id,company_id:A.companyId,training_id:trId,training_name:d.name,employee_id:c.id,employee_name:c.name,status:'programado',score:null,notes:''}); });
+    $('#trainingModal').modal('hide'); toast('✅ Capacitación guardada'); loadTraining(); return;
+  }
+  var r=await Supa.ins('trainings',d);
+  if(!Array.isArray(r)||!r[0]){ toast(apiErrMsg(r&&r.error,'No se pudo guardar la capacitación'),'danger'); return; }
+  var failed=0;
+  for(var i=0;i<checked.length;i++){
+    var er=await Supa.ins('enrollments',{training_id:r[0].id,employee_id:checked[i].id});
+    if(!Array.isArray(er)) failed++;
+  }
+  $('#trainingModal').modal('hide');
+  if(failed) toast('Capacitación guardada, pero '+failed+(failed===1?' inscripción no se pudo guardar':' inscripciones no se pudieron guardar'),'warning');
+  else toast('✅ Capacitación guardada');
+  await loadTraining();
 }
-function openEnrollModal(trId){
+async function openEnrollModal(trId){
   var trn=DS.trainings.find(function(t){ return t.id===trId; }), trName=trn?trn.name:'';
-  var emps=DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; });
+  // Real mode: the active employees loadTraining read from the API (DS.employees
+  // is only filled in demo mode)
+  var emps=A.demo?DS.employees.filter(function(e){ return e.company_id===A.companyId&&e.status==='active'; }):(DS.trainingEmployees||[]);
   var already=DS.enrollments.filter(function(e){ return e.training_id===trId; }).map(function(e){ return e.employee_id; });
-  var available=emps.filter(function(e){ return !already.includes(e.id); });
+  var available=emps.filter(function(e){ return already.indexOf(e.id)<0; });
   if(!available.length){toast('Todos los empleados activos ya están inscritos','info');return;}
-  available.forEach(function(e){
-    if(confirm('¿Inscribir a '+e.first_name+' '+e.last_name+' en "'+trName+'"?')){
-      DS.enrollments.push({id:'en-'+Date.now(),company_id:A.companyId,training_id:trId,training_name:trName,employee_id:e.id,employee_name:e.first_name+' '+e.last_name,status:'programado',score:null,notes:''});
-    }
-  });
-  toast('✅ Inscripciones actualizadas'); loadTraining();
+  var added=0, failed=0;
+  for(var i=0;i<available.length;i++){
+    var e=available[i];
+    if(!confirm('¿Inscribir a '+e.first_name+' '+e.last_name+' en "'+trName+'"?')) continue;
+    if(A.demo){ DS.enrollments.push({id:'en-'+Date.now()+'-'+e.id,company_id:A.companyId,training_id:trId,training_name:trName,employee_id:e.id,employee_name:e.first_name+' '+e.last_name,status:'programado',score:null,notes:''}); added++; continue; }
+    var r=await Supa.ins('enrollments',{training_id:trId,employee_id:e.id});
+    if(Array.isArray(r)) added++; else failed++;
+  }
+  if(failed) toast(failed+(failed===1?' inscripción no se pudo guardar':' inscripciones no se pudieron guardar'),'warning');
+  else toast('✅ Inscripciones actualizadas');
+  await loadTraining();
 }
-function delTraining(id){ if(!confirm('¿Eliminar capacitación?')) return; DS.trainings=DS.trainings.filter(function(t){ return t.id!==id; }); DS.enrollments=DS.enrollments.filter(function(e){ return e.training_id!==id; }); toast('Eliminada','info'); loadTraining(); }
-function delEnrollment(id){ if(!confirm('¿Eliminar inscripción?')) return; DS.enrollments=DS.enrollments.filter(function(e){ return e.id!==id; }); toast('Eliminada','info'); loadTraining(); }
+async function setTrainingStatus(id,status){
+  if(A.demo){ var t=DS.trainings.find(function(x){ return x.id===id; }); if(t) t.status=status; toast('✅ Estado actualizado'); loadTraining(); return; }
+  var r=await Supa.upd('trainings',id,{status:status});
+  if(r&&r.error) toast(apiErrMsg(r.error,'No se pudo cambiar el estado'),'danger');
+  else toast('✅ Estado actualizado');
+  await loadTraining(); // re-render either way, so the select shows the stored status
+}
+function openGradeModal(id){
+  var en=DS.enrollments.find(function(e){ return e.id===id; }); if(!en) return;
+  document.getElementById('gr-id').value=id;
+  document.getElementById('gr-who').textContent=(en.employee_name||'')+' · '+(en.training_name||'');
+  document.getElementById('gr-status').value=en.status||'programado';
+  document.getElementById('gr-score').value=(en.score===null||en.score===undefined)?'':String(en.score);
+  document.getElementById('gr-notes').value=en.notes||'';
+  $('#gradeModal').modal('show');
+}
+async function saveGrade(){
+  var id=gv('gr-id'), raw=gv('gr-score'), score=raw===''?null:Number(raw);
+  if(score!==null&&(isNaN(score)||score<0||score>100)){ toast('La nota debe estar entre 0 y 100','warning'); return; }
+  var d={status:gv('gr-status')||'programado',score:score,notes:gv('gr-notes')||null};
+  if(A.demo){ var en=DS.enrollments.find(function(e){ return e.id===id; }); if(en) Object.assign(en,d); $('#gradeModal').modal('hide'); toast('✅ Calificación guardada'); loadTraining(); return; }
+  var r=await Supa.upd('enrollments',id,d);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo guardar la calificación'),'danger'); return; }
+  $('#gradeModal').modal('hide'); toast('✅ Calificación guardada'); await loadTraining();
+}
+async function delTraining(id){
+  if(!confirm('¿Eliminar capacitación?')) return;
+  if(A.demo){ DS.trainings=DS.trainings.filter(function(t){ return t.id!==id; }); DS.enrollments=DS.enrollments.filter(function(e){ return e.training_id!==id; }); toast('Eliminada','info'); loadTraining(); return; }
+  var r=await Supa.del('trainings',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la capacitación'),'danger'); return; }
+  toast('Eliminada','info'); await loadTraining();
+}
+async function delEnrollment(id){
+  if(!confirm('¿Eliminar inscripción?')) return;
+  if(A.demo){ DS.enrollments=DS.enrollments.filter(function(e){ return e.id!==id; }); toast('Eliminada','info'); loadTraining(); return; }
+  var r=await Supa.del('enrollments',id);
+  if(r&&r.error){ toast(apiErrMsg(r.error,'No se pudo eliminar la inscripción'),'danger'); return; }
+  toast('Eliminada','info'); await loadTraining();
+}
 function printCertificate(enrollId){
   var en=DS.enrollments.find(function(e){ return e.id===enrollId; }); if(!en) return;
   var tr=DS.trainings.find(function(t){ return t.id===en.training_id; })||{};
@@ -5426,10 +5538,12 @@ async function loadRecruitment() {
     var res;
     try { res = await Promise.all([Supa.selAll('job_postings'), Supa.selAll('candidates'), Supa.selAll('applications')]); }
     catch (e) { res = [{error:{code:'network', message:String(e&&e.message||e)}}]; }
-    var bad = res.find(function(x){ return !Array.isArray(x); });
-    if (bad) {
+    // findIndex, not find: a null result is itself falsy and would slip through
+    var badAt = res.findIndex(function(x){ return !Array.isArray(x); });
+    if (badAt >= 0) {
+      var bad = res[badAt];
       ['rec-jobs-tbody','rec-candidates-tbody','rec-pipeline-tbody'].forEach(function(id){ var e=document.getElementById(id); if(e) e.innerHTML=''; });
-      toast(recErrMsg(bad.error, 'No se pudo cargar reclutamiento'), 'danger'); return;
+      toast(recErrMsg(bad&&bad.error, 'No se pudo cargar reclutamiento'), 'danger'); return;
     }
     DS.job_postings = jobs = res[0]; DS.candidates = cands = res[1]; DS.applications = apps = res[2];
   }
@@ -5609,6 +5723,10 @@ async function saveApplication(){
   if(!cid||!jid){ toast('Selecciona candidato y vacante','warning'); return; }
   var id=gv('ra-id');
   if(A.demo){
+    // Same rule as the server (one application per candidate and posting)
+    if(DS.applications.some(function(x){ return x.id!==id&&x.company_id===A.companyId&&x.candidate_id===cid&&x.job_posting_id===jid; })){
+      toast('El candidato ya tiene una postulación para esta vacante','danger'); return;
+    }
     var cand=DS.candidates.find(function(x){ return x.id===cid; });
     var job=DS.job_postings.find(function(x){ return x.id===jid; });
     var dd={job_posting_id:jid,job_title:job?job.title:'',candidate_id:cid,candidate_name:cand?cand.full_name:'',stage:gv('ra-stage'),notes:gv('ra-notes'),applied_at:gv('ra-date')||TS};

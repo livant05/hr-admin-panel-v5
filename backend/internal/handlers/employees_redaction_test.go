@@ -1,11 +1,21 @@
 package handlers_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/livant05/rrhh-go/internal/auth"
+	db "github.com/livant05/rrhh-go/internal/db/generated"
+	"github.com/livant05/rrhh-go/internal/handlers"
 	"github.com/livant05/rrhh-go/internal/testutil"
 )
 
@@ -119,5 +129,88 @@ func TestEmployees_ReadRedactsSensitiveFields(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// rolesLookupFails delegates to the real pool but fails the GetRoleByName
+// query with err, so only the role permission lookup errors while the
+// employee rows still load.
+type rolesLookupFails struct {
+	db.DBTX
+	err error
+}
+
+type failedRow struct{ err error }
+
+func (r failedRow) Scan(...any) error { return r.err }
+
+func (f rolesLookupFails) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	if strings.Contains(sql, "name: GetRoleByName") {
+		return failedRow{f.err}
+	}
+	return f.DBTX.QueryRow(ctx, sql, args...)
+}
+
+// TestEmployees_ReadFailsLoudlyWhenThePermissionLookupFails pins that a
+// failed role lookup is a 500, never a silently redacted 200: the PATCH is a
+// full-column replace, so a permitted user saving a record that came back
+// with null salary/cedula would overwrite the real values.
+func TestEmployees_ReadFailsLoudlyWhenThePermissionLookupFails(t *testing.T) {
+	pool := testutil.Pool(t)
+	c := testutil.Company(t, pool, "EmpRedactFail")
+	emp := testutil.Employee(t, pool, c, testutil.EmployeeSalary(1500))
+	seedMedRole(t, pool, c, "hasempfail", `{"employees": true}`)
+
+	signer := auth.NewSigner(testutil.TestSecret, time.Hour)
+	var logs bytes.Buffer
+	api := handlers.New(pool, signer, slog.New(slog.NewTextHandler(&logs, nil)))
+	token := c.TokenAs(t, pool, signer, "hasempfail")
+	api.Queries = db.New(rolesLookupFails{pool, errors.New("roles lookup unavailable")})
+	h := api.Routes(signer)
+
+	for _, path := range []string{"/api/employees", "/api/employees/" + emp.ID} {
+		rec := testutil.Do(t, h, http.MethodGet, path, token, nil)
+		if rec.Code != http.StatusInternalServerError {
+			t.Fatalf("%s: expected 500 when the role lookup fails, got %d (body=%s)", path, rec.Code, rec.Body.String())
+		}
+		// The 500 comes from the employee read itself: the GET routes are
+		// `open`, so no route gate looks the role up first.
+		if !strings.Contains(rec.Body.String(), "could not check permissions") {
+			t.Fatalf("%s: expected the permission-check error, got %s", path, rec.Body.String())
+		}
+		if strings.Contains(rec.Body.String(), emp.ID) || strings.Contains(rec.Body.String(), `"salary"`) {
+			t.Fatalf("%s: the failed response must not carry employee data: %s", path, rec.Body.String())
+		}
+	}
+	if !strings.Contains(logs.String(), "roles lookup unavailable") {
+		t.Fatalf("the lookup failure must be logged, got log: %q", logs.String())
+	}
+}
+
+// TestEmployees_CanceledPermissionLookupIsNotLoggedAsAnError pins that a
+// client that goes away mid-request (context canceled) does not produce an
+// error-level log entry, so real roles-lookup outages stay visible.
+func TestEmployees_CanceledPermissionLookupIsNotLoggedAsAnError(t *testing.T) {
+	pool := testutil.Pool(t)
+	c := testutil.Company(t, pool, "EmpRedactCancel")
+	testutil.Employee(t, pool, c, testutil.EmployeeSalary(1500))
+	seedMedRole(t, pool, c, "hasempcancel", `{"employees": true}`)
+
+	signer := auth.NewSigner(testutil.TestSecret, time.Hour)
+	var logs bytes.Buffer
+	api := handlers.New(pool, signer, slog.New(slog.NewTextHandler(&logs, nil)))
+	token := c.TokenAs(t, pool, signer, "hasempcancel")
+	api.Queries = db.New(rolesLookupFails{pool, context.Canceled})
+	h := api.Routes(signer)
+
+	rec := testutil.Do(t, h, http.MethodGet, "/api/employees", token, nil)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d (body=%s)", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(logs.String(), "level=ERROR") {
+		t.Fatalf("a canceled request must not log at error level, got: %q", logs.String())
+	}
+	if !strings.Contains(logs.String(), "employee field permission lookup") {
+		t.Fatalf("the canceled lookup should still be logged at a lower level, got: %q", logs.String())
 	}
 }
